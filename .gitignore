@@ -1,0 +1,5 @@
+*private.py
+bump.sh
+__pycache*
+build/*
+
