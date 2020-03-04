@@ -38,4 +38,13 @@ from the supplied corpus of readable hex scrabble words.
 Thus although memorable UUID's are an oxymoron, the first part
 of the hash can be memorable without jeopardizing collision probabilities in any really serious way. 
 
+Mining
+======
 
+The current rate for mining cute memorable identifiers is probably much higher than bitcoin. So..
+
+     from muid.memorable import mine
+
+     mine()
+
+and wait, and wait, and wait for the cool identifiers to come in. 
