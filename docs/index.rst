@@ -47,4 +47,4 @@ The current rate for mining cute memorable identifiers is probably much higher t
 
      mine()
 
-and wait, and wait, and wait for the cool identifiers to come in. 
+and wait, and wait, and wait for the cool identifiers to come in.
