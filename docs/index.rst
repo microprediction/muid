@@ -3,7 +3,6 @@ Memorable Unique Identifiers
 
 .. toctree::
    :maxdepth: 2
-   :caption: Contents:
 
 
 Quickstart
@@ -40,9 +39,3 @@ Thus although memorable UUID's are an oxymoron, the first part
 of the hash can be memorable without jeopardizing collision probabilities in any really serious way. 
 
 
-Indices and tables
-==================
-
-* :ref:`genindex`
-* :ref:`modindex`
-* :ref:`search`
