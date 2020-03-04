@@ -11,9 +11,9 @@ Quickstart
 
 This library generates unique identifiers whose hashes are memorable
 
-    from muid.memorable import muid4, mhash, mpretty
-    key  = muid4()       
-    print( mhash(key) )   
+    from muid.memorable import muid4
+
+    key  = muid4()
 
 The call to muid4 may take ten minutes or so. Is it worth it? Depends. 
 
@@ -29,11 +29,14 @@ more readable with a few character swaps, namely swapping l for 1, s for 5, t fo
  
     foldable-cato-4o3a-aoct-oof6c29596c4
     
-Finally, we can use mpretty() and the supplied corpus to extract the mnemonic: 
+Finally, we can use mpretty() to extract the mnemonic:
 
     Foldable Cat  
     
-which, you may agree, is hard to forget. Thus although memorable UUID's are an oxymoron, the first part
+which, you may agree, is hard to forget. The last call benefits
+from the supplied corpus of readable hex scrabble words.
+
+Thus although memorable UUID's are an oxymoron, the first part
 of the hash can be memorable without jeopardizing collision probabilities in any really serious way. 
 
 

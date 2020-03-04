@@ -9,11 +9,10 @@ It makes no sense for a unique identifier to be memorable. That's antithetical.
   
 If you are patient, try this: 
    
-    from muid.memorable import muid4, mhash, mpretty
+    from muid.memorable import muid4
     key  = muid4()       
-    print( mhash(key) )             
     
-To produce unique identifier hashed to ... (stare hard)
+To produce unique identifier. Under mhash() hashed to ... (stare hard)
 
     f01dab1e-ca70-403a-a0c7-00f6c29596c4
     
