@@ -53,7 +53,6 @@ This defaults to the official difficulty level:
 
     min_len = int(requests.get("http://www.microprediction.com/config.json").json()['min_len'])
     
-
 ### Cashing in 
 
 Currently you can sell MUID's by establishing an Algorithmia account at https://algorithmia.com/signup and then 
@@ -67,7 +66,7 @@ The difficulty of 11 is only a guide and may have been updated. You can get it f
 
     min_len = int(requests.get("http://www.microprediction.com/config.json").json()['min_len'])
 
-Good luck! 
+See also examples/mining_example.py  
 
 # Example application 
 
