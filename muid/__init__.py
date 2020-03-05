@@ -1,4 +1,5 @@
-from muid.memorable import mine, muid4, mnemonic, mverify
+from muid.memorable import muid4, mnemonic, mverify
+from muid.mining import mine, mine_and_sell
 
 
 

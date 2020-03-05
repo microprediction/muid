@@ -13,11 +13,6 @@ def mhash(key):
 def mpretty(phrase):
     return Memorable.pretty(phrase)
 
-def mine(min_len=8,timeout=1000000000):
-    gen = Memorable.key_generator(min_len=min_len, timeout=timeout, verbose=True)
-    for key in gen:
-        print(key, flush=True)
-
 def mnemonic(key):
     return Memorable.mnemonic(key=key)
 
@@ -88,7 +83,7 @@ class Memorable(Corpus):
     def longest_phrase(readable):
         assert Memorable.is_readable_hex(readable), "Convert to readable hex first "
         phrase_sans = readable.replace('-', '')
-        k=Memorable.max_phrase_len()
+        k=Corpus.max_phrase_len()
         pairs_found = list()
         while not pairs_found and k>=6:
             phrase_k = phrase_sans[:k]
@@ -114,7 +109,7 @@ class Memorable(Corpus):
             parts = []
             k_min = Memorable.min_word_len()
             k1 = k_min
-            while not parts and k1<=Memorable.max_phrase_len():
+            while not parts and k1<=Corpus.max_phrase_len():
                 w1 = phrase_sans[:k1]
                 if w1 in Memorable.words()[k1]:
                     w2 = phrase_sans[k1:]
@@ -147,7 +142,10 @@ class Memorable(Corpus):
             method = uuid.uuid4
         start_time = time.time()
         num_attempts = 0
-        assert Memorable.min_word_len() <= min_len <= Memorable.max_phrase_len()
+
+        _max = Corpus.max_phrase_len()
+        _min = Corpus.min_word_len()
+        assert ( _min <= min_len <= _max )
         readable_phrases = Memorable.phrases_of_len(min_len) + Memorable.words_of_len(min_len)
         hex_phrases = [ Memorable.from_readable_hex(readable) for readable in readable_phrases ]
         while time.time()<start_time+timeout:

@@ -1,16 +1,19 @@
 # muid
-Memorable Unique Identifiers 
+Mine Memorable Unique Identifiers 
 
-## Wait you say ... this cannot make sense!
+### Wait you say ... this cannot make sense!
 
-Memorable unique identifiers are a provocative misnomer, for naturally when generating 
+Memorable unique identifiers are a provocative misnomer. When generating 
 unique identifiers such as privately used keys, memorability is antithetical
 to uniqueness. 
 
-To be more correct, MUIDs are a subset of UUIDs whose SHA-1 hashes are memorable. 
-
+MUIDs might be termed "hash-memorable" identifiers. They form a subset of UUIDs whose SHA-1 hashes are memorable, in a manner in which 
+this open source code makes precise. 
 
 # Usage 
+
+As per https://muid.readthedocs.io/en/latest/ ...
+
 ### Install 
 
     pip install muid
@@ -23,51 +26,75 @@ To be more correct, MUIDs are a subset of UUIDs whose SHA-1 hashes are memorable
 ### The SHA-1 hash is memorable 
     
     print( muid.mhash(key) )    
-    f01dab1e-ca70-403a-a0c7-00f6c29596c4
     
-Don't see it yet? How about...
+Don't see it yet? Look closer. Here's my example:
 
-    print( muid.mnemonic( key ) )
+    f01dab1e-ca70-403a-a0c7-00f6c29596c4
+
+And if that isn't clear already, then:
+
+    >>print( muid.mnemonic( key ) )
     Foldable Cat  
     
 The call muid.mnemonic uses a corpus of readable hex-like scrabble words to infer that only the first 11 characters
 are intended to be memorable. 
 
-### Mining 
-
-Got nothing better to do? Rates are better than bitcoin! 
-
-    muid.mine(min_len=12)
-   
-More details on monetizing mining will be supplied at www.microprediction.com in due course. 
-
 ### Verificaton 
 
     muid.verify(key,min_len=7)
 
+# Mining 
 
+It is trivial to mine for MUIDs and the rates are way way better. 
 
-## Example application 
+    
+    muid.mine(min_len=11)
+    
+The official difficulty 
+
+    min_len = int(requests.get("http://www.microprediction.com/config.json").json()['min_len'])
+    
+
+### Cashing in 
+
+Currently you can sell MUID's by establishing an Algorithmia account at https://algorithmia.com/signup and then 
+supplying MUID's to one of the following buyers. 
+
+  | Difficulty |  Bid  |  Buyer                                                      |
+  |------------|-------|-------------------------------------------------------------|
+  | min_len=11 | 7c    | https://algorithmia.com/algorithms/microprediction/mverify  |
+
+The difficulty of 11 is only a guide and may have been updated. You can get it from: 
+
+    min_len = int(requests.get("http://www.microprediction.com/config.json").json()['min_len'])
+
+Good luck! 
+
+# Example application 
 
 Memorable unique identifiers are used at www.microprediction.com to circumvent the need to maintain a lookup
 between user keys and public user identities. New users burn themselves a 
-verifiably memorable private identity. The longer the mnemonic, the more leeway they receive. 
+has-memorable private identity and the memorable part of the hash appears on leaderboards.
+ 
+The more difficult the mnemonic (i.e. longer) the more drawdown leeway they are granted. 
 
-The benefits are
+The benefits of using MUIDs in this context are:
 
 - No need for central registration or key provision
 - No ability to generate vast numbers of keys 
 - Enforced computational timeout after drawdown makes other Sybil style attacks harder.  
  
-We hope you have your own uses. Many applications can benefit
+We hope you have your own uses and would love to hear about them. Many applications can benefit
 from "one less join". 
+
+## Discussion 
+
+https://github.com/microprediction/muid/issues or https://algorithmia.com/algorithms/microprediction/mverify/discussion
     
-
-## Details 
-
+# Technical details 
 
 ### Hash 
-This library standardized on a version of SHA-1 hash, literally:
+We use a version of SHA-1 hash, namely
  
     code = str(uuid.uuid5(uuid.NAMESPACE_DNS, key))
  
@@ -85,9 +112,6 @@ muid introduces the notion of readable hex strings. These are the image under th
   | 7    |t          |
   | 0    |o          | 
   
-### Scrabble 
-  
-If you enjoy generating words using vowels a,c,e,o and consonants c,b,d,f,s,l,t then please do contribute pull requests for muid.corpus. 
    
 ## Collisions are a non-issue 
 
@@ -116,5 +140,10 @@ So stop worrying and love MUIDs.
 If you are not convinced by logic, in place of the default method=uuid.uuid4 you can supply a method of generating candidate unique identifiers with
 even longer string representations - for example concatenating a UUID with the last min_len characters of another independent UUID. 
  
+ 
+# Scrabble fans 
+  
+If you enjoy generating words using vowels a,c,e,o and consonants c,b,d,f,s,l,t then please do contribute pull requests for https://github.com/microprediction/muid/blob/master/muid/corpus.py
+
 
 
