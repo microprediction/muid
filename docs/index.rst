@@ -32,14 +32,17 @@ Let's generate an MUID
 
 Get the joke? MUIDs are "hash-memorable" UUIDs, meaning that if you stare at the hash for long enough you'll see a word or phrase.
 
-Mining
-======
+Mining and selling MUIDs
+========================
 
 More time on your hands?
 
-     muid.mine(min_len=9)
+     muid.mine()
 
-and wait, and wait, cool identifiers to come in.
+and wait, and wait, cool identifiers to come in. At time of writing
+it was possible to sell MUIDs with difficulty 11 for 7c a pop at https://algorithmia.com/algorithms/microprediction/mverify/docs ... but you'll
+first need to sign up for a free Algorithmia account at http://www.algorithmia.com/signup. If you'd like to
+mine and sell automatically check out https://github.com/microprediction/muid/blob/master/examples/mining_example.py and modify as you see fit.
 
 Verification
 ============
