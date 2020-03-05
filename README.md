@@ -46,11 +46,10 @@ are intended to be memorable.
 # Mining 
 
 It is trivial to mine for MUIDs and the rates are way way better. 
-
     
-    muid.mine(min_len=11)
+    muid.mine()
     
-The official difficulty 
+This defaults to the official difficulty level:
 
     min_len = int(requests.get("http://www.microprediction.com/config.json").json()['min_len'])
     
