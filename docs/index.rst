@@ -4,83 +4,53 @@ Memorable Unique Identifiers
 .. toctree::
    :maxdepth: 2
 
-This library generates unique identifiers whose hashes are memorable
+This library generates unique identifiers whose hashes are memorable.
+
+Documentation
+=============
+
+The README at
+https://github.com/microprediction/muid is likely to be more up to date than this documentation.
 
 Installation
 ============
 
-    >> pip install muid
+    $ pip install muid
+
+    >> import muid
 
 Quickstart
 ==========
 
-    >> from muid.memorable import muid4
+    key  = muid.muid4( min_len=6 )
 
-    >> key  = muid4( min_len=4 )
+    print( muid.mhash( key ) )
 
-Readable, Memorable hashes
-==========================
+    print( muid.mnemonic( key ) )
 
-I'm not going to show you the result as it is private, but I don't mind showing you a hash of it:
-
-    >> from muid.memorable import mhash
-
-    >> code = mhash( key )
-
-    >> print( code)
-
-    f01dab1e-ca70-403a-a0c7-00f6c29596c4
-
-Since this is a public quantity it might as well be partially memorable. Well, it is! Stare at the first part
-of the hash and you'll see it is borderline readable. It is more readable yet with
-a few character swaps, namely exchanging l for 1, s for 5, t for 7 and o for 0.
-
-    >> from muid.memorable import Memorable
-
-    >> readable = Memorable.to_readable_hex(code)
-
-    >> print(readable)
-
-    foldable-cato-4o3a-aoct-oof6c29596c4
-    
-The astute reader will surmise that we used muid(min_len=11) to create this example.
-
-Pretty
-======
-
-If we really want, we can use the corpus to extract only the part of the hash and make that even prettier.
-
-    >> long = Memorable.longest_word_or_phrase(readable)
-
-    >> pretty = Memorable.pretty(long)
-
-    >> print(pretty)
-
-    'Foldable Cat'
-    
-which, you may agree, is hard to forget.
-
-Thus although memorable UUID's are an oxymoron, the first part
-of the hash can be memorable without jeopardizing collision probabilities in any really serious way. 
+Get the joke? MUIDs are "hash-memorable" UUIDs, meaning that if you stare at the hash for long enough you'll see a word or phrase.
 
 Mining
 ======
 
-Who doesn't want identifiers with pretty hashes? The current rate for mining cute memorable identifiers is probably much higher than bitcoin. So..
+More time on your hands?
 
-     from muid.memorable import mine
+     muid.mine(min_len=9)
 
-     mine()
-
-and wait, and wait, and wait for the cool identifiers to come in.
+and wait, and wait, cool identifiers to come in.
 
 Verification
 ============
 
-To verify that a key was generated in this fashion,
+To verify that a key is hash-memorable:
 
-    >> from muid.memorable import mverify
+    muid.mverify( key=key, min_len=4 ) )
 
-    >> print( mverify( key=key, min_len=4 ) )
+Collisions
+==========
 
-    True
+The computational capacity required to create MUID collisions over any interval of time is at least as large as the computational capacity
+that must be employed to create UUID collisions with any non-vanishing probability.
+
+Short version: don't worry about it. See the README at
+https://github.com/microprediction/muid for more remarks.
