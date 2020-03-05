@@ -9,8 +9,8 @@ This library generates unique identifiers whose hashes are memorable.
 Documentation
 =============
 
-The README at
-https://github.com/microprediction/muid is likely to be more up to date than this documentation.
+The READMEs at https://pypi.org/project/muid/ and
+https://github.com/microprediction/muid are likely to be more up to date than this documentation.
 
 Installation
 ============
@@ -21,6 +21,8 @@ Installation
 
 Quickstart
 ==========
+
+Let's generate an MUID
 
     key  = muid.muid4( min_len=6 )
 
