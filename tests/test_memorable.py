@@ -1,4 +1,7 @@
-from muid.memorable import mine
+from muid.memorable import muid4, mverify
 
-def test_mine():
-    mine(min_len=6,timeout=5)
+def test_uuid4():
+    min_len = 4
+    key = muid4(min_len=min_len,timeout=150)
+    verified = mverify(key=key,min_len=min_len)
+    assert verified

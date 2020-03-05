@@ -1,11 +1,11 @@
 import uuid, time
 from muid.corpus import Corpus
 
-def muid4( min_len=7, timeout=60*15 ):
-    return Memorable.uuid(method=uuid.uuid4, min_len=min_len, timeout=timeout )
+def muid4( min_len=7, timeout=60*60 ):
+    return Memorable.uid(method=uuid.uuid4, min_len=min_len, timeout=timeout)
 
-def muid1( min_len=7, timeout=60*15 ):
-    return Memorable.uuid(method=uuid.uuid1, min_len=min_len, timeout=timeout )
+def muid1( min_len=7, timeout=60*60 ):
+    return Memorable.uid(method=uuid.uuid1, min_len=min_len, timeout=timeout)
 
 def mhash(key):
     return Memorable.hash(key)
@@ -18,16 +18,28 @@ def mine(min_len=8,timeout=1000000000):
     for key in gen:
         print(key, flush=True)
 
+def mverify(key,min_len=8):
+    return Memorable.verify(key=key,min_len=min_len)
 
 class Memorable(Corpus):
 
     @staticmethod
-    def uuid(method=None, min_len=7, timeout=60*15):
+    def uid(min_len, timeout, method=None):
         if method is None:
             method = uuid.uuid4
         gen = Memorable.key_generator(min_len=min_len, timeout=timeout, method=method)
-        for key in gen:
-            return key
+        return next(gen)
+
+    @staticmethod
+    def verify(key, min_len, verbose=False):
+        if isinstance(key,str) and len(key):
+            code = Memorable.hash(key)
+            hcode = Memorable.to_readable_hex(code)
+            long  = Memorable.longest_word_or_phrase(hcode)
+            valid = len(long)>=min_len
+        else:
+            valid, long = False, ''
+        return valid if not verbose else {"result":valid,"longest word":long}
 
     @staticmethod
     def hash(key):
@@ -50,18 +62,19 @@ class Memorable(Corpus):
 
     @staticmethod
     def longest_word(phrase):
-        assert Memorable.is_readable_hex(phrase), "Not Henglish. Use Henglish.to_henglish first "
+        assert Memorable.is_readable_hex(phrase), "Convert to readable hex first "
         phrase_sans = phrase.replace('-', '')
         words_found = list()
         k = Memorable.max_word_len()
-        while not words_found and k>=Memorable.min_word_len():
-            if phrase_sans[:k] in Memorable.words()[k]:
+        k_stop = Memorable.min_word_len()
+        while not words_found and k>=k_stop:
+            if phrase_sans[:k] in Memorable.words_of_len(k):
                 return phrase_sans[:k]
             k = k-1
 
     @staticmethod
     def longest_phrase(phrase):
-        assert Memorable.is_readable_hex(phrase), "Not Henglish. Use Henglish.to_henglish first "
+        assert Memorable.is_readable_hex(phrase), "Convert to readable hex first "
         phrase_sans = phrase.replace('-', '')
         k=Memorable.max_phrase_len()
         pairs_found = list()

@@ -18,6 +18,11 @@ class Corpus():
 
     @ring.lru()
     @staticmethod
+    def words_of_len(k):
+        return Corpus.words()[k]
+
+    @ring.lru()
+    @staticmethod
     def words():
         return {3: Corpus.words3(),
                 4: Corpus.words4(),
