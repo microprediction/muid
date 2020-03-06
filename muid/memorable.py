@@ -1,7 +1,7 @@
 import uuid, time
 from muid.corpus import Corpus
 
-def muid4( min_len=8, timeout=60*60 ):
+def muid4( min_len=8, timeout=60*60, batch_size=1000 ):
     return Memorable.muid(method=uuid.uuid4, min_len=min_len, timeout=timeout)
 
 def muid1( min_len=8, timeout=60*60 ):
@@ -22,10 +22,10 @@ def mverify(key,min_len=8):
 class Memorable(Corpus):
 
     @staticmethod
-    def muid(min_len, timeout, method=None):
+    def muid(min_len, timeout, batch_size, method=None):
         if method is None:
             method = uuid.uuid4
-        gen = Memorable.key_generator(min_len=min_len, timeout=timeout, method=method)
+        gen = Memorable.key_generator(min_len=min_len, timeout=timeout, method=method, batch_size=batch_size)
         return next(gen)
 
     @staticmethod
@@ -34,8 +34,6 @@ class Memorable(Corpus):
         result = Memorable.verify(key=key,verbose=True,min_len=Memorable.min_word_len())
         if result['result']:
             return Memorable.pretty(result['long'],separator=separator,capitalize=capitalize)
-
-
 
     @staticmethod
     def verify(key, min_len, verbose=False):
@@ -130,16 +128,21 @@ class Memorable(Corpus):
         cap_parts = [ part[0].upper()+part[1:] for part in parts ] if capitalize else parts
         return separator.join(cap_parts)
 
+
+    @staticmethod
+    def default_uid_generator(batch_size):
+        return [ str(uuid.uuid4()) for _ in range(batch_size) ]
+
     @staticmethod
     def key_generator( method=None, min_len=7, timeout=5, verbose=False, batch_size=100 ):
         """ Returns generator that spits out valid keys whose hashes are recognizable Henglish words or word pairs
 
-             method:   function returning a unique identifier  (e.g.  uuid.uuid4)
+             method:   function returning a vector of unique identifiers
              timeout:  seconds
 
         """
         if method is None:
-            method = uuid.uuid4
+            method = Memorable.default_uid_generator
         start_time = time.time()
         num_attempts = 0
 
@@ -150,8 +153,8 @@ class Memorable(Corpus):
         hex_phrases = [ Memorable.from_readable_hex(readable) for readable in readable_phrases ]
         while time.time()<start_time+timeout:
             num_attempts += batch_size
-            uuids    = [ method() for _ in range(batch_size) ]
-            codes    = [ Memorable.hash(str(uuid)) for uuid in uuids ]
+            uuids    = method(batch_size)
+            codes    = [ Memorable.hash(uid) for uid in uuids ]
             patterns = [ code.replace('-','')[:min_len] for code in codes ]
             found    = any( pattern in hex_phrases for pattern in patterns )
             if found:
@@ -166,5 +169,5 @@ class Memorable(Corpus):
                             yield {"length": len(readable), "pretty": pretty, "key": key, "hashed key": code,'num_attempts': num_attempts}
                         else:
                             yield key
-
+        yield {"timeout":True,"num_attempts":num_attempts,"key":None}
 

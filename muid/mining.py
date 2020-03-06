@@ -1,12 +1,20 @@
 from muid.memorable import Memorable
-import Algorithmia, requests, pprint
+import Algorithmia, requests, pprint, math, json, timeit, hashlib
+from contexttimer import Timer
 
-def get_official_difficulty():
+def get_official_min_len():
     return int(requests.get('https://www.microprediction.com/config.json').json()["min_len"])
 
-DIFFICULTY = get_official_difficulty()
+MIN_LEN = get_official_min_len()
+DIFFICULTY = MIN_LEN
 
-def mine( timeout=1000000000, min_len=DIFFICULTY ):
+
+#------------------------------------------------------------------
+#     An inefficient mining algorithm you are welcome to improve
+#------------------------------------------------------------------
+
+def mine(timeout=1000000000, min_len=MIN_LEN):
+    print("min_len set to " + str(MIN_LEN), flush=True)
     gen = Memorable.key_generator(min_len=min_len, timeout=timeout, verbose=True)
     for report in gen:
         print(report, flush=True)
@@ -23,8 +31,8 @@ def mine_and_sell( timeout=60*60*24*30, algo='microprediction/motza', api_key="s
     """
 
     client = Algorithmia.client(api_key = api_key)
-    gen = Memorable.key_generator(min_len=DIFFICULTY, timeout=timeout, verbose=True)
-    print("Difficulty set to " + str(DIFFICULTY),flush=True)
+    gen = Memorable.key_generator(min_len=MIN_LEN, timeout=timeout, verbose=True)
+    print("Difficulty set to " + str(MIN_LEN), flush=True)
     for report in gen:
         # Found one !
         print(report,flush=True)
@@ -41,4 +49,6 @@ def mine_and_sell( timeout=60*60*24*30, algo='microprediction/motza', api_key="s
         except Exception as e:
             pprint(str(e))
             print('There was some problem selling the MUID ')
+
+
 

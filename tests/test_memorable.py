@@ -13,3 +13,4 @@ def test_uuid4():
     key = muid4(min_len=min_len,timeout=150)
     verified = mverify(key=key,min_len=min_len)
     assert verified
+

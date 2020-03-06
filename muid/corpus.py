@@ -19,7 +19,7 @@ class Corpus():
     @ring.lru()
     @staticmethod
     def words_of_len(k):
-        return Corpus.words()[k]
+        return Corpus.words()[k] if k<=Corpus.max_word_len() else []
 
     @ring.lru()
     @staticmethod
