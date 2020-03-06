@@ -32,6 +32,13 @@ Let's generate an MUID
 
 Get the joke? MUIDs are "hash-memorable" UUIDs, meaning that if you stare at the hash for long enough you'll see a word or phrase.
 
+Verification
+============
+
+To verify that a key is hash-memorable:
+
+    muid.mverify( key=key, min_len=11 ) )
+
 Mining and selling MUIDs
 ========================
 
@@ -44,18 +51,16 @@ it was possible to sell MUIDs with difficulty 11 for 7c a pop at https://algorit
 first need to sign up for a free Algorithmia account at http://www.algorithmia.com/signup. If you'd like to
 mine and sell automatically check out https://github.com/microprediction/muid/blob/master/examples/mining_example.py and modify as you see fit.
 
-Verification
-============
+Comparison to bitcoin economics
+===============================
 
-To verify that a key is hash-memorable:
-
-    muid.mverify( key=key, min_len=4 ) )
+Probably highly favourable, probably by one or two orders of magnitude. Detailed calculations comparing bitcoin mining and MUID mining economics can be
+found at https://github.com/microprediction/muid/blob/master/muid/economics.py
 
 Collisions
 ==========
 
+Ain't gonna happen.
+
 The computational capacity required to create MUID collisions over any interval of time is at least as large as the computational capacity
 that must be employed to create UUID collisions with any non-vanishing probability.
-
-Short version: don't worry about it. See the README at
-https://github.com/microprediction/muid for more remarks.

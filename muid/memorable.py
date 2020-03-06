@@ -1,11 +1,10 @@
 import uuid, time
 from muid.corpus import Corpus
+from hashlib import sha256
 
-def muid4( min_len=8, timeout=60*60, batch_size=1000 ):
-    return Memorable.muid(method=uuid.uuid4, min_len=min_len, timeout=timeout)
 
-def muid1( min_len=8, timeout=60*60 ):
-    return Memorable.muid(method=uuid.uuid1, min_len=min_len, timeout=timeout)
+def muid4( min_len=8, timeout=60*60, batch_size=30000 ):
+    return Memorable.muid4(min_len=min_len, timeout=timeout, batch_size=batch_size)
 
 def mhash(key):
     return Memorable.hash(key)
@@ -22,11 +21,28 @@ def mverify(key,min_len=8):
 class Memorable(Corpus):
 
     @staticmethod
+    def default_key_generator(batch_size):
+        return [str(uuid.uuid4()) for _ in range(batch_size)]
+
+    @staticmethod
     def muid(min_len, timeout, batch_size, method=None):
+        """ Generate a hash-memorable unique identifier """
         if method is None:
-            method = uuid.uuid4
+            method = Memorable.default_key_generator
         gen = Memorable.key_generator(min_len=min_len, timeout=timeout, method=method, batch_size=batch_size)
         return next(gen)
+
+    @staticmethod
+    def hash(key):
+        return str(uuid.UUID(sha256(key.encode('utf-8')).hexdigest()[:32]))
+
+    @staticmethod
+    def alt_hash(key):
+        return str(uuid.uuid5(uuid.NAMESPACE_DNS, key))
+
+    @staticmethod
+    def muid4(min_len, timeout, batch_size):
+        return Memorable.muid(min_len=min_len, timeout=timeout, batch_size=batch_size, method=Memorable.default_key_generator)
 
     @staticmethod
     def mnemonic(key,separator=' ',capitalize=True):
@@ -45,10 +61,6 @@ class Memorable(Corpus):
         else:
             valid, long = False, ''
         return valid if not verbose else {"result":valid,"long":long}
-
-    @staticmethod
-    def hash(key):
-        return str(uuid.uuid5(uuid.NAMESPACE_DNS, key))
 
     @staticmethod
     def is_readable_hex(s):
@@ -129,9 +141,7 @@ class Memorable(Corpus):
         return separator.join(cap_parts)
 
 
-    @staticmethod
-    def default_uid_generator(batch_size):
-        return [ str(uuid.uuid4()) for _ in range(batch_size) ]
+
 
     @staticmethod
     def key_generator( method=None, min_len=7, timeout=5, verbose=False, batch_size=100 ):
@@ -142,7 +152,7 @@ class Memorable(Corpus):
 
         """
         if method is None:
-            method = Memorable.default_uid_generator
+            method = Memorable.default_key_generator
         start_time = time.time()
         num_attempts = 0
 
@@ -150,23 +160,22 @@ class Memorable(Corpus):
         _min = Corpus.min_word_len()
         assert ( _min <= min_len <= _max )
         readable_phrases = Memorable.phrases_of_len(min_len) + Memorable.words_of_len(min_len)
-        hex_phrases = [ Memorable.from_readable_hex(readable) for readable in readable_phrases ]
+        hex_phrases = set( [ Memorable.from_readable_hex(readable) for readable in readable_phrases ] )
         while time.time()<start_time+timeout:
             num_attempts += batch_size
-            uuids    = method(batch_size)
-            codes    = [ Memorable.hash(uid) for uid in uuids ]
-            patterns = [ code.replace('-','')[:min_len] for code in codes ]
-            found    = any( pattern in hex_phrases for pattern in patterns )
+            keys     = method(batch_size)
+            codes    = [ Memorable.hash(ky) for ky in keys ]
+            short_codes = set( [ code.replace('-','')[:min_len] for code in codes ] )
+            found    = any( short_code in hex_phrases for short_code in short_codes )
             if found:
-                for pattern, uid in zip( patterns, uuids ):
-                    if pattern in hex_phrases:
-                        key      = str(uid)
-                        code     = Memorable.hash(key)
-                        hcode    = Memorable.to_readable_hex(code=code)
-                        readable = Memorable.longest_word_or_phrase(hcode)
-                        pretty   = Memorable.pretty(readable, separator=' ', capitalize=True)
+                # Find again slowly...
+                short_codes = [code.replace('-', '')[:min_len] for code in codes]
+                for short_code, key in zip(short_codes,keys):
+                    if short_code in hex_phrases:
+                        short_readable = Memorable.to_readable_hex(short_code)
+                        pretty   = Memorable.pretty(short_readable, separator=' ', capitalize=True)
                         if verbose:
-                            yield {"length": len(readable), "pretty": pretty, "key": key, "hashed key": code,'num_attempts': num_attempts}
+                            yield {"length": len(short_readable), "pretty": pretty, "key": key, "hashed key": Memorable.hash(key),'num_attempts': num_attempts}
                         else:
                             yield key
         yield {"timeout":True,"num_attempts":num_attempts,"key":None}

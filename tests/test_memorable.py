@@ -9,8 +9,8 @@ def test_split():
         assert all( a1_==a_ for a1_, a_ in zip_longest(a1,a) )
 
 def test_uuid4():
-    min_len = 7
-    key = muid4(min_len=min_len,timeout=150)
+    min_len = 8
+    key = muid4(min_len=min_len,timeout=10)
     verified = mverify(key=key,min_len=min_len)
     assert verified
 
