@@ -14,7 +14,7 @@ DIFFICULTY = MIN_LEN
 #------------------------------------------------------------------
 
 def mine(timeout=1000000000, min_len=MIN_LEN):
-    print("min_len set to " + str(MIN_LEN), flush=True)
+    print("min_len set to " + str(min_len), flush=True)
     gen = Memorable.key_generator(min_len=min_len, timeout=timeout, verbose=True)
     for report in gen:
         print(report, flush=True)
