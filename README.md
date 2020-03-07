@@ -7,7 +7,15 @@ Memorable unique identifiers are a provocative misnomer. When generating
 unique identifiers such as privately used keys, memorability is antithetical
 to uniqueness. MUIDs might be better termed "hash-memorable" identifiers. They form a subset of UUIDs whose SHA-256 hashes are memorable. 
  
-# Usage 
+# Shortcut 
+
+Just want to mine? Cut and paste this at the terminal. 
+
+    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/microprediction/muid/master/examples/mine_from_venv.sh)"
+ 
+The script will explain itself, somewhat. 
+ 
+# Using the library directly
 
 As per https://muid.readthedocs.io/en/latest/ ...
 
@@ -15,16 +23,20 @@ As per https://muid.readthedocs.io/en/latest/ ...
 
     pip install muid
 
-### Just like uuid.uuid4() ... only it takes longer
+### MUIDs are just like UUIDs  (uuid.uuid4)
  
     import muid
-    key  = muid.muid4()  
+    key  = muid.muid4(min_len=8)  
+    
+Only they take much, much longer to generate because ...
  
-### ... but the SHA-256 hash is memorable 
+### ... the SHA-256 hash is memorable 
+    
+Try this:
     
     print( muid.mhash(key) )    
     
-Don't see it yet? Look closer. Here's my example:
+Don't see it yet? Look closer. Here's an example I just happenned to have lying around:
 
     f01dab1e-ca70-403a-a0c7-00f6c29596c4
 
