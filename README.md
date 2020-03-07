@@ -20,7 +20,7 @@ As per https://muid.readthedocs.io/en/latest/ ...
     import muid
     key  = muid.muid4()  
  
-### The SHA-1 hash is memorable 
+### ... but the SHA-256 hash is memorable 
     
     print( muid.mhash(key) )    
     
