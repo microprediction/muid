@@ -129,6 +129,7 @@ class Memorable(Corpus):
                 k1 = k1+1
             return parts
         else:
+            print("Failed to split "+ readable_phrase)
             return None # Cannot split ...
 
     @staticmethod
@@ -137,8 +138,9 @@ class Memorable(Corpus):
                 Foldable Cat
         """
         parts = Memorable.split(readable_phrase)
-        cap_parts = [ part[0].upper()+part[1:] for part in parts ] if capitalize else parts
-        return separator.join(cap_parts)
+        if parts:
+            cap_parts = [ part[0].upper()+part[1:] for part in parts ] if capitalize else parts
+            return separator.join(cap_parts)
 
 
     @staticmethod
