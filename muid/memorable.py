@@ -141,10 +141,8 @@ class Memorable(Corpus):
         return separator.join(cap_parts)
 
 
-
-
     @staticmethod
-    def key_generator( method=None, min_len=7, timeout=5, verbose=False, batch_size=100 ):
+    def key_generator( method=None, min_len=7, timeout=5, verbose=False, batch_size=50000 ):
         """ Returns generator that spits out valid keys whose hashes are recognizable Henglish words or word pairs
 
              method:   function returning a vector of unique identifiers
