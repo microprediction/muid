@@ -1,5 +1,5 @@
 from muid.memorable import Memorable
-import Algorithmia, requests, pprint, math, json, timeit, hashlib
+import Algorithmia, requests, pprint, math, json, timeit, hashlib, time
 from contexttimer import Timer
 
 def get_official_min_len():
@@ -14,7 +14,11 @@ DIFFICULTY = MIN_LEN
 #------------------------------------------------------------------
 
 def mine(timeout=1000000000, min_len=MIN_LEN):
-    print("min_len set to " + str(min_len), flush=True)
+    print("Setting difficulty to min_len=" + str(min_len), flush=True)
+    time.sleep(1)
+    print("This may take all day ...",flush=True)
+    time.sleep(1)
+    print("...but it will create a key which gives your access to the world's most sophisticated statistical contest.",flush=True)
     gen = Memorable.key_generator(min_len=min_len, timeout=timeout, verbose=True)
     for report in gen:
         print(report, flush=True)

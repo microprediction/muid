@@ -129,7 +129,7 @@ class Memorable(Corpus):
                 k1 = k1+1
             return parts
         else:
-            print("Failed to split "+ readable_phrase)
+            print("Failed to split "+ readable_phrase,flush=True)
             return None # Cannot split ...
 
     @staticmethod
