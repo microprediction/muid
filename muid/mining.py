@@ -18,7 +18,9 @@ def mine(timeout=1000000000, min_len=MIN_LEN):
     time.sleep(1)
     print("This may take all day ...",flush=True)
     time.sleep(1)
-    print("...but it will create a key which gives your access to the world's most sophisticated statistical contest.",flush=True)
+    print("...but it will create a key which gives your access to the world's most sophisticated statistical contest...",flush=True)
+    time.sleep(1)
+    print("... sponsored by one of the world's most mathematically sophisticated investment firms.")
     gen = Memorable.key_generator(min_len=min_len, timeout=timeout, verbose=True)
     for report in gen:
         print(report, flush=True)
