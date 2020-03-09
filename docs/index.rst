@@ -38,15 +38,17 @@ Let's generate an MUID
 
 Get the joke? MUIDs are "hash-memorable" UUIDs, meaning that if you stare at the hash for long enough you'll see a word or phrase.
 
-Mining and selling MUIDs
-========================
+Mining MUIDs
+============
 
 More time on your hands?
 
      muid.mine()
 
 and wait, and wait, cool identifiers to come in. At time of writing
-it was possible to sell MUIDs with difficulty 11 for 7c a pop. That may have changed though.
+it was possible to sell MUIDs with difficulty 11 for 7c a pop. Or you could find
+a talented person with latent mathematical talent and make their day - they will
+be able to participate at www.microprediction.com without waiting.
 
 Comparison to bitcoin economics
 ===============================
