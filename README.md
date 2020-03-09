@@ -13,7 +13,7 @@ Just want to mine? Cut and paste this at the terminal.
 
     /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/microprediction/muid/master/examples/mine_from_venv.sh)"
  
-The script will explain itself, somewhat. 
+The script will explain itself and the motivation, as it mines. 
  
 # Using the library directly
 
@@ -38,20 +38,12 @@ Try this:
     
 Don't see it yet? Look closer. Here's an example I just happenned to have lying around:
 
-    f01dab1e-ca70-403a-a0c7-00f6c29596c4
+    f01dab1eca70403aa0c700f6c29596c4
 
-And if that isn't clear already, then:
+This reads a bit like:
 
-    >>print( muid.mnemonic( key ) )
     Foldable Cat  
     
-The call muid.mnemonic uses a corpus of readable hex-like scrabble words to infer that only the first 11 characters
-are intended to be memorable. 
-
-### Verificaton 
-
-    muid.verify(key,min_len=7)
-
 # Mining 
 
 It is trivial to mine for MUIDs. 
@@ -62,28 +54,15 @@ At time of writing, mining MUIDs is roughly one order of magnitude more profitab
 lousy library to do your mining. With a little work, you should be able to mine with 100x the economics of bitcoin ... at least
 for a while! 
     
-### Cashing in 
+# Caching in 
 
-Currently you can sell MUID's by establishing an Algorithmia account at https://algorithmia.com/signup and then 
-supplying MUID's to one of the following buyers. 
-
-  | Difficulty |  Bid  |  Buyer                                                      |
-  |------------|-------|-------------------------------------------------------------|
-  | min_len=11 | 7c    | https://algorithmia.com/algorithms/microprediction/mverify  |
-
-The difficulty of 11 may be stale. Check muid.MIN_LEN or directly: 
-obtained directly:
+There is a bid for MUIDs of len at least min_len where:
 
     min_len = int(requests.get("http://www.microprediction.com/config.json").json()['min_len'])
 
-See also examples/mining_example.py  
+More details on that soon. 
 
 # An example of the use of MUIDs 
-
-Memorable unique identifiers are used at www.microprediction.com to circumvent the need to maintain a lookup
-between private user keys and nom de plume's. New users burn themselves a 
-has-memorable private identity and the memorable part of the hash appears on leaderboards. This prevents excessive churning of
-keys and identities and the obvious gaming of the system that might occur in its absence. 
  
 We hope you have your own uses and would love to hear about them. Many applications can benefit
 from one less join. 
@@ -96,26 +75,27 @@ We welcome thoughtful suggestions at https://github.com/microprediction/muid/iss
 
     muid.mhash() 
     
-uses SHA-256 hash from hashlib.sha256, then maps the first half to a UUID style string via the uuid.UUID constructor.  
+Uses SHA-256 hash from hashlib.sha256 
 
 ### Readable hex
     
-The hash produces strings with characters a,b,e,d,e,f plus digits and hyphens. 
+Hex strings are just a,b,e,d,e,f plus digits and hyphens, which makes for a sucky game of scrabble. We introduce readable
+hex as follows: 
 
-    Memorable.to_readable()
- 
-swaps out characters as follows:
+    word.replace('0', 'o').replace('1', 'l').replace('2', 'z').replace('3', 'm').replace('4', 'y').replace(
+        '5', 's').replace('6', 'h').replace('7', 't').replace('8', 'x').replace('9', 'g')
 
-  | Hex  | Readable  |
-  |------|-----------|
-  | 5    |s          |
-  | 1    |l          |
-  | 7    |t          |
-  | 0    |o          | 
+which is to say
+
+  | Hex  | Human| Hex | HUman   | Hex  | Human |
+  |------|------|-----|---------|------|-------|
+  | 1    |l     | 5   | s       | 9    | g     |
+  | 2    |z     | 6   | h       | 0    | o     |
+  | 3    |m     | 7   | t       |      |       |
+  | 4    |y     | 8   | x       |      |       |
   
-This leads to a reasonable but not a huge list of hex-like scrabble words. As an aside, if you enjoy
-generating words using vowels a,c,e,o and consonants c,b,d,f,s,l,t then please do contribute pull requests for https://github.com/microprediction/muid/blob/master/muid/corpus.py
-
+with a,b,c,d,e,f unchanged of course. 
+  
    
 ### Collisions (forgettaboutit) 
 

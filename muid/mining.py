@@ -1,62 +1,65 @@
-from muid.memorable import Memorable
-import Algorithmia, requests, pprint, math, json, timeit, hashlib, time
-from contexttimer import Timer
+from muid.explanation import EXPLANATION
+import requests, pprint, time, binascii, os
+from muid.corpus import BCORPUS, to_readable_hex
+from muid.crypto import mhash
 
 def get_official_min_len():
     return int(requests.get('https://www.microprediction.com/config.json').json()["min_len"])
 
 MIN_LEN = get_official_min_len()
-DIFFICULTY = MIN_LEN
-
 
 #------------------------------------------------------------------
-#     An inefficient mining algorithm you are welcome to improve
+#     A mining algorithm you are welcome to improve
 #------------------------------------------------------------------
 
-def mine(timeout=1000000000, min_len=MIN_LEN):
-    print("Setting difficulty to min_len=" + str(min_len), flush=True)
-    time.sleep(1)
-    print("This may take all day.",flush=True)
-    time.sleep(5)
-    print("But it will create a key which gives your access to the world's most sophisticated statistical contest...",flush=True)
-    time.sleep(5)
-    print("... sponsored by one of the world's most mathematically sophisticated investment firms.",flush=True)
-    time.sleep(5)
-    print("Going dark now. The next message you will see will be the prize.",flush=True)
-    gen = Memorable.key_generator(min_len=min_len, timeout=timeout, verbose=True)
-    for report in gen:
-        print(report, flush=True)
 
-def mine_and_sell( timeout=60*60*24*30, algo='microprediction/motza', api_key="sim1uUcA8tlyE1X4M11jQFD4l/o1", email="purchases@microprediction.com"):
-    """ Mine for MUID and immediately sell them to the buyer on Algorithmia
+def mine(timeout=1000000000):
+    """ Mine for keys of increasing length """
+    start_time = time.time()
+    difficulty = 6
 
-    Before running this do the following:
-        (1) Sign up for algorithmia account at www.algorithmia.com/signup
-        (2) Enter your Algorithmia API key below. See  https://algorithmia.com/developers/platform/customizing-api-keys#default-api-key
-        (3) Publish a public algorithm on Algorithmia and set the price at 1000 credits.
-    More instructions at https://algorithmia.com/algorithms/microprediction/mverify/docs
+    found_during_explanation = list()
+    for ln in EXPLANATION:
+        print(ln,flush=True)
+        for _ in range(int(len(ln)/3)):
+            found, difficulty = mine_once(difficulty)
+            found_during_explanation.extend(found)
 
-    """
 
-    client = Algorithmia.client(api_key = api_key)
-    gen = Memorable.key_generator(min_len=MIN_LEN, timeout=timeout, verbose=True)
-    print("Difficulty set to " + str(MIN_LEN), flush=True)
-    for report in gen:
-        # Found one !
-        print(report,flush=True)
-        key = report["key"]
-        input = {'key':key, 'algoRef':algo}
-        if email:
-            input.update({"email":email})
-        # Sell it
-        pprint.pprint(input)
-        try:
-            message = client.algo('microprediction/mverify').pipe(input).result
-            pprint(message)
-            print("Sold! ")
-        except Exception as e:
-            pprint(str(e))
-            print('There was some problem selling the MUID ')
+    for q in found_during_explanation:
+        time.sleep(3)
+        pprint.pprint(q)
+        print(" ",flush=True)
 
+
+    while time.time()<start_time+timeout:
+        found, difficulty = mine_once(difficulty)
+        if found:
+            pprint.pprint(found[0])
+
+def mine_once(difficulty):
+
+    keys         = [ binascii.b2a_hex(os.urandom(16)) for _ in range(100000) ]
+    hashed_keys  = [ mhash(key) for key in keys ]
+    short_codes  = [ hk[:difficulty] for hk in hashed_keys ]
+    candidates   = dict( zip(short_codes,keys) )
+
+    if any( code in BCORPUS for code in short_codes ):
+        for c,key in candidates.items():
+            ks = BCORPUS.get(c)
+            if ks is not None:
+                k1, k2 = ks
+                w1 = c[:k1]
+                w2 = c[k1:k1+k2]
+                a1 = w1.decode('ascii')
+                a2 = w2.decode('ascii')
+                r1 = to_readable_hex(a1)
+                r2 = to_readable_hex(a2)
+                pretty = r1[0].upper()+r1[1:]+' '+r2[0].upper()+r2[1:]
+                longest_found = k1+k2
+                full_code = mhash(key)
+                return [{"length":longest_found,"pretty":pretty,"key":key,"hash":full_code}], difficulty+1
+    else:
+        return [], difficulty
 
 

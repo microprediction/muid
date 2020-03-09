@@ -6,11 +6,19 @@ Memorable Unique Identifiers
 
 This library generates unique identifiers whose hashes are memorable.
 
-Documentation
-=============
+Quickstart
+===========
+
+If you cut and paste the following at the terminal it will mine for MUIDs and explain itself along the way
+
+     /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/microprediction/muid/master/examples/mine_from_venv.sh)"
+
+Other docs
+==========
 
 The READMEs at https://pypi.org/project/muid/ and
-https://github.com/microprediction/muid are likely to be more up to date than this documentation.
+https://github.com/microprediction/muid tend to be more up to date than this documentation.
+
 
 Installation
 ============
@@ -28,16 +36,7 @@ Let's generate an MUID
 
     print( muid.mhash( key ) )
 
-    print( muid.mnemonic( key ) )
-
 Get the joke? MUIDs are "hash-memorable" UUIDs, meaning that if you stare at the hash for long enough you'll see a word or phrase.
-
-Verification
-============
-
-To verify that a key is hash-memorable:
-
-    muid.mverify( key=key, min_len=11 ) )
 
 Mining and selling MUIDs
 ========================
@@ -47,9 +46,7 @@ More time on your hands?
      muid.mine()
 
 and wait, and wait, cool identifiers to come in. At time of writing
-it was possible to sell MUIDs with difficulty 11 for 7c a pop at https://algorithmia.com/algorithms/microprediction/mverify/docs ... but you'll
-first need to sign up for a free Algorithmia account at http://www.algorithmia.com/signup. If you'd like to
-mine and sell automatically check out https://github.com/microprediction/muid/blob/master/examples/mining_example.py and modify as you see fit.
+it was possible to sell MUIDs with difficulty 11 for 7c a pop. That may have changed though.
 
 Comparison to bitcoin economics
 ===============================

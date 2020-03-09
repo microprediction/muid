@@ -32,11 +32,11 @@ def animals_of_len(k):
     return [ a.lower() for a in ANIMALS if len(a)==k and not a=='list' ]
 
 
-def corpus(max_len=15):
+def corpus(max_len=15, separator='', readable=False):
     cp = dict()
     for k1 in range(3,12):
         for k2 in range(3,max_len-k1):
-            cp_ = dict( [ (word,(k1,k2)) for word in corpus_pairs(k1,k2) ] )
+            cp_ = dict( [ (word,(k1,k2)) for word in corpus_pairs(k1,k2,readable=readable,separator=separator) ] )
             cp.update(cp_)
     return cp
 
@@ -67,3 +67,7 @@ import json
 crps = corpus()
 with open('animals.json','w') as f:
     json.dump(crps,f)
+
+crpsr = corpus(separator=' ',readable=True)
+with open('animals_readable.json','w') as g:
+    json.dump(crps,g)
