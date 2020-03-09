@@ -62,6 +62,7 @@ def muid_default_hash_per_second():
     hash_throughput = int(1./(t1 +t2))
     # Check that looking up the word hits is immaterial...
     t3 = timeit.timeit( setup="import binascii, os; ss = set([str(binascii.b2a_hex(os.urandom(8))) for _ in range(100000)]); bb = set([str(binascii.b2a_hex(os.urandom(8))) for _ in range(48000)])",stmt="any(s in bb for s in ss)", number=100)/100
+    t4 = timeit.timeit(setup="import binascii; import os; d = set([ str(binascii.b2a_hex(os.urandom(8) ) ) for _ in range(100000) ] ); ss = set( [ str(binascii.b2a_hex(os.urandom(8) ) ) for _ in range(1000000) ]) ",stmt="any(s in d for s in ss)",number=5)
     assert t3<0.1, "Hmmm, that lookup took a lot longer than I thought"
     return hash_throughput     # Ans: about 100,000 hashes per second
 
@@ -94,4 +95,6 @@ def relative_sha_difficulty():
     t1 = timeit.timeit(setup="from hashlib import sha1, sha256; import uuid; s='should we use 256 instead?'", stmt="str(uuid.UUID(sha256(s.encode('utf-8')).hexdigest()[:32]))",number=1000)
     t2 = timeit.timeit(setup="from hashlib import sha1, sha256; s='should we use 256 instead?'.encode('utf-8')", stmt="sha256('some string'.encode('utf-8')).hexdigest()",number=1000)
     return (t1/t0,t2/t0)
+
+
 

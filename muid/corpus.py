@@ -1,4 +1,6 @@
-import ring
+import ring, nltk
+nltk.download('averaged_perceptron_tagger')
+nltk.download('words')
 
 class Corpus():
 
@@ -20,6 +22,52 @@ class Corpus():
     @staticmethod
     def words_of_len(k):
         return Corpus.words()[k] if k<=Corpus.max_word_len() else []
+
+    @staticmethod
+    def readable_chars():
+        return 'olzmyshtxgabcdef'
+
+    @staticmethod
+    def hex13():
+        """ Hex words of len 13 """
+        valid_chars = 'olzmyshtxgabcdef'
+        eights = [ w for w in words.words() if len(w)==8 and all(c in valid_chars for c in w)]
+        fours = [ w for w in words.words() if len(w)==4 and all(c in valid_chars for c in w) ]
+        adjectives = Corpus.select_adjectives(eights)
+        nouns = Corpus.select_nouns(fours)
+        adverbs = Corpus.select_adverbs(eights)
+        verbs = Corpus.select
+
+
+
+    @staticmethod
+    def to_readable_hex(code):
+        """ Make hex a little more readable """
+        return code.replace('0', 'o').replace('1', 'l').replace('2', 'z').replace('3', 'm').replace('4', 'y').replace(
+            '5', 's').replace('6', 'h').replace('7', 't').replace('8', 'x').replace('9', 'g')
+
+    @staticmethod
+    def from_readable_hex(readable):
+        """ Convert back to valid hex characters """
+        return readable.replace('o', '0').replace('l', '1').replace('z', '2').replace('m', '3').replace('y',
+                                                                                                        '4').replace(
+            's', '5').replace('h', '6').replace('t', '7').replace('x', '8').replace('9', 'g')
+
+    @staticmethod
+    def select_adjectives(words):
+        return [ w for w,t in nltk.pos_tag(words) if t in ['JJ','JJR','JJS']]
+
+    @staticmethod
+    def select_nouns(words):
+        return [w for w, t in nltk.pos_tag(words) if t in ['NN','NNS','NNP','NNPS']]
+
+    @staticmethod
+    def select_adverbs(words):
+        return [w for w, t in nltk.pos_tag(words) if t in ['RB','RBR','RBS']]
+
+    @staticmethod
+    def select_verbs(words):
+        return [w for w,t in nltk.pos_tag(words) if t in ['VB','VBG']]
 
     @ring.lru()
     @staticmethod

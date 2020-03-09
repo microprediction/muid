@@ -68,16 +68,6 @@ class Memorable(Corpus):
         return all( c in 'ol234s6t89abcdef-' for c in s)
 
     @staticmethod
-    def to_readable_hex(code):
-        """ Make hex a little more readable """
-        return code.replace('0', 'o').replace('1', 'l').replace('5', 's').replace('7', 't')
-
-    @staticmethod
-    def from_readable_hex(readable):
-        """ Convert back to valid hex characters """
-        return readable.replace('o', '0').replace('l', '1').replace('s', '5').replace('t','7')
-
-    @staticmethod
     def longest_word(readable):
         assert Memorable.is_readable_hex(readable), "Convert to readable hex first "
         phrase_sans = readable.replace('-', '')
