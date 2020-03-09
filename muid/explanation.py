@@ -1,16 +1,37 @@
 
+TITLE = """                         
+         __    __     __    __    _____   ______              
+         \ \  / /     ) )  ( (   (_   _) (_  __ \             
+         () \/ ()    ( (    ) )    | |     ) ) \ \            
+         / _  _ \     ) )  ( (     | |    ( (   ) )           
+        / / \/ \ \   ( (    ) )    | |     ) )  ) )           
+       /_/      \_\   ) \__/ (    _| |__  / /__/ /            
+      (/          \)  \______/   /_____( (______/             
+                                
+             Memorable Unique Identifiers                                                
+   __    __      _____      __      _    _____   ______       
+   \ \  / /     (_   _)    /  \    / )  / ___/  (   __ \      
+   () \/ ()       | |     / /\ \  / /  ( (__     ) (__) )     
+   / _  _ \       | |     ) ) ) ) ) )   ) __)   (    __/      
+  / / \/ \ \      | |    ( ( ( ( ( (   ( (       ) \ \  _     
+ /_/      \_\    _| |__  / /  \ \/ /    \ \___  ( ( \ \_))    
+(/          \)  /_____( (_/    \__/      \____\  )_) \__/                                             
+                                              
+           https://pypi.org/project/muid/
+           
+                 Mining has begun  
+"""
 
-EXPLANATION = ["This script runs a simple open source mining routine from the MUID package, available at https://pypi.org/project/muid/",
-            "If at any point you feel uncomfortable just Control-C",
+EXPLANATION = ["This script runs a simple open source mining routine from the MUID package",
+            "Code is available at https://github.com/microprediction/muid to read",
+             "You should hear your laptop fan firing up.",
+            "If at any point you feel uncomfortable, or your computer does, just Control-C",
             "                   ",
             "The script searches for hash-memorable keys",
             "This takes a while so the script is a little chatty, sorry.",
-            "You should hear your laptop fan pretty soon.",
             " ",
             "A hash-memorable key is a unique identifier - which is to say a long randomly generated string representing a hexidecimal number",
             "Such as 683697d0c930403aa0c700f6c29596c4",
-            "We thought about calling them malarkeys",
-            "But that wouldn't be overly descriptive",
             " ",
             "A hash-memorable key, or hash-memorable unique identifier (MUID for short) has another property which makes them hard to find",
             "To explain, we use a hash function that takes one hex number and turns it into another",
@@ -51,18 +72,19 @@ EXPLANATION = ["This script runs a simple open source mining routine from the MU
             "More on that in a minute",
             "    ",
             "But first, if you do manage to generate an amusing spirit animal, by all means share it at https://www.quora.com/unanswered/What-are-the-most-amusing-hash-memorable-identifiers-you-have-generated ",
-            "Or vote there"
-            "  ",
-            "  " 
+            "Or vote there on your favourite hash-memorable key",
+            "We thought about calling hash-memorable keys malarkeys",
+            "But that wouldn't be overly descriptive",
+            "        ",
             "The most important thing about your spirit animal, let's say 'Foldable Cat' for example, is the sum of the lengths of the two words",
             "In this case the sum is 11 and this is called the length",
             "Very imaginative terminology, no?",
             "Well the length, sometimes called the difficulty is important.",
             "Maybe not as important as your liking your  'Colossal Oca', but the length determines its utilitarian value.",
             "     ",
-            "Which brings us to the motivation for running this script",
+            "Which brings us to a motivation for running this script",
             "    ",
-            "Why would you want hash-memorable keys?",
+            "Why would you want to participate at www.microprediction.com?",
             "    ",
             "Good question",
             "      ",
@@ -73,7 +95,11 @@ EXPLANATION = ["This script runs a simple open source mining routine from the MU
             "A microprediction web will make consulting companies, artisan data scientists, and overpaid pompous managers about as relevant to model and data search as the librarian who didn't help you find this script.",
             " ",
             "We like librarians ... but there is a message in the plot here:  https://blog.oup.com/2011/06/librarian-census/    ",
-            "And more importantly there is a rather obvious contradiction at the heart of the so-called AI revolution",
+            "   ",
+            "Human managed data science is on the way out",
+            "Collective prediction orchestrated by lightweight market-inspired mechanisms are on the way in.",
+            "   ",
+            "But don't take our word for it. There is a contradiction at the heart of the so-called AI revolution which you can figure out for yourself.",
             " ",
             "The contradiction runs as follows:",
             "   ",
@@ -81,14 +107,20 @@ EXPLANATION = ["This script runs a simple open source mining routine from the MU
             "       Of course it is also a bunch of very clever work ... not downplaying that at all ... ",
             "          ... but ... ",
             " ",
-            "   (B) It also comprises a flood with mind-numbingly stupid powerpoint slides written by recent applied statisticians. ",
-            "       Who claim that their human ability to manage the production of prediction is essential",
-            "       Even though it mostly amounts to stating the obvious",
+            "   (B) It also comprises a flood of mind-numbingly daft powerpoint slides written by recent applied statisticians. ",
+            "       ... who claim that their human ability to manage the production of prediction is essential",
+            "       ... including managing a new type of statistics (ahem)",
+            "       ... even though it mostly amounts to stating the obvious",
+            "       ... and even though where there really was enough data things could be assessed by a simple score",
+            "       ... which opens up the possibility for vastly more efficient ways to orchestrate production ",
+            "       ... which in turn is just Econ 101",
+            "       ... so long as you can reduce economic frictions of trade",
+            "       ... which is exactly what we are doing here",
             "  ",
-            "We say: what a load of malarkey. If there is enough data to distinguish good models from bad, the machines should be managing the humans and not the other way around.",
-            " At least for a class of problems so defined, which we term 'microprediction' ",
-            " Which is not to be confused with predicting singular events like the outcome of the 2020 US election. ",
-            " ",
+            "We say to the AI industry: what a load of malarkey! If there is enough data to distinguish good models from bad, the machines should be managing the humans and not the other way around.",
+            "At least for a class of problems so defined, which we term 'microprediction' ",
+            "Which is not to be confused with predicting singular events like the outcome of the 2020 US election. ",
+            "   ",
             "Anyway, thankfully this script is helping in some small way",
             "By running it you are not just sitting on your hands ",
             "You are helping to stop the proliferation of expensive cold-start data science.",
@@ -134,7 +166,7 @@ EXPLANATION = ["This script runs a simple open source mining routine from the MU
             "... maybe.  ",
             " ",
             "Anyway, thanks for listenning.",
-            "Next time run python3 -c 'from muid import mine; mine(skip_intro=True)' to avoid this rant and the install",
+            "Next time run python3 -c 'from muid import mine; mine(skip_intro=True)' to avoid this rant",
             "Here come your keys and corresponding spirit animals. ",
             "   ",
            ]

@@ -1,4 +1,4 @@
-from muid.explanation import EXPLANATION
+from muid.explanation import TITLE, EXPLANATION
 import requests, pprint, time, binascii, os
 from muid.corpus import BCORPUS, to_readable_hex
 from muid.crypto import mhash
@@ -24,6 +24,8 @@ def mine(timeout=1000000000,skip_intro=False,quota=16):
         print( "Control-C to stop ... ")
         print( " ")
     else:
+        print(TITLE,flush=True)
+        time.sleep(1)
         found_during_explanation = list()
         for ln in EXPLANATION:
             print(ln,flush=True)
