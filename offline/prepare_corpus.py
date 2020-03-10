@@ -3,6 +3,8 @@ nltk.download('words')
 nltk.download('averaged_perceptron_tagger')
 from nltk.corpus import words
 
+from muid.corpus import to_readable_hex, from_readable_hex
+
 def select_adjectives(words):
     return [w for w, t in nltk.pos_tag(words) if t in ['JJ', 'JJR', 'JJS']]
 
@@ -14,16 +16,6 @@ def select_adverbs(words):
 
 def select_verbs(words):
     return [w for w, t in nltk.pos_tag(words) if t in ['VB', 'VBG']]
-
-def to_readable_hex(code):
-    """ Make hex a little more readable """
-    return code.replace('0', 'o').replace('1', 'l').replace('2', 'z').replace('3', 'm').replace('4', 'y').replace(
-        '5', 's').replace('6', 'h').replace('7', 't').replace('8', 'x').replace('9', 'g')
-
-def from_readable_hex(readable):
-    """ Convert back to valid hex characters """
-    return readable.replace('o', '0').replace('l', '1').replace('z', '2').replace('m', '3').replace('y','4').replace(
-        's', '5').replace('h', '6').replace('t', '7').replace('x', '8').replace('9', 'g')
 
 import requests
 ANIMALS = requests.get('https://gist.githubusercontent.com/atduskgreg/3cf8ef48cb0d29cf151bedad81553a54/raw/82f142562cf50b0f6fb8010f890b2f934093553e/animals.txt').text.split('\n')
@@ -55,8 +47,8 @@ def corpus_pairs( k1, k2, readable=False, separator='' ):
     return [to_readable_hex(w) for w in hex_corpus] if readable else hex_corpus
 
 
-for k1 in range(4,8):
-    for k2 in range(3,8):
+for k1 in range(4,11):
+    for k2 in range(3,11):
         for suffix in ['','_readable']:
             with open('animals_'+str(k1)+'_'+str(k2)+suffix+'.txt','w') as f:
                 for w in corpus_pairs(k1=k1,k2=k2,readable=(suffix=='_readable'),separator=' '):
