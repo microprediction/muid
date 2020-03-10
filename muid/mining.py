@@ -1,5 +1,5 @@
-from muid.explanation import TITLE, EXPLANATION
-import requests, pprint, time, binascii, os
+from muid.explanation import TITLE, EXPLANATION, LEVEL12, LEVEL13, RANT
+import requests, pprint, time, binascii, os, random
 from muid.corpus import BCORPUS, to_readable_hex
 from muid.crypto import mhash
 
@@ -18,18 +18,21 @@ def mine(timeout=1000000000,skip_intro=False,quota=16):
     start_time = time.time()
     difficulty = 6
     count = 0
+    announced_12 = False
+    announced_13 = False
+    TWELVE = 12
 
+    print(TITLE,flush=True)
     if skip_intro:
         print( "Starting to mine ...", flush=True )
         print( "Control-C to stop ... ")
         print( " ")
     else:
-        print(TITLE,flush=True)
-        time.sleep(1)
+        # Explain while mining
         found_during_explanation = list()
         for ln in EXPLANATION:
             print(ln,flush=True)
-            for _ in range(int(len(ln)/3)):
+            for _ in range(int(len(ln)/15)):
                 found, difficulty, count = mine_once(difficulty,count,quota)
                 found_during_explanation.extend(found)
 
@@ -38,12 +41,44 @@ def mine(timeout=1000000000,skip_intro=False,quota=16):
             pprint.pprint(q)
             print(" ",flush=True)
 
-    while time.time()<start_time+timeout:
+    # Then keep going until level 12
+    while time.time()<start_time+timeout and difficulty<TWELVE:
         found, difficulty, count = mine_once(difficulty,count,quota)
         if found:
+            print(" ", flush=True)
             pprint.pprint(found[0])
             print(" ", flush=True)
             time.sleep(1)
+
+    if difficulty >= TWELVE and not (announced_12):
+        print(LEVEL12, flush=True)
+        announced_12 = True
+
+    # Rant while mining once level 12 is reached
+    for ln in RANT:
+        if not (skip_intro):
+            print(ln, flush=True)
+        for _ in range(int(len(ln) / 3)):
+            found, difficulty, count = mine_once(difficulty, count, quota)
+            if found:
+                print(" ", flush=True)
+                pprint.pprint(found[0])
+                print(" ", flush=True)
+
+    # Then go until timeout
+    while time.time()<start_time+timeout:
+        found, difficulty, count = mine_once(difficulty, count, quota)
+        # Then back to work ...
+        if difficulty >= TWELVE+1 and not announced_13:
+            print(LEVEL13, flush=True)
+            announced_13 = True
+        if found:
+            print(" ", flush=True)
+            pprint.pprint(found[0])
+            print(" ", flush=True)
+        if random.choice(range(1000))==1:
+            print("Never give up. Never surrender. ",flush=True )
+
 
 def mine_once(difficulty,count,quota):
 
