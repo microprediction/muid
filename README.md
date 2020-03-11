@@ -7,13 +7,19 @@ Memorable unique identifiers are a provocative misnomer. When generating
 unique identifiers such as privately used keys, memorability is antithetical
 to uniqueness. MUIDs might be better termed "hash-memorable" identifiers. They form a subset of UUIDs whose SHA-256 hashes are memorable. 
  
-# Shortcut 
+# Start mining now 
 
-Just want to mine? Cut and paste this at the terminal. 
+Just want to mine? Run this bash script. 
 
     /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/microprediction/muid/master/examples/mine_from_venv.sh)"
  
-The script will explain itself and the motivation, as it mines. 
+The script will explain itself and the motivation, as it mines. If it doesn't work then maybe
+try 
+
+    ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)"
+    brew install python
+    
+although we'd rather not get into a debate about the "best" way to install Python on a mac. 
  
 # Using the library directly
 
@@ -104,7 +110,10 @@ are a non-issue. But since an MUID collision requires an underlying collision in
 that the computational capacity required to create MUID collisions over any interval of time is at least as large as the computational capacity employed 
 to create UUID collisions. In short, the thing to worry about is the relatively short supply of MUIDs (an obvious limitation) not collisions between them. 
  
-  
+### Stupid dog trick
+
+https://vimeo.com/396819347
+
 
 
 
