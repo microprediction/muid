@@ -65,22 +65,14 @@ At time of writing, mining MUIDs is roughly one order of magnitude more profitab
 lousy library to do your mining. With a little work, you should be able to mine with 100x the economics of bitcoin ... at least
 for a while! 
     
-# Caching in 
-
-There is a bid for MUIDs of len at least min_len where:
-
-    min_len = int(requests.get("http://www.microprediction.com/config.json").json()['min_len'])
-
-More details on that soon. 
-
-# An example of the use of MUIDs 
+# Applications 
  
 We hope you have your own uses and would love to hear about them. Many applications can benefit
 from one less join. 
     
 # Implementation decisions 
 
-We welcome thoughtful suggestions at https://github.com/microprediction/muid/issues or https://algorithmia.com/algorithms/microprediction/mverify/discussion. 
+We welcome thoughtful suggestions at https://github.com/microprediction/muid/issues 
 
 ### Choice of hash    
 
@@ -105,10 +97,8 @@ which is to say
   | 3    |m     | 7   | t       |      |       |
   | 4    |y     | 8   | x       |      |       |
   
-with a,b,c,d,e,f unchanged of course. 
-  
-   
-### Collisions (forgettaboutit) 
+     
+### Collisions (forgetaboutit) 
 
 It is well appreciated that approximately 2.71 quintillion uuid4() can be generated before the risk of collision exceeds fifty percent (Wikipedia). Thus UUID collisions
 are a non-issue. But since an MUID collision requires an underlying collision in UUIDs which are generated while mining, a moment's reflection should convince the reader
