@@ -2,11 +2,14 @@ import nltk,json
 nltk.download('words')
 nltk.download('averaged_perceptron_tagger')
 from nltk.corpus import words
-
-from muid.corpus import to_readable_hex, from_readable_hex
-#https://medium.com/@gianpaul.r/tokenization-and-parts-of-speech-pos-tagging-in-pythons-nltk-library-2d30f70af13b
+import requests
+from muid.corpus import from_readable_hex
 
 pos = {''}
+
+# Exclude words that are likely to offend
+EXCLUDED_ADJECTIVES = ['sambo']
+EXCLUDED_ANIMALS = ['booby']
 
 def select_acceptable_first_words(words):
     """
@@ -21,30 +24,13 @@ def select_acceptable_first_words(words):
     VBG   verb, gerund / present participle taking
     VB    verb, base form take
     NNP   proper noun, singular ‘Harrison’
-
-    Currently out but could consider:
-    NN    noun, singular ‘desk’
-    NNS   noun plural ‘desks’
-    PDT   predeterminer ‘all
-    PRP   personal pronoun I, he, she
-    PRP   possessive my, his, hers
-    RB    adverb very, silently,
-    RP    particle give up
-    TO    to go ‘to’ the
-    UH    interjection, errrrrrrrm
-    VBD   verb, past tense took
-    VBN   verb, past participle taken
-    VBP   verb, sing.present, non - 3d take
-    VBZ   verb, 3rd person sing.present takes
-    WDT   wh - determiner which
-    WP    wh - pronoun who, what
-    WP   possessive wh - pronoun whose
-    WRB  wh - abverb where, when
+    # Discussed at https://medium.com/@gianpaul.r/tokenization-and-parts-of-speech-pos-tagging-in-pythons-nltk-library-2d30f70af13b
     """
-    return [w for w, t in nltk.pos_tag(words) if t in ['NNPS','JJ', 'JJR', 'JJS','RBR','RBS','VB','VBG','FW','NNP']]
+    return [w for w, t in nltk.pos_tag(words) if t in ['NNPS','JJ', 'JJR', 'JJS','RBR','RBS','VB','VBG','FW','NNP'] and not w.lower() in EXCLUDED_ADJECTIVES]
 
-import requests
-ANIMALS = requests.get('https://gist.githubusercontent.com/atduskgreg/3cf8ef48cb0d29cf151bedad81553a54/raw/82f142562cf50b0f6fb8010f890b2f934093553e/animals.txt').text.split('\n')
+
+ALL_ANIMALS = requests.get('https://gist.githubusercontent.com/atduskgreg/3cf8ef48cb0d29cf151bedad81553a54/raw/82f142562cf50b0f6fb8010f890b2f934093553e/animals.txt').text.split('\n')
+ANIMALS = [ a for a in ALL_ANIMALS if not a in EXCLUDED_ANIMALS ]
 
 def animals_of_len(k):
     return [ a.lower() for a in ANIMALS if len(a)==k and not a=='list' ]
@@ -83,4 +69,3 @@ crps = corpus()
 with open('animals.json','w') as f:
     json.dump(crps,f)
 
-print(len(crps))

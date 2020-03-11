@@ -32,7 +32,7 @@ def mine(timeout=1000000000,skip_intro=False,quota=16):
         found_during_explanation = list()
         for ln in EXPLANATION:
             print(ln,flush=True)
-            for _ in range(int(len(ln)/15)):
+            for _ in range(int(len(ln)/3)):
                 found, difficulty, count = mine_once(difficulty,count,quota)
                 found_during_explanation.extend(found)
 
