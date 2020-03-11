@@ -13,8 +13,8 @@ If you cut and paste the following at the terminal it will mine for MUIDs and ex
 
      /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/microprediction/muid/master/examples/mine_from_venv.sh)"
 
-Other docs
-==========
+Better docs
+===========
 
 The READMEs at https://pypi.org/project/muid/ and
 https://github.com/microprediction/muid tend to be more up to date than this documentation.

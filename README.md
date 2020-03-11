@@ -21,6 +21,11 @@ try
     
 although we'd rather not get into a debate about the "best" way to install Python on a mac. 
  
+# Sponsor a statistician 
+
+If you find a spirit animal of length 13 or more you can make the day of someone looking to
+enter a worldwide statistics contest, to be announced Apr 1st, 2020. The clock is ticking.  
+ 
 # Using the library directly
 
 As per https://muid.readthedocs.io/en/latest/ ...
