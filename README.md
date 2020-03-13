@@ -5,7 +5,8 @@ Memorable Unique Identifiers
 
 Memorable unique identifiers are a provocative misnomer. When generating 
 unique identifiers such as privately used keys, memorability is antithetical
-to uniqueness. MUIDs might be better termed "hash-memorable" identifiers. They form a subset of UUIDs whose SHA-256 hashes are memorable. 
+to uniqueness. MUIDs might be better termed "hash-memorable" identifiers. They form a subset
+of UUIDs whose SHA-256 hashes are memorable. See the https://vimeo.com/397352413 for further explanation. 
  
 # Start mining now 
 
