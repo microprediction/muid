@@ -1,8 +1,7 @@
 from muid.explanation import TITLE, EXPLANATION, LEVEL12, LEVEL13, RANT
 import requests, pprint, time, binascii, os, random
-from muid.corpus import BCORPUS, to_readable_hex
+from muid.corpus import BCORPUS, to_readable_hex, pretty
 from muid.crypto import mhash
-from muid.validation import to_pretty
 
 def get_official_min_len():
     return int(requests.get('https://www.microprediction.com/config.json').json()["min_len"])
@@ -84,7 +83,7 @@ def mine(timeout=1000000000,skip_intro=False,quota=16):
 def mine_once(difficulty,count,quota):
 
     keys         = [ binascii.b2a_hex(os.urandom(16)) for _ in range(100000) ]
-    hashed_keys  = [ mhash(key) for key in keys ]
+    hashed_keys  = [mhash(key) for key in keys]
     short_codes  = [ hk[:difficulty]   for hk in hashed_keys ]
     longer_codes = [ hk[:difficulty+1] for hk in hashed_keys]
     candidates   = dict( zip(short_codes,keys) )
@@ -113,8 +112,8 @@ def mine_once(difficulty,count,quota):
 
 def report_finding(key,c,ks):
     k1, k2 = ks
-    pretty = to_pretty(code=c, k1=k1, k2=k2)
+    prtty = pretty(code=c, k1=k1, k2=k2)
     longest_found = k1 + k2
     full_code = mhash(key)
-    response = [{"length": longest_found, "pretty": pretty, "key": key, "hash": full_code}]
+    response = [{"length": longest_found, "pretty": prtty, "key": key, "hash": full_code}]
     return response

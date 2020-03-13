@@ -3,6 +3,25 @@ import requests
 CORPUS = requests.get('https://raw.githubusercontent.com/microprediction/muid/master/offline/animals.json').json()
 BCORPUS = dict( [ (k.encode('ascii'),v) for k,v in CORPUS.items() ])
 
+def search(code=None):
+    """ Return spirit animal given public identity """
+    for k in range(16,5,-1):
+        code_k = code[:k]
+        ks = BCORPUS.get(code_k)
+        if ks:
+            k1,k2 = ks
+            return pretty(code=code_k, k1=k1, k2=k2)
+
+def pretty(code, k1, k2):
+    """ Just the animal """
+    w1 = code[:k1]
+    w2 = code[k1:k1 + k2]
+    a1 = w1.decode('ascii')
+    a2 = w2.decode('ascii')
+    r1 = to_readable_hex(a1)
+    r2 = to_readable_hex(a2)
+    return r1[0].upper() + r1[1:] + ' ' + r2[0].upper() + r2[1:]
+
 def to_readable_hex(word):
     """ Make hex a little more readable """
     return word.replace('0', 'o').replace('1', 'l').replace('2', 'z').replace('3', 'm').replace('4', 'y').replace(

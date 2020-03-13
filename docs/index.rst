@@ -13,53 +13,77 @@ If you cut and paste the following at the terminal it will mine for MUIDs and ex
 
      /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/microprediction/muid/master/examples/mine_from_venv.sh)"
 
-Better docs
-===========
+If it fails you might need Python 3
 
-The READMEs at https://pypi.org/project/muid/ and
-https://github.com/microprediction/muid tend to be more up to date than this documentation.
+    ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)"
+    brew install python
 
+Explanatory video
+=================
+
+https://vimeo.com/397352413
 
 Installation
 ============
 
     $ pip install muid
 
-    >> import muid
+ Using the library directly
 
-Quickstart
+As per https://muid.readthedocs.io/en/latest/ ...
+
+Hash-memorability
+=================
+
+    >>> muid.mhash(b'f601f291896bb66b8a3c3d783077713a')
+    b'56a33411a3ae7cfc95597911708358ad'
+
+Don't see it?
+
+    >>> muid.pretty(b'56a33411a3ae7cfc95597911708358ad',k1=6,k2=5)
+    'Shammy Llama'
+
+
+Validation
 ==========
 
-Let's generate an MUID
+    >>> muid.animal(b'f601f291896bb66b8a3c3d783077713a')
+    'Shammy Llama'
 
-    key  = muid.muid4( min_len=6 )
+    >>> muid.validate(b'f601f291896bb66b8a3c3d783077713a')
+    True
 
-    print( muid.mhash( key ) )
+Mining
+======
 
-Get the joke? MUIDs are "hash-memorable" UUIDs, meaning that if you stare at the hash for long enough you'll see a word or phrase.
+    >>> muid.mine()
+    {'hash': b'56a33411a3ae7cfc95597911708358ad',
+    'key': b'f601f291896bb66b8a3c3d783077713a',
+    'length': 11,
+    'pretty': 'Shammy Llama'}
 
-Mining MUIDs
+Bequeath unwanted MUIDs to a worthy statistician.
+
+Applications
 ============
 
-More time on your hands?
+See the video at https://vimeo.com/397352413 for some motivation.
 
-     muid.mine()
+We hope you have an application that can benefit from one less join.
 
-and wait, and wait, cool identifiers to come in. At time of writing
-it was possible to sell MUIDs with difficulty 11 for 7c a pop. Or you could find
-a talented person with latent mathematical talent and make their day - they will
-be able to participate at www.microprediction.com without waiting.
+Implementation decisions
+========================
 
-Comparison to bitcoin economics
-===============================
+We welcome thoughtful suggestions at https://github.com/microprediction/muid/issues
 
-Probably highly favourable, probably by one or two orders of magnitude. Detailed calculations comparing bitcoin mining and MUID mining economics can be
-found at https://github.com/microprediction/muid/blob/master/muid/economics.py
+We truncate the output of hashlib.sha256
 
 Collisions
 ==========
 
-Ain't gonna happen.
+MUID collision requires approximately the same computational capacity as UUID collision or more.
 
-The computational capacity required to create MUID collisions over any interval of time is at least as large as the computational capacity
-that must be employed to create UUID collisions with any non-vanishing probability.
+Stupid dog trick
+================
+
+https://vimeo.com/396819347
