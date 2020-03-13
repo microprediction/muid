@@ -1,4 +1,4 @@
-import requests, ring
+import requests
 
 CORPUS = requests.get('https://raw.githubusercontent.com/microprediction/muid/master/offline/animals.json').json()
 BCORPUS = dict( [ (k.encode('ascii'),v) for k,v in CORPUS.items() ])
@@ -13,4 +13,6 @@ def from_readable_hex(word):
     return word.replace('o', '0').replace('l', '1').replace('z', '2').replace('m', '3').replace('y',
                                                                                                     '4').replace(
         's', '5').replace('h', '6').replace('t', '7').replace('x', '8').replace('9', 'g')
+
+
 

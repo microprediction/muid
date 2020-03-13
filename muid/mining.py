@@ -2,6 +2,7 @@ from muid.explanation import TITLE, EXPLANATION, LEVEL12, LEVEL13, RANT
 import requests, pprint, time, binascii, os, random
 from muid.corpus import BCORPUS, to_readable_hex
 from muid.crypto import mhash
+from muid.validation import mpretty
 
 def get_official_min_len():
     return int(requests.get('https://www.microprediction.com/config.json').json()["min_len"])
@@ -112,13 +113,7 @@ def mine_once(difficulty,count,quota):
 
 def report_finding(key,c,ks):
     k1, k2 = ks
-    w1 = c[:k1]
-    w2 = c[k1:k1 + k2]
-    a1 = w1.decode('ascii')
-    a2 = w2.decode('ascii')
-    r1 = to_readable_hex(a1)
-    r2 = to_readable_hex(a2)
-    pretty = r1[0].upper() + r1[1:] + ' ' + r2[0].upper() + r2[1:]
+    pretty = mpretty(code=c,k1=k1,k2=k2)
     longest_found = k1 + k2
     full_code = mhash(key)
     response = [{"length": longest_found, "pretty": pretty, "key": key, "hash": full_code}]
