@@ -27,7 +27,7 @@ As per https://muid.readthedocs.io/en/latest/ ...
 ### Install 
 
     pip install muid
- 
+  
 ### Hash-memorability
     
     >>> muid.bhash(b'f601f291896bb66b8a3c3d783077713a')
@@ -37,8 +37,13 @@ Don't see it?
 
     >>> muid.pretty(b'56a33411a3ae7cfc95597911708358ad',k1=6,k2=5)
     'Shammy Llama'
+
+### Create one MUID
+
+    >>> muid.create(difficulty=8, with_report=True)
+    [{'length': 8, 'pretty': 'Thof Clam', 'key': b'79f7faf8d1272b94eaac367972a09f7b', 'hash': b'760fc1a3368216b67a044e3d4da1fd85'}]
  
-### Strings 
+### String version of hash 
 
 Use shash instead of bhash
 
@@ -53,7 +58,9 @@ Use shash instead of bhash
     >>> muid.validate(b'f601f291896bb66b8a3c3d783077713a')
     True
     
-### Mining
+### Mining for multiple MUIDs
+
+Runs forever and produces MUIDs of increasing length. 
 
     >>> muid.mine()
     
@@ -73,10 +80,6 @@ Use shash instead of bhash
     'pretty': 'Amethyst Cod'}
     
 Bequeath unwanted MUIDs to a worthy statistician. 
-
-### Creating a single MUID
-
-    >>>key = muid.create(difficulty=7)
 
 # Applications 
  

@@ -38,13 +38,6 @@ Hash-memorability
 
         >>> muid.pretty(b'56a33411a3ae7cfc95597911708358ad',k1=6,k2=5)
         'Shammy Llama'
-    b'56a33411a3ae7cfc95597911708358ad'
-
-Don't see it?
-
-    >>> muid.pretty(b'56a33411a3ae7cfc95597911708358ad',k1=6,k2=5)
-    'Shammy Llama'
-
 
 Validation
 ==========
