@@ -1,7 +1,7 @@
-from muid.mining import mine
+from muid.mining import mine, create
 from muid.corpus import to_readable_hex, from_readable_hex, pretty, search
 from muid.validation import validate, animal
-from muid.crypto import mhash
+from muid.crypto import bhash, shash
 
 
 

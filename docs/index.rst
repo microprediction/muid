@@ -28,14 +28,16 @@ Installation
 
     $ pip install muid
 
- Using the library directly
-
-As per https://muid.readthedocs.io/en/latest/ ...
-
 Hash-memorability
 =================
 
-    >>> muid.mhash(b'f601f291896bb66b8a3c3d783077713a')
+    >>> muid.bhash(b'f601f291896bb66b8a3c3d783077713a')
+        b'56a33411a3ae7cfc95597911708358ad'
+
+    Don't see it?
+
+        >>> muid.pretty(b'56a33411a3ae7cfc95597911708358ad',k1=6,k2=5)
+        'Shammy Llama'
     b'56a33411a3ae7cfc95597911708358ad'
 
 Don't see it?

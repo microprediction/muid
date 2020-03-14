@@ -1,8 +1,8 @@
 from muid.corpus import search
-from muid.crypto import mhash
+from muid.crypto import bhash
 
 def animal(key):
-    code = mhash(key)
+    code = bhash(key)
     return search(code)
 
 def validate(key):

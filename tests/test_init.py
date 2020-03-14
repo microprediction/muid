@@ -2,7 +2,7 @@ import muid
 
 def test_mnemonic():
     key = b'f601f291896bb66b8a3c3d783077713a'
-    code = muid.mhash(key)
+    code = muid.bhash(key)
     memorable = muid.search(code)
     assert memorable == 'Shammy Llama'
 

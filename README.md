@@ -3,10 +3,11 @@ Memorable Unique Identifiers
 
 ### Wait you say ... that's an oxymoron
 
-Memorable unique identifiers are a provocative misnomer. When generating 
-unique identifiers such as privately used keys, memorability is antithetical
-to uniqueness. MUIDs might be better termed "hash-memorable" identifiers. They form a subset
-of UUIDs whose SHA-256 hashes are memorable. See the https://vimeo.com/397352413 for further explanation. 
+Video explanation at https://vimeo.com/397352413
+
+Memorable unique identifiers are a provocative misnomer because memorability is antithetical
+to uniqueness. MUIDs might be better termed "hash-memorable" identifiers: identifiers whose
+SHA-256 hashes are in part memorable.  
  
 # Start mining now 
 
@@ -29,13 +30,20 @@ As per https://muid.readthedocs.io/en/latest/ ...
  
 ### Hash-memorability
     
-    >>> muid.mhash(b'f601f291896bb66b8a3c3d783077713a')
+    >>> muid.bhash(b'f601f291896bb66b8a3c3d783077713a')
     b'56a33411a3ae7cfc95597911708358ad'
     
 Don't see it?
 
     >>> muid.pretty(b'56a33411a3ae7cfc95597911708358ad',k1=6,k2=5)
     'Shammy Llama'
+ 
+### Strings 
+
+Use shash instead of bhash
+
+    >>> muid.shash('f601f291896bb66b8a3c3d783077713a')
+    56a33411a3ae7cfc95597911708358ad
  
 ### Validation 
  
@@ -66,6 +74,10 @@ Don't see it?
     
 Bequeath unwanted MUIDs to a worthy statistician. 
 
+### Creating a single MUID
+
+    >>>key = muid.create(difficulty=7)
+
 # Applications 
  
 See the video at https://vimeo.com/397352413 for some motivation. 
@@ -78,7 +90,9 @@ We welcome thoughtful suggestions at https://github.com/microprediction/muid/iss
 
 ### Choice of hash    
 
-We truncate the output of hashlib.sha256 
+We truncate the output of hashlib.sha256  For example muid.shash('abe5') is equivalent to
+
+    sha256('abe5'.encode('ascii')).hexdigest()[:32]
 
 ### Readable hex
     
@@ -87,14 +101,13 @@ We truncate the output of hashlib.sha256
   | 1    |l     | 5   | s       | 9    | g     |
   | 2    |z     | 6   | h       | 0    | o     |
   | 3    |m     | 7   | t       |      |       |
-  | 4    |y     | 8   | x       |      |       |
-  
+  | 4    |y     | 8   | x       |      |       |  
      
 # Miscellaneous 
 
 ### Collisions
 
-MUID collision requires approximately the same computational capacity as UUID collision or more. 
+MUID collision requires approximately the same computational capacity as UUID collision, or more. Thus unlikely to be an issue.   
  
 ### Stupid dog trick
 

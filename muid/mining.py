@@ -1,22 +1,32 @@
 from muid.explanation import TITLE, EXPLANATION, LEVEL12, LEVEL13, RANT
 import requests, pprint, time, binascii, os, random
 from muid.corpus import BCORPUS, to_readable_hex, pretty
-from muid.crypto import mhash
+from muid.crypto import bhash
 
-def get_official_min_len():
-    return int(requests.get('https://www.microprediction.com/config.json').json()["min_len"])
 
-MIN_LEN = get_official_min_len()
 
 #------------------------------------------------------------------
 #     A mining algorithm you are welcome to improve
 #------------------------------------------------------------------
 
+def create(difficulty=8, with_report=False):
+    """ Find a MUID
+         difficulty:  int  minimum length of the memorable part of the hash
+    """
+    dffclty = difficulty
+    if dffclty>=13:
+        print("Creating a difficult MUID. This may take days or weeks.")
+    quota = 100000000
+    count = 0
+    while True:
+        report, dffclty, count = mine_once(dffclty, count, quota)
+        if report:
+            return report if with_report else report[0]["key"]
 
-def mine(timeout=1000000000,skip_intro=False,quota=16):
+def mine(timeout=1000000000,skip_intro=False,quota=16, start_difficulty=6 ):
     """ Mine for keys of increasing length """
     start_time = time.time()
-    difficulty = 6
+    difficulty = start_difficulty
     count = 0
     announced_12 = False
     announced_13 = False
@@ -83,7 +93,7 @@ def mine(timeout=1000000000,skip_intro=False,quota=16):
 def mine_once(difficulty,count,quota):
 
     keys         = [ binascii.b2a_hex(os.urandom(16)) for _ in range(100000) ]
-    hashed_keys  = [mhash(key) for key in keys]
+    hashed_keys  = [bhash(key) for key in keys]
     short_codes  = [ hk[:difficulty]   for hk in hashed_keys ]
     longer_codes = [ hk[:difficulty+1] for hk in hashed_keys]
     candidates   = dict( zip(short_codes,keys) )
@@ -114,6 +124,6 @@ def report_finding(key,c,ks):
     k1, k2 = ks
     prtty = pretty(code=c, k1=k1, k2=k2)
     longest_found = k1 + k2
-    full_code = mhash(key)
+    full_code = bhash(key)
     response = [{"length": longest_found, "pretty": prtty, "key": key, "hash": full_code}]
     return response
