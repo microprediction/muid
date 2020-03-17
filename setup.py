@@ -7,7 +7,7 @@ README = (HERE / "README.md").read_text()
 
 setup(
     name="muid",
-    version="0.3.2",
+    version="0.3.4",
     description="Memorable Unique Identifier",
     long_description=README,
     long_description_content_type="text/markdown",

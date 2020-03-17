@@ -16,6 +16,7 @@ If you cut and paste the following at the terminal it will mine for MUIDs and ex
 If it fails you might need Python 3
 
     ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)"
+
     brew install python
 
 Explanatory video
@@ -26,18 +27,18 @@ https://vimeo.com/397352413
 Installation
 ============
 
-    $ pip install muid
+    pip install muid
 
 Hash-memorability
 =================
 
     >>> muid.bhash(b'f601f291896bb66b8a3c3d783077713a')
-        b'56a33411a3ae7cfc95597911708358ad'
+    b'56a33411a3ae7cfc95597911708358ad'
 
     Don't see it?
 
-        >>> muid.pretty(b'56a33411a3ae7cfc95597911708358ad',k1=6,k2=5)
-        'Shammy Llama'
+    >>> muid.pretty(b'56a33411a3ae7cfc95597911708358ad',k1=6,k2=5)
+    'Shammy Llama'
 
 Validation
 ==========
@@ -66,10 +67,13 @@ See the video at https://vimeo.com/397352413 for some motivation.
 
 We hope you have an application that can benefit from one less join.
 
-Implementation decisions
-========================
+Feeeback
+========
 
 We welcome thoughtful suggestions at https://github.com/microprediction/muid/issues
+
+Hash
+====
 
 We truncate the output of hashlib.sha256
 
