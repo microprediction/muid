@@ -24,7 +24,7 @@ setup(
     test_suite='pytest',
     tests_require=['pytest'],
     include_package_data=True,
-    install_requires=["pathlib","contexttimer","ring","requests"],
+    install_requires=["pathlib","contexttimer","ring","json"],
     entry_points={
         "console_scripts": [
             "muid=muid.__main__:main",

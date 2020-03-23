@@ -1,5 +1,5 @@
 from muid.explanation import TITLE, EXPLANATION, LEVEL12, LEVEL13, RANT
-import requests, pprint, time, binascii, os, random
+import pprint, time, binascii, os, random
 from muid.corpus import BCORPUS, to_readable_hex, pretty
 from muid.crypto import bhash
 
