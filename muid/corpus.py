@@ -5,8 +5,9 @@ BCORPUS = dict( [ (k.encode('ascii'),v) for k,v in CORPUS.items() ])
 
 def search(code=None):
     """ Return spirit animal given public identity """
+    bcode = code if isinstance(code, bytes) else code.encode('ascii')
     for k in range(16,5,-1):
-        code_k = code[:k]
+        code_k = bcode[:k]
         ks = BCORPUS.get(code_k)
         if ks:
             k1,k2 = ks
