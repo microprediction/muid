@@ -1,6 +1,6 @@
 import json
 
-with open('muid/animals.json') as f:
+with open('animals.json') as f:
     CORPUS = json.load(f)
     BCORPUS = dict( [ (k.encode('ascii'),v) for k,v in CORPUS.items() ])
 

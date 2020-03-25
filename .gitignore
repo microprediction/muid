@@ -2,4 +2,4 @@
 bump.sh
 __pycache*
 build/*
-
+dist/*
