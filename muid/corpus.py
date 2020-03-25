@@ -1,7 +1,11 @@
-import requests
+import json
+import pathlib
 
-CORPUS = requests.get('https://raw.githubusercontent.com/microprediction/muid/master/offline/animals.json').json()
-BCORPUS = dict( [ (k.encode('ascii'),v) for k,v in CORPUS.items() ])
+HERE = pathlib.Path(__file__).parent
+
+with open(HERE / "animals.json") as f:
+    CORPUS = json.load(f)
+    BCORPUS = dict( [ (k.encode('ascii'),v) for k,v in CORPUS.items() ])
 
 def search(code=None):
     """ Return spirit animal given public identity """
@@ -30,8 +34,7 @@ def to_readable_hex(word):
 
 def from_readable_hex(word):
     """ Convert back to valid hex characters """
-    return word.replace('o', '0').replace('l', '1').replace('z', '2').replace('m', '3').replace('y',
-                                                                                                    '4').replace(
+    return word.replace('o', '0').replace('l', '1').replace('z', '2').replace('m', '3').replace('y', '4').replace(
         's', '5').replace('h', '6').replace('t', '7').replace('x', '8').replace('9', 'g')
 
 
