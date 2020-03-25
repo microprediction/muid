@@ -7,7 +7,7 @@ README = (HERE / "README.md").read_text()
 
 setup(
     name="muid",
-    version="0.3.5",
+    version="0.4.1",
     description="Memorable Unique Identifier",
     long_description=README,
     long_description_content_type="text/markdown",
@@ -24,7 +24,7 @@ setup(
     test_suite='pytest',
     tests_require=['pytest'],
     include_package_data=True,
-    install_requires=["pathlib","contexttimer","ring","json"],
+    install_requires=["pathlib","contexttimer","ring"],
     entry_points={
         "console_scripts": [
             "muid=muid.__main__:main",
