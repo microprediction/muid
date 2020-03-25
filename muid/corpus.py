@@ -1,6 +1,9 @@
 import json
+import pathlib
 
-with open('animals.json') as f:
+HERE = pathlib.Path(__file__).parent
+
+with open(HERE / "animals.json") as f:
     CORPUS = json.load(f)
     BCORPUS = dict( [ (k.encode('ascii'),v) for k,v in CORPUS.items() ])
 
