@@ -1,11 +1,18 @@
 import json
 import pathlib
+import sys
 
 HERE = pathlib.Path(__file__).parent
 
-with open(HERE / "animals.json") as f:
-    CORPUS = json.load(f)
-    BCORPUS = dict( [ (k.encode('ascii'),v) for k,v in CORPUS.items() ])
+py_version = sys.version_info
+if py_version.major >= 3 and py_version.minor >= 6:     # Python version >= 3.6
+    with open(HERE / "animals.json") as f:
+        CORPUS = json.load(f)
+else:                                                   # Python version < 3.6
+    with open(str(HERE / "animals.json")) as f:
+        CORPUS = json.load(f)
+
+BCORPUS = dict( [ (k.encode('ascii'),v) for k,v in CORPUS.items() ])
 
 def search(code=None):
     """ Return spirit animal given public identity """
