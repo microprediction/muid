@@ -5,7 +5,7 @@
 
 class FakeBinascii():
     @staticmethod
-    def b2a_hex(ignore_me):
+    def b2a_hex(data):
         return b'30599b096bc5751c311ea6e15e306c86'
 
 binascii = FakeBinascii()
