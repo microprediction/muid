@@ -89,9 +89,8 @@ def mine(timeout=1000000000,skip_intro=False,quota=16, start_difficulty=6 ):
         if random.choice(range(1000))==1:
             print("Never give up. Never surrender. ",flush=True )
 
-
 def mine_once(difficulty,count,quota):
-    # Only one batch
+    # Only one batch of 100,000 attempts
     keys         = [ binascii.b2a_hex(os.urandom(16)) for _ in range(100000) ]
     hashed_keys  = [bhash(key) for key in keys]
     short_codes  = [ hk[:difficulty]   for hk in hashed_keys ]

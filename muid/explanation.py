@@ -77,7 +77,7 @@ EXPLANATION = ["This script runs a simple open source mining routine from the MU
              " ",
              "Why might hash-memorable keys be important?",
              "  ",
-             "If you run this script some time after April 1st, or if you let it run long enough now ...",
+             "If you run this script some time after July 1st, or if you let it run long enough now ...",
               "... it may reveal some details of a novel use of MUIDs. ",
               "  ",
              "But perhaps you already have your own ideas for using them",
@@ -99,7 +99,7 @@ EXPLANATION = ["This script runs a simple open source mining routine from the MU
             "... observe that the first two are length 11 and the latter length 14.",
             "So while Foldable Cat is unequivocally funnier than Bleachable Crab ...",
             "Bleachable Crab is about four thousand times harder to find than Foldable Cat",
-            "And in a very important but yet mysterious application to be revealed on April 1st, 2020 ... ",
+            "And in a very important but yet mysterious application to be revealed on July 1st, 2020 ... ",
             "Bleachable Crab, or rather any key that hashes to it, will be four thousand times more valuable."   
             "  ",
             "You are strongly advised to let the program run until Apr 1st and thereafter,",
@@ -121,7 +121,8 @@ LEVEL12 = """
 ██║     ██╔══╝  ╚██╗ ██╔╝██╔══╝  ██║          ██║██╔═══╝     ╚═╝
 ███████╗███████╗ ╚████╔╝ ███████╗███████╗     ██║███████╗    ██╗
 ╚══════╝╚══════╝  ╚═══╝  ╚══════╝╚══════╝     ╚═╝╚══════╝    ╚═╝                                        
-        Well done. You are starting to unlock valuable keys.                     
+        MUIDs of difficulty 12 permit use of the prediction
+        web for whatever use you like.                      
 """
 
 LEVEL13 = """
@@ -146,8 +147,9 @@ L::::::::::::::::::::::L  ee:::::::::::::e          v:::v         ee::::::::::::
 LLLLLLLLLLLLLLLLLLLLLLLL    eeeeeeeeeeeeee           vvv            eeeeeeeeeeeeee llllllll     111111111111 333333333333333         !!!  !!! 
                                                 
                                                                                                                                               
-                                        You are now be the envy of your peers. 
-                      Consider finding a budding statistician who may value the keys you have mined. 
+                                               You are unlocking valuable keys. 
+                            A length 12 key allows you to create streams and solicit predictions.
+                      A length 13 key enables you to create simultaneous streams and solicit joint distributions.  
 
 """
 
@@ -308,7 +310,7 @@ RANT =      ["   ",
             "       when they get there, will have have more incentive to fight.",
             "      ",
             "Now as a small technical matter, www.microprediction.com isn't quite operational yet.",
-            "But it is close ... probably April 1, 2020 ... but don't hold me to it",
+            "But it is close ... probably July 1, 2020 ... but don't hold me to it",
             "  ",
             "So, to complete the circle, you should keep running this script until Apr 1st, 2020",
             "Because it can take weeks to mine a really valuable key.",
