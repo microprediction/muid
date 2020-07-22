@@ -49,7 +49,7 @@ def to_readable_hex(word):
 def from_readable_hex(word):
     """ Convert back to valid hex characters """
     return word.replace('o', '0').replace('l', '1').replace('z', '2').replace('m', '3').replace('y', '4').replace(
-        's', '5').replace('h', '6').replace('t', '7').replace('x', '8').replace('9', 'g')
+        's', '5').replace('h', '6').replace('t', '7').replace('x', '8').replace('g', '9')
 
 
 
