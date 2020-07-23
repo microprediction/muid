@@ -110,11 +110,11 @@ We truncate the output of hashlib.sha256  For example muid.shash('abe5') is equi
 
 ### Collisions
 
-MUID collision requires approximately the same computational capacity as UUID collision, or more. Thus unlikely to be an issue.   
- 
-### Stupid dog trick
+MUID collision requires approximately the same computational capacity as UUID collision, or more. 
 
-https://vimeo.com/396819347
+Thus unlikely to be an issue.   
+ 
+
 
 
 
