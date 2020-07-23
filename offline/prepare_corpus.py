@@ -55,7 +55,7 @@ def corpus_len_k1_k2(k1, k2, readable=False, separator='', capitalize=False):
     if readable:
         return [capitalize_maybe(word=w1, capitalize=capitalize) + separator + capitalize_maybe(word=w2, capitalize=capitalize)for w1 in first_words for w2 in animals_k2]
     else:
-        hex_animals     = [from_readable_hex(a) for a in animals_of_len(k2)]
+        hex_animals     = [from_readable_hex(a) for a in animals_of_len(k2) if all(c in valid_chars for c in a)]
         hex_first_words = [from_readable_hex(w) for w in first_words]
         hex_corpus      = [w1 + separator + w2  for w1 in hex_first_words for w2 in hex_animals]
         return hex_corpus
