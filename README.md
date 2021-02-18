@@ -3,11 +3,9 @@ Memorable Unique Identifiers
 
 ### Wait you say ... that's an oxymoron
 
-Video explanation at https://vimeo.com/397352413
-
 Memorable unique identifiers are a provocative misnomer. Yes, memorability is antithetical
 to uniqueness, and MUIDs might be better termed "hash-memorable" identifiers: identifiers whose
-SHA-256 hashes are in part memorable.  
+SHA-256 hashes are in part memorable.  There is a cheesy video explanation at https://vimeo.com/397352413
  
 # Start mining now 
 
