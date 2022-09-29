@@ -257,7 +257,7 @@ WAFFLE = ["Hey thanks for giving this a spin ",
             "... and obscure applied mathematical techniques mastered by few ",
             "... or data that might not be obviously related.",
             "  ",
-            "  ",.
+            "  ",
             "But don't let me tell you what it should be",
             "Your goal should be to invent the microprediction web",
             "While we sit here.",
