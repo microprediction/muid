@@ -15,7 +15,7 @@ WELCOME = """
 """
 
 
-EXPLANATION = ["Hey thanks for giving this a spin ",
+WAFFLE = ["Hey thanks for giving this a spin ",
                "  ",
                "Pretty soon you'll be firing predictions at data streams https://www.microprediction.org/browse_streams.html",
                "Which you can read about at https://www.microprediction.com/blog/livedata",
