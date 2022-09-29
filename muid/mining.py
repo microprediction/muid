@@ -21,6 +21,7 @@ def create(difficulty=8, with_report=False):
     count = 0
     
     verbose = os.environ.get('MUID_VERBOSITY') # Pretty ugly :)
+    print({'verbose':verbose})
     
     if verbose:
         print(WELCOME)
