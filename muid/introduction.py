@@ -11,7 +11,7 @@ WELCOME = """
             https://github.com/microprediction
            
             
-                   Mining has begun  
+                   
 """
 
 
@@ -335,3 +335,31 @@ EXPLANATION = ["Hey thanks for giving this a spin ",
             "  ",
             "Anyway, do ask questions in the slack https://microprediction.github.io/microprediction/slack.html",
             "And like I said, be patient... "]
+
+
+SUCCESS = """
+         __    __     __    __    _____   ______              
+      
+  
+       / /\     /\_\               /\ \           /\ \           /\ \        / /\        / /\      
+      / /  \   / / /         _    /  \ \         /  \ \         /  \ \      / /  \      / /  \     
+     / / /\ \__\ \ \__      /\_\ / /\ \ \       / /\ \ \       / /\ \ \    / / /\ \__  / / /\ \__  
+    / / /\ \___\\ \___\    / / // / /\ \ \     / / /\ \ \     / / /\ \_\  / / /\ \___\/ / /\ \___\ 
+    \ \ \ \/___/ \__  /   / / // / /  \ \_\   / / /  \ \_\   / /_/_ \/_/  \ \ \ \/___/\ \ \ \/___/ 
+     \ \ \       / / /   / / // / /    \/_/  / / /    \/_/  / /____/\      \ \ \       \ \ \       
+ _    \ \ \     / / /   / / // / /          / / /          / /\____\/  _    \ \ \  _    \ \ \      
+/_/\__/ / /    / / /___/ / // / /________  / / /________  / / /______ /_/\__/ / / /_/\__/ / /      
+\ \/___/ /    / / /____\/ // / /_________\/ / /_________\/ / /_______\\ \/___/ /  \ \/___/ /       
+ \_____\/     \/_________/ \/____________/\/____________/\/__________/ \_____\/    \_____\/        
+                                                                                                   
+
+                                                              
+                      You have successfully created your WRITE_KEY.txt  
+                 
+                                        Now we predict 
+                         
+                     Don't forget to paste your write key in at https://www.microprediction.org/    
+                     
+            
+                   
+"""
