@@ -2,14 +2,14 @@ from muid.explanation import TITLE, EXPLANATION, LEVEL12, LEVEL13, RANT
 import pprint, time, binascii, os, random
 from muid.corpus import BCORPUS, to_readable_hex, pretty
 from muid.crypto import bhash
-
+from muid.introduction import WELCOME, WAFFLE, SUCCESS
 
 
 #------------------------------------------------------------------
 #     A mining algorithm you are welcome to improve
 #------------------------------------------------------------------
 
-def create(difficulty=8, with_report=False):
+def create(difficulty=8, with_report=False, verbose=False):
     """ Find a MUID
          difficulty:  int  minimum length of the memorable part of the hash
     """
@@ -18,9 +18,24 @@ def create(difficulty=8, with_report=False):
         print("Creating a difficult MUID. This may take days or weeks.")
     quota = 100000000
     count = 0
+    
+    if verbose:
+        print(WELCOME)
+    
+    rant_ndx = 0
     while True:
         report, dffclty, count = mine_once(dffclty, count, quota)
+        if verbose:
+            try:
+                rant = RANT[rant_ndx]
+                print(rant)
+                rant_ndx+=1 
+            except:
+                pass 
+        
         if report:
+            if verbose:
+                print(SUCCESS)
             return report if with_report else report[0]["key"]
 
 def mine(timeout=1000000000,skip_intro=False,quota=16, start_difficulty=6 ):
