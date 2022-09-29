@@ -27,15 +27,18 @@ def create(difficulty=8, with_report=False):
         print(WELCOME)
     
     rant_ndx = 0
+    ndx = 0
     while True:
         report, dffclty, count = mine_once(dffclty, count, quota)
         if verbose:
-            try:
-                rant = WAFFLE[rant_ndx]
-                print(rant)
-                rant_ndx+=1 
-            except:
-                pass 
+            ndx +=1 
+            if ndx % 5==1:
+                try:
+                    rant = WAFFLE[rant_ndx]
+                    print(rant)
+                    rant_ndx+=1 
+                except:
+                    pass 
         
         if report:
             if verbose:
