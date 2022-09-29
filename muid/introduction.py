@@ -410,7 +410,11 @@ WAFFLE = ["Hey thanks for giving this a spin ",
             "If you like video tutorials https://microprediction.github.io/microprediction/videos.html",
             "  ",
             "Anyway, do ask questions in the slack https://microprediction.github.io/microprediction/slack.html",
-            "And like I said, be patient... "]
+            "And like I said, be patient... ",
+            "  ",
+            "Go to lunch",
+            "Or sleep",
+            "I'll be just fine"]
 
 
 SUCCESS = """
