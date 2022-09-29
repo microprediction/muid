@@ -32,7 +32,7 @@ def create(difficulty=8, with_report=False):
         report, dffclty, count = mine_once(dffclty, count, quota)
         if verbose:
             ndx +=1 
-            if ndx % 15==1:
+            if ndx % 25==1:
                 try:
                     rant = WAFFLE[rant_ndx]
                     print(rant)
