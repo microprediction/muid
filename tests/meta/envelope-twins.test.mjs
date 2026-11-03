@@ -1,4 +1,4 @@
-// TESTING.md §3.5 and §5: the envelope suite must fail against every broken twin, and pass against the real module
+// TESTING.md §3.5 and §6: the envelope suite must fail against every broken twin, and pass against the real module
 // run through the same harness. Twins are generated from src/envelope.js by one targeted change each; every change
 // must match the source exactly once. A twin that re-serialises before hashing is not here: no vector can catch it
 // while E2 holds, and tests/guards/envelope-no-reserialise.test.mjs does.

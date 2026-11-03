@@ -1,4 +1,4 @@
-// TESTING.md §2.4 and §4: the encoding suite must fail against every broken twin, and pass against the real encoder
+// TESTING.md §2.4 and §6: the encoding suite must fail against every broken twin, and pass against the real encoder
 // run through the same harness. Twins are generated from src/encode.js by one targeted change each, so no buggy copy
 // of trust-path code is committed and the twins follow the source as it changes. Each change must match the source
 // exactly once; if a refactor removes the target, this test fails until the twin is updated.

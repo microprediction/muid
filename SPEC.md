@@ -60,6 +60,12 @@ which root.
   torsion-free. Without this a signer can add a small-order component to R that noble accepts and WebCrypto
   rejects — two verdicts on one record. Strict rejection makes every engine agree.
 - **K2 NO THROW ESCAPES:** any library call that throws inside a decision is a reject.
+- **K5 ED25519 CHECKS, IN ORDER:** `checkEd25519(sig, message, key)` returns `{ ok: true }` or `{ ok: false, reason }`
+  and never throws for any `sig` and `key` value (a `message` that is not a `Uint8Array` is a programming error).
+  `key` is 64 lowercase hex characters, `sig` 128. The first failure is the reason: `key-encoding` (not that hex),
+  `key-point` (not a canonical encoding of a curve point), `key-small-order`, `key-mixed-order` (K1);
+  `sig-encoding`; `sig-r-point`, `sig-r-small-order`, `sig-r-mixed-order` (K4); `sig-s-range` (S ≥ L); `sig-invalid`
+  (the equation fails, checked by `ed25519.verify` with `zip215: false`).
 - **Hash:** SHA-256 (`@noble/hashes`).
 - **Bytes in text:** lowercase hex. Exception: WebAuthn fields keep their standard unpadded base64url. Each decoder
   rejects any input that does not re-encode to itself.

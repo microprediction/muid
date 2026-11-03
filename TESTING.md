@@ -17,7 +17,7 @@ when its whole section here passes, including the anti-vacuity checks. Rule labe
   - every vector suite asserts the exact number of cases it ran;
   - every property asserts, from fast-check statistics, that most generated inputs exercised the accept path (or the
     reject path, for a reject property);
-  - every guard has a broken twin (§5) that the suite must fail against;
+  - every guard has a broken twin (§6) that the suite must fail against;
   - a skipped or `todo` test fails CI.
 - **Rejects are specific.** A reject test asserts the reason code, so a case rejected for the wrong reason fails.
 
@@ -169,16 +169,45 @@ No version check; no type check; a root accepted with `sig`; an extra envelope k
 without the prefix; id over the whole envelope (so it covers `sig`); the prefix without its newline; `body` allowed to
 be an array; output not frozen.
 
-## 4. Later layers (outline; each is expanded here before its code is written)
+## 4. Layer 3 — Ed25519 keys and signatures (`src/ed25519.js`): K1, K2, K4, K5
+
+Interface under test: `checkEd25519(sig, message, key)` → frozen `{ ok: true }` or `{ ok: false, reason }` (K5).
+
+### 4.1 Known answers (counts asserted)
+
+- **RFC 8032 §7.1** (5): each verifies; flipping any one bit of the signature, message or key makes it fail, with the
+  reason K5 order predicts for where the bit is.
+- **Wycheproof `ed25519_test.json`** (210): the 117 valid verify; the 64 invalid and all 29 acceptable are rejected.
+- **ed25519-speccheck `cases.json`** (12): all rejected, each with the reason written by hand in the test from the
+  case's documented construction.
+- **Hand-built:** a key and an R that each carry a small-order component (from the eight small-order points), which
+  `ed25519.verify` with `zip215: false` accepts and K1/K4 reject; the identity point as key and as R; a non-canonical
+  y (y ≥ p) for key and for R.
+
+### 4.2 Oracles and properties
+
+- **Differential, one direction:** whatever we accept, Node's WebCrypto Ed25519 also accepts — over every vector and
+  over generated keys and messages.
+- **Agreement on honest signatures:** for generated keys (Node `generateKeyPairSync('ed25519')`) and messages, the
+  Node signature is accepted; changing one byte of signature, message or key is rejected.
+- **K2 total:** for arbitrary strings, numbers, objects and byte arrays as `sig` and `key`, the result is a frozen
+  `{ ok, reason? }` with a reason from K5 — never a throw.
+- **Hex is canonical:** uppercase hex, odd length, `0x` prefix, whitespace, or a non-string is `key-encoding` or
+  `sig-encoding`.
+
+### 4.3 Broken twins
+
+`zip215: true`; no small-order check on the key; no mixed-order (torsion) check on the key; no K4 checks on R; no
+S range check (left to `verify`, which must then still reject — so this twin is caught only by its reason); uppercase
+hex accepted; a throw from the library escaping.
+
+## 5. Later layers (outline; each is expanded here before its code is written)
 
 1. **Envelope and record id:** expanded as §3.
-2. **Keys and Ed25519** (K1, K2, K4): RFC 8032 §7.1 (5); Wycheproof `ed25519_test.json` (210: 117 valid, 64 invalid,
-   29 acceptable — all 29 expected **rejects**); ed25519-speccheck `cases.json` (12, all rejects); ACVP EdDSA SigVer (5).
-   Measured: noble with `zip215: false` and Node's WebCrypto both accept all 21 mixed-order acceptable cases, so the
-   torsion check is load-bearing; the identity point passes `isTorsionFree()`, so `!isSmallOrder()` is too; and noble
-   defaults to ZIP-215, so a twin that omits the option is caught only by dedicated vectors (two are hand-built). A
-   small-order component added to R is accepted by noble and rejected by WebCrypto (K4). Twins: `zip215: true`, no
-   torsion check, no small-order check, no K4 check.
+2. **Keys and Ed25519:** expanded as §4. Measured earlier: noble with `zip215: false` and Node's WebCrypto both accept
+   all 21 mixed-order acceptable cases, so the torsion check is load-bearing; the identity point passes
+   `isTorsionFree()`, so `!isSmallOrder()` is too; a small-order component added to R is accepted by noble and
+   rejected by WebCrypto (K4).
 3. **Root assertions** (W0–W5): Wycheproof P-256 DER (all 484, with `lowS: false`; a broken twin with the default
    `lowS: true` must fail the 71 high-S cases); the W3C WebAuthn L3 §16 vectors, which publish their private keys so
    mutated assertions can be re-signed (3 of the 10 ES256 vectors accept under W2; §16.2's flags 0x19 lack UV); real
@@ -208,14 +237,14 @@ be an array; output not frozen.
 Candidate cases drawn from the published behaviour of Porto, Farcaster and Keybase are added to these sections as they
 are expanded.
 
-## 5. How broken twins run
+## 6. How broken twins run
 
 `tests/twins/<layer>/<n>-<name>.js` exports the same interface as the real module. Every test and test helper reaches
 the implementation only through `tests/impl.mjs`, which loads the real module or the twin named by an environment
 variable; a guard test fails if any test file imports `src/` directly, since that import would bypass the twin. A
 meta-test runs the layer's suite once per twin and passes only if every run exits non-zero. A twin that the suite cannot kill is a missing test, and the layer is not mergeable.
 
-## 6. CI order
+## 7. CI order
 
 1. `npm ci --ignore-scripts`, registry signature check, lockfile and pin checks.
 2. Semgrep with its rule tests (`semgrep --test`), line budget, duplication check, gitleaks.
