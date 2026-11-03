@@ -56,16 +56,23 @@ which root.
 - **K1 KEY SHAPE:** an Ed25519 public key is accepted only if it decodes canonically, is not small-order and is
   torsion-free (`isTorsionFree()`); strict mode alone admits mixed-order keys. A P-256 key is stored only as the
   65-byte uncompressed point, decoded once from COSE when the root is created.
+- **K4 STRICT SIGNATURE POINT:** an Ed25519 signature's R must decode canonically, not be small-order, and be
+  torsion-free. Without this a signer can add a small-order component to R that noble accepts and WebCrypto
+  rejects — two verdicts on one record. Strict rejection makes every engine agree.
 - **K2 NO THROW ESCAPES:** any library call that throws inside a decision is a reject.
 - **Hash:** SHA-256 (`@noble/hashes`).
 - **Bytes in text:** lowercase hex. Exception: WebAuthn fields keep their standard unpadded base64url. Each decoder
   rejects any input that does not re-encode to itself.
+- **Ids inside hashes and signatures:** wherever an id (record, root or identity id) is an input to a hash or a
+  signature, it is its 32 raw bytes, never its hex text — except in the W1 challenge, which is defined as text.
 - **Time:** integer seconds since the Unix epoch. `now` is always a parameter, never read from a clock inside the core.
 - **K3 NON-EXTRACTABLE DELEGATE KEYS:** in browsers a delegate key is generated as a WebCrypto Ed25519 key with
   `extractable: false`, so the secret never sits in JS memory and cannot be exported by any script, ours included. A
   machine's key lives in a file readable only by its owner (mode `0600`). Verification always uses noble, for one
-  verdict everywhere. Ed25519 signing is deterministic, so WebCrypto and noble must produce identical signature bytes
-  for the same key and message; that is a differential test. (Custody code is not core, but this rule binds it.)
+  verdict everywhere. Where WebCrypto signs Ed25519 deterministically (Chromium, Firefox, Node), WebCrypto and noble
+  must produce identical signature bytes for the same key and message — a differential test. Safari signs through
+  CryptoKit, which randomises Ed25519 signatures, so there the test is that noble verifies what WebCrypto signs.
+  (Custody code is not core, but this rule binds it.)
 - **Pinning:** library versions are pinned exactly; an upgrade is a reviewed change that re-runs every vector suite.
 
 Research: [`signatures.md`](research/signatures.md), [`webauthn.md`](research/webauthn.md).
@@ -184,7 +191,9 @@ each signed by one root.
   delegations under a frozen epoch fail. Only a valid next epoch (R1) moves past a freeze. Freezing only removes
   trust, so any single root may do it.
 - **R3 EQUIVOCATION FREEZES:** two different valid membership records for the same epoch freeze the epoch before
-  them. A fork is never resolved by choosing one side.
+  them, permanently: neither branch, nor any later epoch built on either, is ever accepted. A fork is never resolved
+  by choosing one side. Only a strict majority of that epoch's roots can produce a second valid record, so an
+  equivocation means the majority signed twice; the owner starts a new identity and re-attests.
 - **R4 CURRENT EPOCH:** delegations are accepted only under the highest epoch reachable by a valid chain from epoch 1,
   if it is not frozen, and only from that epoch's roots.
 - **R5 ORDER-FREE:** the identity's state is a function of the *set* of membership and freeze records the verifier
@@ -307,8 +316,11 @@ test fails the build on any direct `indexedDB` or `localStorage` use outside the
    `skew`.
 4. **Machine autonomy:** which scopes a machine may hold without per-action approval, and for how long.
 5. **Boundary parser:** a schema library (valibot) or a hand-written strict parser for this small fixed set of types.
-6. **`clientDataJSON` parsing:** the WebAuthn spec's limited (prefix) verification, which needs no JSON parser, or a
-   strict JSON parse confined to the WebAuthn module. Decided by testing real browser output.
+6. **`clientDataJSON` parsing — decided: the WebAuthn spec's limited (prefix) verification.** Chrome, Safari and
+   Firefox all emit `{"type":…,"challenge":…,"origin":…,"crossOrigin":false` in that order, and Chromium deliberately
+   appends an extra key to about one assertion in five (`RandDouble() < 0.2` in its source) so that verifiers do not
+   match a template; a strict whole-text parse would reject those. The prefix rule checks the four fields byte for
+   byte and accepts any remainder that closes the object.
 
 ## 10. What the reputation layer consumes (not core)
 

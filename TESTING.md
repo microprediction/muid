@@ -115,13 +115,21 @@ The meta-test generates 23 twins from `src/encode.js` (one targeted change each)
 ## 3. Later layers (outline; each is expanded here before its code is written)
 
 1. **Envelope and record id** (V1–V3): signed-bytes vectors by hand; a record id never changes when only `sig` changes;
-   wrong `v`, wrong `type` and swapped-type replay are rejected with their reason codes.
-2. **Keys and Ed25519** (K1, K2): RFC 8032 vectors; Wycheproof Ed25519 (the 29 small- or mixed-order "acceptable"
-   cases are expected **rejects**); Taming-EdDSA cases; a broken twin with `zip215: true`; a broken twin without the
-   torsion check.
-3. **Root assertions** (W1–W5): Wycheproof P-256 DER (all 484, with `lowS: false`; a broken twin with the default
-   `lowS: true` must fail the 71 high-S cases); a software authenticator generating assertions, mutated one field at
-   a time; one-directional comparison with SimpleWebAuthn plus the committed list of known differences; broken twins
+   wrong `v`, wrong `type` and swapped-type replay are rejected with their reason codes; SHA-256 checked against NIST
+   CAVP (65 short and 64 long messages). A twin that re-serialises the payload before verifying cannot be caught by
+   any vector while E2 holds, so a structural test pins that the bytes verified are the bytes received.
+2. **Keys and Ed25519** (K1, K2, K4): RFC 8032 §7.1 (5); Wycheproof `ed25519_test.json` (210: 117 valid, 64 invalid,
+   29 acceptable — all 29 expected **rejects**); ed25519-speccheck `cases.json` (12, all rejects); ACVP EdDSA SigVer (5).
+   Measured: noble with `zip215: false` and Node's WebCrypto both accept all 21 mixed-order acceptable cases, so the
+   torsion check is load-bearing; the identity point passes `isTorsionFree()`, so `!isSmallOrder()` is too; and noble
+   defaults to ZIP-215, so a twin that omits the option is caught only by dedicated vectors (two are hand-built). A
+   small-order component added to R is accepted by noble and rejected by WebCrypto (K4). Twins: `zip215: true`, no
+   torsion check, no small-order check, no K4 check.
+3. **Root assertions** (W0–W5): Wycheproof P-256 DER (all 484, with `lowS: false`; a broken twin with the default
+   `lowS: true` must fail the 71 high-S cases); the W3C WebAuthn L3 §16 vectors, which publish their private keys so
+   mutated assertions can be re-signed (3 of the 10 ES256 vectors accept under W2; §16.2's flags 0x19 lack UV); real
+   Chrome, Safari and Firefox assertions from the spike, including Chromium's extra `clientDataJSON` key; a software
+   authenticator generating assertions, mutated one field at a time; one-directional comparison with SimpleWebAuthn plus the committed list of known differences; broken twins
    with no challenge check, an `endsWith` origin check, UV not required, and trailing authenticator-data bytes
    allowed. W0: `covers` empty, longer than 8, unsorted, with a duplicate, with an uppercase id, or missing the
    record's own id; a challenge computed with the signed-bytes prefix instead of the assertion prefix; one record's
