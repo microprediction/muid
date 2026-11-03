@@ -26,14 +26,15 @@ function fail (reason) {
   throw new EncodingError(reason)
 }
 
-// UTF-8 length of a string. A lone surrogate (only possible in decode input) counts as 3 bytes.
+// UTF-8 length of a string. A lone surrogate (only possible in decode input) counts as 3 bytes. Past the end of the
+// string charCodeAt returns NaN, which fails the low-surrogate range test, so a final high surrogate counts as 3.
 function utf8Length (s) {
   let n = 0
   for (let i = 0; i < s.length; i++) {
     const c = s.charCodeAt(i)
     if (c < 0x80) n += 1
     else if (c < 0x800) n += 2
-    else if (c >= 0xd800 && c <= 0xdbff && i + 1 < s.length) {
+    else if (c >= 0xd800 && c <= 0xdbff) {
       const d = s.charCodeAt(i + 1)
       if (d >= 0xdc00 && d <= 0xdfff) { n += 4; i++ } else n += 3
     } else n += 3
@@ -47,10 +48,11 @@ function isPlainObject (v) {
   return proto === Object.prototype || proto === null
 }
 
-// Reads one own data property. Accessors are refused without being invoked.
+// Reads one own data property. Accessors are refused without being invoked: a descriptor is a data descriptor
+// exactly when it has its own `value`.
 function dataValue (container, key) {
   const d = Object.getOwnPropertyDescriptor(container, key)
-  if ('get' in d || 'set' in d) fail('accessor')
+  if (!Object.hasOwn(d, 'value')) fail('accessor')
   if (!d.enumerable) fail('non-enumerable')
   return d.value
 }
@@ -72,7 +74,6 @@ class Writer {
     switch (typeof x) {
       case 'string':
         if (!x.isWellFormed()) fail('surrogate')
-        if (x.length > MAX_BYTES) fail('size') // its encoding alone would exceed the limit
         this.emit(JSON.stringify(x))
         return
       case 'number':
@@ -144,8 +145,9 @@ export function encode (value) {
   return w.parts.join('')
 }
 
+// Only applied to values encode() has accepted, which contain no null.
 function deepFreeze (v) {
-  if (v !== null && typeof v === 'object') {
+  if (typeof v === 'object') {
     for (const x of Object.values(v)) deepFreeze(x)
     Object.freeze(v)
   }
@@ -154,6 +156,9 @@ function deepFreeze (v) {
 
 export function decode (text) {
   if (typeof text !== 'string') fail('type')
+  // The length test is a constant-time short cut for oversized input; it never changes a result, because UTF-8 needs
+  // at least one byte per UTF-16 code unit.
+  // Stryker disable next-line ConditionalExpression,EqualityOperator,LogicalOperator: equivalent; see the line above.
   if (text.length > MAX_BYTES || utf8Length(text) > MAX_BYTES) fail('size')
   let value
   try {

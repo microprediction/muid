@@ -34,7 +34,7 @@ const TWINS = [
     ['this.bytes += utf8Length(s)', 'this.bytes += s.length'],
     [' || utf8Length(text) > MAX_BYTES', '']]],
   ['getter-invoked', 'an accessor is read instead of refused', [
-    ["if ('get' in d || 'set' in d) fail('accessor')", "if ('get' in d) return container[key]\n  if ('set' in d) fail('accessor')"]]],
+    ["if (!Object.hasOwn(d, 'value')) fail('accessor')", "if (!Object.hasOwn(d, 'value')) return container[key]"]]],
   ['unsorted-keys', 'keys emitted in insertion order', [
     ['Object.getOwnPropertyNames(o).sort()', 'Object.getOwnPropertyNames(o)']]],
   ['no-output-limit', 'output size is not checked while encoding', [

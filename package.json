@@ -11,6 +11,8 @@
     "test": "node --test \"tests/**/*.test.mjs\""
   },
   "devDependencies": {
+    "@stryker-mutator/core": "10.0.0",
+    "@stryker-mutator/tap-runner": "10.0.0",
     "canonicalize": "5.1.0",
     "fast-check": "4.10.2"
   }
