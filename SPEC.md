@@ -197,25 +197,28 @@ membership" means a membership record id, or the identity id for epoch 1.
 
 Records the witness signs about membership (V3: witness key; checked against that key's window at their own `at`):
 **anchor** `{ record, at }` and **settlement** `{ identity, prev, outcome, at }`. A root-signed **contest**
-`{ identity, prev }` and **freeze** `{ identity, membership }` complete the set.
+`{ identity, record }` and **freeze** `{ identity, membership }` complete the set.
 
 - **R1 CHANGE BY MAJORITY:** a membership record is valid only if signed by a strict majority of `prev`'s roots and by
   every root it adds. A root is retired by leaving it out.
 - **R2 FREEZE BY ANY:** a freeze signed by any one root of the membership it names freezes it: delegations under it
-  fail. Only a settled successor (R4) moves past it. Freezing only removes trust, so any single root may do it.
+  fail, and so do delegations under a pending successor of it. Only a settled successor (R4) moves past it. Freezing
+  only removes trust, so any single root may do it.
 - **R3 ONE ANCHOR PER EPOCH:** the witness anchors a valid membership record only if its `prev` is the last settled
   membership and nothing else with that `prev` is anchored. It anchors each record once and notifies the owner. Every
   other record with that `prev` — an ordinary rival, or one arriving after settlement — is refused, never anchored.
 - **R4 SETTLEMENT:** `CONTEST_WINDOW` after an anchor, the witness settles `prev`: `outcome` is the anchored record's
   id, or `contested` (R5). A settlement is final. A verifier follows settlements from the identity; after the last
   one there is at most one *pending* record — anchored, not yet settled.
-- **R5 CONTEST:** a contest signed by a strict majority of `prev`'s roots, anchored while `prev`'s successor is
-  pending, settles `prev` as `contested`, and the identity ends. Only this explicit record ends an identity; two
-  ordinary records never do, so a second device or a leftover set of signatures cannot end it by accident.
-- **R6 CURRENT AUTHORITY:** the effective membership is the pending record if there is one, else the last settled.
-  A delegation names the membership it is issued under, and is accepted only if that is the effective membership, it
-  is not frozen, and its root is in it — and, while it is pending, also in the last settled membership. New roots
-  gain authority only at settlement.
+- **R5 CONTEST:** a contest names the pending record it contests and is signed by a strict majority of that record's
+  `prev`. The witness anchors it only while that record is pending, and refuses it otherwise; an anchored contest
+  settles `prev` as `contested`, and the identity ends. Only this explicit record ends an identity; two ordinary
+  records never do, so a second device or a leftover set of signatures cannot end it by accident.
+- **R6 CURRENT AUTHORITY:** a delegation names the membership it is issued under. It is accepted only if that
+  membership is the last settled one, or its pending successor; it is not frozen (R2); and its root is in it. While a
+  successor is pending, only roots in both the last settled membership and the pending one have authority, under
+  either name, so outstanding delegations from a root that stays keep working. New roots gain authority only at
+  settlement, and a root being removed loses it at anchoring.
 - **R7 ORDER-FREE, NEVER FORKED:** the state is a function of the *set* of membership records, anchors, settlements,
   contests and freezes the verifier holds, never of their order. The only time used is the witness's `at`. Because
   only one record per `prev` is ever anchored, a verifier holding fewer records can be behind, never on another
@@ -235,6 +238,10 @@ partial view a network attacker can choose):
   have no authority while pending; the owner can end the identity by contesting within the window; after it, the
   takeover is final.
 - No view is ever forked; a freeze never makes an inactive identity active.
+- **Limits:** a change that replaces every root (`{a}` → `{b}`), or most of them, leaves no or little authority until
+  settlement. A lost single root cannot be replaced at all, since R1 needs its signature. "Two roots, a later one
+  stolen" assumes the owner still holds the stolen root; if the theft also took it from the owner, the result is a
+  stalemate that only a freeze ends. Three or more roots, in different sync ecosystems, avoid both.
 
 Residuals:
 - **The witness is trusted for membership.** A witness that backdates, anchors two rivals, or settles differently for
@@ -243,8 +250,10 @@ Residuals:
 - **Notification carries the window.** An owner who does not learn of a change within `CONTEST_WINDOW` — or whose
   contest a network attacker delays past it — loses the ability to contest. Where notifications go must itself be
   bound to a settled membership, so a thief cannot redirect them first. The window's length is part of open decision 3.
-- A verifier that has not yet seen a newer settlement still accepts the older membership's roots. That window is
-  bounded by delegation lifetimes and by how records reach verifiers (open decision 3).
+- **Freshness (open decision 7).** A verifier that does not hold the latest settlement accepts the older membership's
+  roots — and a thief holding a retired root can mint *new* delegations under the old membership, so delegation
+  lifetimes do not bound this. Withholding records is enough. Every guarantee above holds only for a verifier whose
+  view is fresh.
 
 **revocation** — signed by the root, or by the witness for its own attestations, or by a delegate for itself.
 `{ target, at }`. `target` is a record id. A revocation may be pruned once its target's `exp` has passed.
@@ -360,6 +369,15 @@ test fails the build on any direct `indexedDB` or `localStorage` use outside the
    appends an extra key to about one assertion in five (`RandDouble() < 0.2` in its source) so that verifiers do not
    match a template; a strict whole-text parse would reject those. The prefix rule checks the four fields byte for
    byte and accepts any remainder that closes the object.
+
+7. **Freshness — needed before delegations are specified.** An independent review showed that without a fresh view
+   of membership, a stolen retired or first root can sign delegations that a verifier accepts indefinitely, and a
+   network attacker only has to withhold records. A verifier cannot tell "no newer settlement exists" from "none was
+   shown to me" without something time-stamped. Recommendation: **R8 FRESH HEAD** — the witness signs, on request, a
+   head `{ identity, settled, pending, at }`; a delegate presents a head no older than `MAX_STALENESS` together with
+   its delegation (as OCSP stapling does), and the verifier checks the delegation's membership against the head
+   rather than against whatever records it was given. The cost is that every delegate must reach the witness at least
+   once per `MAX_STALENESS`. The value (hours to days) belongs with decision 3.
 
 ## 10. What the reputation layer consumes (not core)
 

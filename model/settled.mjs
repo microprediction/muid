@@ -2,7 +2,7 @@
 //
 // Items (roots are letters; ids are readable strings; a signature is a (payload, signer) pair):
 //   { kind: 'M', n, roots, prev, signer }   a root's signature on a membership record; epoch 2's prev is the identity
-//   { kind: 'C', prev, signer }             a root's signature on a contest of the successor of record `prev`
+//   { kind: 'C', record, signer }           a root's signature on a contest of membership record `record`
 //   { kind: 'F', target, signer }           a root's freeze of membership record `target`
 //   { kind: 'A', id, at }                   the witness's anchor on a membership or contest record
 //   { kind: 'S', prev, outcome, at }        the witness's settlement of the successor of `prev`: a record id or 'contested'
@@ -13,21 +13,21 @@
 import { membershipId, genesisOf, payloadsOf, validNext, subsets } from './recovery.mjs'
 
 export const WINDOW = 1
-export const contestId = (prev) => `C<${prev}`
+export const contestId = (record) => `C<${record}`
 const now = (items) => items.filter((it) => it.kind === 'T').length
 
 function contestsOf (items) {
   const out = new Map()
   for (const it of items) {
     if (it.kind !== 'C') continue
-    const id = contestId(it.prev)
-    if (!out.has(id)) out.set(id, { id, prev: it.prev, signers: new Set() })
+    const id = contestId(it.record)
+    if (!out.has(id)) out.set(id, { id, record: it.record, signers: new Set() })
     out.get(id).signers.add(it.signer)
   }
   return out
 }
 
-// R6: a contest is valid if a strict majority of the contested record's predecessor signed it.
+// R5: a contest is valid if a strict majority of the contested record's predecessor signed it.
 const validContest = (base, c) => 2 * base.roots.filter((r) => c.signers.has(r)).length > base.roots.length
 
 // What a verifier holding `items` decides. Returns
@@ -53,7 +53,7 @@ export function evaluate (genesis, items) {
       continue
     }
     const anchored = [...payloads.values()].filter((p) => p.prev === cur.id && anchors.has(p.id) && validNext(cur, p))
-    const contest = contests.get(contestId(cur.id))
+    const contest = anchored.length === 1 ? contests.get(contestId(anchored[0].id)) : undefined
     if (anchored.length > 1) return { dead: true }
     if (anchored.length === 1 && contest && anchors.has(contest.id) && validContest(cur, contest)) return { dead: true }
     if (anchored.length === 1) pending = anchored[0]
@@ -61,7 +61,9 @@ export function evaluate (genesis, items) {
   }
   const record = pending ?? cur
   const authority = pending ? record.roots.filter((r) => cur.roots.includes(r)) : record.roots
-  const frozen = items.some((it) => it.kind === 'F' && it.target === record.id && record.roots.includes(it.signer))
+  // R2: a freeze on the last settled membership still applies while its successor is pending.
+  const frozenBy = (m) => items.some((it) => it.kind === 'F' && it.target === m.id && m.roots.includes(it.signer))
+  const frozen = frozenBy(record) || (!!pending && frozenBy(cur))
   return { dead: false, record, base: cur, pending: !!pending, authority, frozen, chain: chain.map((c) => c.id) }
 }
 
@@ -86,7 +88,7 @@ export function witness (genesis, items) {
       continue
     }
     const at = Math.min(...out.filter((it) => it.kind === 'A' && it.id === e.record.id).map((it) => it.at))
-    const contest = contestsOf(out).get(contestId(cur.id))
+    const contest = contestsOf(out).get(contestId(e.record.id))
     if (t < at + WINDOW) {
       if (contest && !anchoredIds.has(contest.id) && validContest(cur, contest)) {
         out = [...out, { kind: 'A', id: contest.id, at: t }]
@@ -106,7 +108,7 @@ export const tick = (genesis, items) => witness(genesis, [...items, { kind: 'T',
 const itemKey = (it) => {
   switch (it.kind) {
     case 'M': return `${membershipId(it.n, it.roots, it.prev)}/${it.signer}`
-    case 'C': return `${contestId(it.prev)}/${it.signer}`
+    case 'C': return `${contestId(it.record)}/${it.signer}`
     case 'F': return `F${it.target}/${it.signer}`
     case 'A': return `A${it.id}@${it.at}`
     case 'S': return `S${it.prev}=${it.outcome}@${it.at}`
@@ -130,8 +132,10 @@ export function moves (genesis, items, holds, universe, maxEpoch) {
         fresh(signers.map((signer) => ({ kind: 'M', n: q.n + 1, roots, prev: q.id, signer })))
       }
     }
-    fresh(mine.map((signer) => ({ kind: 'C', prev: q.id, signer })))
     fresh(mine.map((signer) => ({ kind: 'F', target: q.id, signer })))
+    // A contest of q is signed by the roots of q's predecessor.
+    const base = known.find((x) => x.id === q.prev)
+    if (base) fresh([...holds].filter((r) => base.roots.includes(r)).sort().map((signer) => ({ kind: 'C', record: q.id, signer })))
   }
   return out
 }
@@ -176,7 +180,7 @@ function groups (items) {
   const by = new Map()
   for (const it of items) {
     if (it.kind === 'T') continue
-    const k = it.kind === 'M' ? membershipId(it.n, it.roots, it.prev) : it.kind === 'C' ? contestId(it.prev) : itemKey(it)
+    const k = it.kind === 'M' ? membershipId(it.n, it.roots, it.prev) : it.kind === 'C' ? contestId(it.record) : itemKey(it)
     if (!by.has(k)) by.set(k, [])
     by.get(k).push(it)
   }
@@ -221,7 +225,15 @@ export function analyse ({ genesis, history: start, owner, thief, universe, maxE
   }) ?? null
   result.kill = by(thief, start, thiefDepth, true).find((s) => ev(s).dead) ?? null
 
-  const secure = (s) => { const e = ev(s); return active(e) && !e.authority.some((r) => thief.has(r)) }
+  // Secure: the thief has no authority now, and once the window has passed the owner's membership is active and
+  // free of the thief's roots. (A thief's freeze of the old membership may hold the owner up until settlement.)
+  const settle = (s) => tick(genesis, tick(genesis, s))
+  const secure = (s) => {
+    const now = ev(s)
+    if (active(now) && now.authority.some((r) => thief.has(r))) return false
+    const later = ev(settle(s))
+    return active(later) && !later.authority.some((r) => thief.has(r))
+  }
   result.unrecoverable = thiefStates.find((s) => !by(owner, s, 1).some((q) => secure(q) && thiefNext(q).every(secure))) ?? null
 
   const noThiefAuthority = (s) => { const e = ev(s); return !active(e) || !e.authority.some((r) => thief.has(r)) }
