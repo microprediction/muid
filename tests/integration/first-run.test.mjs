@@ -32,7 +32,7 @@ test('a first-time user: one root, one delegation, a head, accepted by the relyi
   const head = envelope.wrap(h.payload, { signature: hex(ed25519.sign(envelope.signedBytes(h.payload), WITNESS)), witness: witnessKeys[0].key })
 
   // 4. The relying party verifies.
-  const v = verifierModule.verifier({ rpId: RP_ID, origin: ORIGIN, audience: AUD, witnessKeys, skew: 60, maxLifetime: 2_592_000, maxStaleness: 86_400 })
+  const v = verifierModule.verifier({ rpId: RP_ID, origin: ORIGIN, audience: AUD, witnessKeys, skew: 60, maxLifetime: 2_592_000, maxStaleness: 86_400, maxClaimAge: 300 })
   const result = v.verifyDelegation({ delegation, root: rootText, head }, { now: NOW + 5, scope: 'post', revoked: [] })
   assert.equal(result.ok, true, JSON.stringify(result))
   assert.equal(result.id, id)

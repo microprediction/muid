@@ -15,7 +15,7 @@ const WITNESS = hex(ed25519.getPublicKey(W))
 const APP = Uint8Array.from({ length: 32 }, (_, i) => 60 + i)
 const AUD = 'https://app.example'
 const CONFIG = Object.freeze({ rpId: RP_ID, origin: ORIGIN, audience: AUD, witnessKeys: [{ key: WITNESS, nbf: 0, exp: 1_900_000_000 }],
-  skew: 60, maxLifetime: 2_592_000, maxStaleness: 86_400 })
+  skew: 60, maxLifetime: 2_592_000, maxStaleness: 86_400, maxClaimAge: 300 })
 const v = verifier(CONFIG)
 
 const rootText = envelope.wrap(envelope.seal('root', { pub: KEY, rp_id: RP_ID }).payload)

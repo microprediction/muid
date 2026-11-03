@@ -364,14 +364,17 @@ Research: [`delegation.md`](research/delegation.md), [`oidc-witness.md`](researc
 ## 6. The decision function
 
 ```
-const v = verifier({ rpId, origin, audience, witnessKeys, skew, maxLifetime, maxStaleness })  // fixed, frozen
+const v = verifier({ rpId, origin, audience, witnessKeys, skew, maxLifetime, maxStaleness, maxClaimAge })
 v.verifyDelegation({ delegation, root, head }, { now, scope, revoked, minHeadAt })  // per call
   -> { ok: true, id, body } | { ok: false, reason }
+v.verifyClaim({ claim, delegation, root, head }, { now, revoked, minHeadAt })
+  -> { ok: true, id, body, delegation: { id, body } } | { ok: false, reason }
 ```
 
 Configuration is set once, when the verifier is constructed, and cannot be changed per call: `rpId` and `origin`
 are the id origin's; `audience` is this relying party's own origin (D5); `witnessKeys` are the membership witness's
-pinned keys; `skew`, `maxLifetime` (D2) and `maxStaleness` (R9) are the values of decisions 3 and 7. Per call,
+pinned keys; `skew`, `maxLifetime` (D2), `maxStaleness` (R9) and `maxClaimAge` (C1, 300 s by default in
+deployments) are the values of decisions 1, 3 and 7. Per call,
 `delegation`, `root` and `head` are envelope texts: the delegation, the root record it names, and a head for its
 identity. `scope` is the one scope the request needs; `revoked` lists further revoked record ids or subject keys the
 relying party holds; `minHeadAt` (optional) refuses heads older than one it has already seen.
@@ -392,6 +395,16 @@ relying party holds; `minHeadAt` (optional) refuses heads older than one it has 
   `scopes`). It never throws for any `delegation`, `root` or `head`; a malformed configuration, `now`, `scope`, or
   a `revoked` that is not an array of ids, is a programming error (ignoring a malformed entry would fail open on
   revocation).
+
+- **C1 CLAIMS (decision 1: ephemeral):** a **claim** `{ delegation, scope, at, data }` is a record signed by the
+  delegation's subject key: its `sig` is `{ signature }`, an Ed25519 signature over the claim's signed bytes (K7).
+  `delegation` is the id of the delegation it is made under, `scope` one of that delegation's scopes, `at` the
+  signer's time, and `data` any object. `verifyClaim` refuses, in order, with: V4's reasons for the claim;
+  `claim-shape` (keys other than the four, or a field of the wrong form, or `sig` not as above); then F5's reasons for
+  the delegation, checked with the claim's `scope`; `claim-delegation` (the claim names another delegation);
+  `claim-time` (`at` more than `maxClaimAge` before `now`, or more than `skew` after it); then K5's signature reasons
+  under the subject key. A claim is verifiable only while its delegation and head are; replay inside `maxClaimAge` is
+  the relying party's to refuse, by the claim id the result carries.
 
 The verifier needs no membership records: the head carries their result. The witness makes the head (R9); a delegate
 fetches a fresh one and presents it with its requests, as OCSP stapling does.
