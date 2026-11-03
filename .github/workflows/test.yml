@@ -36,7 +36,36 @@ jobs:
         run: >-
           node --test --experimental-test-coverage --test-coverage-include='src/**'
           --test-coverage-lines=100 --test-coverage-branches=100 --test-coverage-functions=100
-          "tests/**/*.test.mjs"
+          "tests/!(meta)/*.test.mjs"
+
+  twins:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        suite:
+          - assertion-twins.test.mjs
+          - attestation-twins.test.mjs
+          - bytes-twins.test.mjs
+          - delegation-twins.test.mjs
+          - ed25519-twins.test.mjs
+          - encoding-twins.test.mjs
+          - envelope-twins.test.mjs
+          - membership-twins.test.mjs
+          - origin-twins.test.mjs
+          - p256-twins.test.mjs
+          - root-twins.test.mjs
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '26'
+      - name: Install (no install scripts)
+        run: npm ci --ignore-scripts
+      - name: Broken twins (each must make its suite fail)
+        run: node --test "tests/meta/${{ matrix.suite }}"
 
   mutation:
     runs-on: ubuntu-24.04

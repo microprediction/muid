@@ -125,10 +125,11 @@ test('envelopes from a signer already counted for a record are not verified agai
   // Distinct texts, same record and signer: each assertion carries a different counter, so each verifies alone.
   const variants = Array.from({ length: 250 }, (_, i) => envelope.wrap(payload, { root: rootId('b'),
     assertion: make({ covers: [id], secret: secretOf('b'), ad: authDataWithCount(i) }) }))
-  const t0 = performance.now()
-  assert.equal(state({ ...settledE2, memberships: [...settledE2.memberships, ...variants].slice(0, 252) }).epoch, 2)
-  const ms = performance.now() - t0
-  assert.ok(ms < 200, `took ${Math.round(ms)} ms for 250 redundant signatures`)
+  // Relative, so load on the machine scales both sides: the fastest of three runs each way.
+  const fastest = (records) => Math.min(...[0, 1, 2].map(() => { const t0 = performance.now(); assert.equal(state(records).epoch, 2); return performance.now() - t0 }))
+  const plain = fastest(settledE2)
+  const redundant = fastest({ ...settledE2, memberships: [...settledE2.memberships, ...variants].slice(0, 252) })
+  assert.ok(redundant < 15 * plain, `250 redundant signatures: ${redundant.toFixed(1)} ms against ${plain.toFixed(1)} ms plain`)
 })
 
 function authDataWithCount (count) {
