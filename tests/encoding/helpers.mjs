@@ -7,8 +7,15 @@ export const { encode, decode, EncodingError, MAX_BYTES, MAX_DEPTH } = encoding
 export const REASONS = Object.freeze([
   'top-level', 'key', 'symbol-key', 'accessor', 'non-enumerable', 'non-plain', 'array-shape', 'cycle', 'depth',
   'size', 'null', 'undefined', 'non-finite', 'negative-zero', 'float', 'unsafe-integer', 'type', 'surrogate',
-  'syntax', 'non-canonical',
+  'syntax', 'non-canonical', 'exotic',
 ])
+
+// A copy with ordinary prototypes, for comparing decoded values (which have null prototypes, E8) with literals.
+export function plain (v) {
+  if (Array.isArray(v)) return Array.from(v, plain)
+  if (v !== null && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, plain(x)]))
+  return v
+}
 
 // Asserts that fn throws an EncodingError carrying exactly `reason`. A refusal for the wrong reason fails.
 export function refuses (fn, reason, label) {

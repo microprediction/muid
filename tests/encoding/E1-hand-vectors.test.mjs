@@ -1,7 +1,7 @@
 // E1: hand-written known answers. Every expected string below was typed by hand, never computed by an encoder.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { encode, decode } from './helpers.mjs'
+import { encode, decode, plain } from './helpers.mjs'
 
 const K32 = 'k' + 'x'.repeat(31)
 const shared = { x: 1 }
@@ -55,7 +55,7 @@ for (const [label, value, expected, encodeOnly] of CASES) {
   })
   if (!encodeOnly) {
     test(`decode: ${label}`, () => {
-      assert.deepStrictEqual(decode(expected), value)
+      assert.deepStrictEqual(plain(decode(expected)), value)
     })
   }
 }
