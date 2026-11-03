@@ -77,6 +77,13 @@ test('a root opened as another type, and another type opened as a root', () => {
   refuses(() => env.open(ok, 'root'), 'envelope-shape', 'sig present, root expected')
 })
 
+test('payload-size comes after envelope-shape and before payload-encoding', () => {
+  const big = 'x'.repeat(49153)
+  refuses(() => env.open(envelopeText(big, '[]'), 'delegation'), 'envelope-shape', 'shape first')
+  refuses(() => env.open(envelopeText(big, '{}'), 'delegation'), 'payload-size', 'size before encoding')
+  refuses(() => env.open(envelopeText('x'.repeat(49152), '{}'), 'delegation'), 'payload-encoding', 'at the limit, encoding is checked')
+})
+
 test('several faults at once: the first in V4 order wins', () => {
   const bad = envelopeText(payloadText('attestation', '[]', '2'), '[]')
   refuses(() => env.open(bad, 'delegation'), 'envelope-shape', 'shape before payload')

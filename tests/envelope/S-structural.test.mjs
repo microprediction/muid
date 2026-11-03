@@ -33,3 +33,16 @@ test('seal refuses a body that is not an object, as a programming error', () => 
     assert.throws(() => env.seal('delegation', body), { name: 'TypeError', message: 'body must be an object' }, String(body))
   }
 })
+
+test('signedBytes accepts only well-formed strings', () => {
+  const lone = String.fromCharCode(0xd800)
+  for (const bad of [lone, 'a' + lone, 5, null, undefined, {}, { toString () { throw new Error('x') } }]) {
+    assert.throws(() => env.signedBytes(bad), { name: 'TypeError', message: 'payload must be a well-formed string' }, String(typeof bad))
+  }
+})
+
+test('seal turns a revoked proxy body into its own TypeError', () => {
+  const { proxy, revoke } = Proxy.revocable({}, {})
+  revoke()
+  assert.throws(() => env.seal('delegation', proxy), { name: 'TypeError', message: 'body must be an object' })
+})

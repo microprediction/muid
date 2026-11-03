@@ -151,9 +151,16 @@ Research: [`encoding.md`](research/encoding.md).
   record selects either.
 - **V4 SHAPE BEFORE MEANING:** `open(text, type)` checks, in this order, and refuses with the first that fails:
   `envelope-encoding` (the text is not a canonical encoding), `envelope-shape` (keys other than above, `payload` not a
-  string, `sig` not an object), `payload-encoding`, `payload-shape` (keys other than `v`, `type`, `body`, or `body`
-  not an object), `version`, `type`. It returns `{ id, type, body, sig, payload }`, frozen, where `payload` is the
-  received text itself. The signature's contents are checked by the record type's own rules, not here.
+  string, `sig` not an object), `payload-size` (V5), `payload-encoding`, `payload-shape` (keys other than `v`,
+  `type`, `body`, or `body` not an object), `version`, `type`. It returns `{ id, type, body, sig, payload }`, frozen,
+  where `payload` is the received text itself. The signature's contents are checked by the record type's own rules,
+  not here.
+- **V5 PAYLOAD SIZE:** a payload, measured as the UTF-8 bytes it occupies inside the envelope (with its escapes), is
+  at most `MAX_PAYLOAD` = 49,152, leaving 16 KiB of `MAX_BYTES` for `sig` and framing. `seal` refuses a larger one
+  with the same reason, so nothing can be signed that could not be wrapped and opened.
+- **Residual (accepted):** the record id is computed by `@noble/hashes`, which uses typed-array built-ins when called.
+  Code in the page that patches those after load can change an id or make `open` throw; such code is trusted (§1)
+  and could equally change the caller. The envelope's own built-ins, and its hex encoding, are captured at load.
 
 ## 5. Record types
 

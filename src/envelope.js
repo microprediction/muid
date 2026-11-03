@@ -3,15 +3,19 @@
 // open(text, type) checks the envelope in V4 order and returns the received payload text unchanged: signatures are
 // checked over signedBytes(payload) by the record type's own rules, and nothing here re-serialises what it opened.
 import { sha256 } from '@noble/hashes/sha2.js'
-import { bytesToHex } from '@noble/hashes/utils.js'
 import { encode, decode } from './encode.js'
 
 const { apply } = Reflect
 const { create, defineProperty, freeze, keys } = Object
 const { isArray } = Array
 const { includes } = Array.prototype
+const { isWellFormed } = String.prototype
+const stringify = JSON.stringify
 const textEncode = TextEncoder.prototype.encode
 const UTF8 = new TextEncoder()
+const HEX = freeze(Array.from({ length: 256 }, (_, i) => (i < 16 ? '0' : '') + i.toString(16)))
+
+export const MAX_PAYLOAD = 49152
 
 const PREFIX = 'muid/v1\n'
 const TYPES = freeze(['root', 'delegation', 'attestation', 'membership', 'freeze', 'contest', 'anchor', 'settlement',
@@ -42,6 +46,17 @@ function knownType (type) {
 
 const isObject = (x) => typeof x === 'object' && x !== null && !isArray(x)
 
+// A revoked proxy throws from isArray; it is not an object body either.
+function requireObjectBody (body) {
+  try {
+    if (isObject(body)) return
+  } catch { /* not an object body */ }
+  throw new TypeError('body must be an object')
+}
+
+// V5: the UTF-8 bytes a payload occupies inside the envelope, escapes included.
+const envelopeBytes = (payload) => apply(textEncode, UTF8, [stringify(payload)]).length - 2
+
 function sameKeys (o, expected) {
   const k = keys(o)
   if (k.length !== expected.length) return false
@@ -51,10 +66,19 @@ function sameKeys (o, expected) {
 }
 
 export function signedBytes (payload) {
+  // Stryker disable next-line ArrayDeclaration: equivalent; isWellFormed takes no arguments
+  if (typeof payload !== 'string' || !apply(isWellFormed, payload, [])) {
+    throw new TypeError('payload must be a well-formed string')
+  }
   return apply(textEncode, UTF8, [PREFIX + payload])
 }
 
-const idOf = (payload) => bytesToHex(sha256(signedBytes(payload)))
+function idOf (payload) {
+  const digest = sha256(signedBytes(payload))
+  let out = ''
+  for (let i = 0; i < digest.length; i++) out += HEX[digest[i]]
+  return out
+}
 
 export function open (text, type) {
   knownType(type)
@@ -67,6 +91,7 @@ export function open (text, type) {
   const root = type === 'root'
   if (!sameKeys(env, root ? ['payload'] : ['payload', 'sig'])) fail('envelope-shape')
   if (typeof env.payload !== 'string' || (!root && !isObject(env.sig))) fail('envelope-shape')
+  if (envelopeBytes(env.payload) > MAX_PAYLOAD) fail('payload-size')
   let p
   try {
     p = decode(env.payload)
@@ -87,8 +112,9 @@ export function open (text, type) {
 
 export function seal (type, body) {
   knownType(type)
-  if (!isObject(body)) throw new TypeError('body must be an object')
+  requireObjectBody(body)
   const payload = encode({ body, type, v: 1 })
+  if (envelopeBytes(payload) > MAX_PAYLOAD) fail('payload-size')
   const out = create(null)
   out.payload = payload
   out.id = idOf(payload)

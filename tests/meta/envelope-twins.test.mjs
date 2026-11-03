@@ -16,7 +16,6 @@ const SUITE = readdirSync(SUITE_DIR).filter((f) => f.endsWith('.test.mjs')).map(
 // A twin lives outside the repository, so its imports are made absolute.
 const IMPORTS = [
   ["from '@noble/hashes/sha2.js'", `from '${import.meta.resolve('@noble/hashes/sha2.js')}'`],
-  ["from '@noble/hashes/utils.js'", `from '${import.meta.resolve('@noble/hashes/utils.js')}'`],
   ["from './encode.js'", `from '${new URL('../../src/encode.js', import.meta.url).href}'`],
 ]
 
@@ -30,7 +29,15 @@ const TWINS = [
   ['extra-keys-accepted', 'keys beyond the expected ones are ignored', [
     ['function sameKeys (o, expected) {\n', 'function sameKeys (o, expected) {\n  return expected.every((e) => apply(includes, keys(o), [e]))\n']]],
   ['id-without-prefix', 'the record id hashes the payload without the domain prefix', [
-    ['bytesToHex(sha256(signedBytes(payload)))', 'bytesToHex(sha256(apply(textEncode, UTF8, [payload])))']]],
+    ['const digest = sha256(signedBytes(payload))', 'const digest = sha256(apply(textEncode, UTF8, [payload]))']]],
+  ['no-payload-size-on-open', 'open accepts a payload too large to have been sealed', [
+    ["  if (envelopeBytes(env.payload) > MAX_PAYLOAD) fail('payload-size')\n", '']]],
+  ['no-payload-size-on-seal', 'seal returns a payload that cannot be wrapped with a signature', [
+    ["  if (envelopeBytes(payload) > MAX_PAYLOAD) fail('payload-size')\n", '']]],
+  ['payload-size-unescaped', 'the payload is measured without its escapes', [
+    ['apply(textEncode, UTF8, [stringify(payload)]).length - 2', 'apply(textEncode, UTF8, [payload]).length']]],
+  ['signed-bytes-unchecked', 'signedBytes encodes anything, replacing lone surrogates', [
+    ["  if (typeof payload !== 'string' || !apply(isWellFormed, payload, [])) {", '  if (false) {']]],
   ['id-over-envelope', 'the record id covers the whole envelope, signature included', [
     ['  out.id = idOf(env.payload)\n', '  out.id = idOf(text)\n']]],
   ['prefix-without-newline', 'the domain prefix lacks its newline', [["const PREFIX = 'muid/v1\\n'", "const PREFIX = 'muid/v1'"]]],
@@ -79,7 +86,7 @@ test('envelope broken twins', { timeout: 600_000 }, async (t) => {
     })
 
     const jobs = TWINS.map(([name, why, edits]) => [name, why, generate(name, edits)])
-    assert.equal(jobs.length, 9, 'twin count')
+    assert.equal(jobs.length, 13, 'twin count')
     const results = []
     const queue = [...jobs]
     const workers = Math.max(1, Math.floor(availableParallelism() / 4))
