@@ -326,6 +326,8 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   a negative `at` or a bad outcome ignored; contests and freezes of non-ids ignored; a witness that anchors two
   rivals ends the identity; witness keys outside their window at the record's `at`; assertions over another record
   or by a key that is not the named root; a signer whose root record is missing; unreadable `records`.
+- **Order-free (R7):** in a settled, a frozen pending and a dead scenario, every list permuted, records repeated and
+  another identity's valid records mixed in (property; most runs include them): the state is unchanged.
 - **Tamper sweep:** a pending epoch over a settled one, frozen by a root of the pending record; a one-character change
   (two replacements and a deletion) to any one record gives the state with that record or without it, never another,
   and each kind holds a record whose loss changes the state. Positions are sampled with a fixed seed;
