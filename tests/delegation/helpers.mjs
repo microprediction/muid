@@ -6,6 +6,7 @@ import { make, authData, KEY as ROOT_KEY, RP_ID, ORIGIN } from '../assertion/hel
 export const { checkDelegation } = delegation
 export const REASONS = Object.freeze(['envelope-encoding', 'envelope-shape', 'payload-size', 'payload-encoding',
   'payload-shape', 'version', 'type', 'delegation-shape', 'scopes', 'aud', 'subject-key', 'lifetime', 'not-yet', 'expired',
+  'root',
   'assertion-shape', 'covers', 'assertion-encoding', 'client-data', 'challenge', 'origin', 'auth-data-length', 'rp-id',
   'user-presence', 'user-verification', 'auth-data-flags', 'key-encoding', 'key-point', 'sig-encoding', 'sig-invalid',
   'subject-consent'])
@@ -19,7 +20,7 @@ export const CTX = Object.freeze({ rootKey: ROOT_KEY, rpId: RP_ID, origin: ORIGI
 export const BODY = Object.freeze({
   identity: '1'.repeat(64),
   membership: '2'.repeat(64),
-  root: '3'.repeat(64),
+  root: '44404d2d618dcf0680853eb9c05c20fe78d3958f7be85a0d8faa8a238200caae', // the test passkey's root id (tests/root)
   subject: SUBJECT,
   aud: 'https://app.example',
   scopes: ['post', 'read'],
@@ -39,7 +40,11 @@ export function build ({ body = BODY, covers, rootSig, subject, sigOverride, roo
   return envelope.wrap(payload, sig)
 }
 
-export const result = (record, ctx = CTX) => ({ ...checkDelegation(record, ctx) })
+// Accepts are compared as { ok: true } here; the id and body they carry are tested on their own.
+export const result = (record, ctx = CTX) => {
+  const r = checkDelegation(record, ctx)
+  return r.ok ? { ok: true } : { ...r }
+}
 
 export function rejects (record, reason, label, ctx = CTX) {
   assert.ok(REASONS.includes(reason), `${label}: test bug, ${reason}`)

@@ -166,3 +166,13 @@ test('a context that is not four strings is a programming error', () => {
     assert.throws(() => checkRootAssertion(ok, ctx), { name: 'TypeError', message: 'context must hold record, rpId, origin and key strings' })
   }
 })
+
+test('the context is read once: a getter cannot change the key or origin between reads', () => {
+  const reads = {}
+  const ctx = {}
+  for (const [k, v] of Object.entries(CTX)) {
+    Object.defineProperty(ctx, k, { enumerable: true, get () { reads[k] = (reads[k] ?? 0) + 1; return reads[k] === 1 ? v : 'changed' } })
+  }
+  assert.deepEqual(result(ok, ctx), { ok: true })
+  assert.ok(Object.values(reads).every((n) => n === 1), JSON.stringify(reads))
+})

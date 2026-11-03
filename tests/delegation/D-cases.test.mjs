@@ -2,6 +2,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { ed25519 } from '@noble/curves/ed25519.js'
+import { p256 } from '@noble/curves/nist.js'
 import { build, result, rejects, consent, hex, BODY, CTX, NBF, SUBJECT, SUBJECT_SECRET, checkDelegation } from './helpers.mjs'
 import { envelope } from '../impl.mjs'
 
@@ -37,7 +38,7 @@ test('shape: each key missing, an extra key, wrong forms', () => {
   const bad = {
     identity: ['1'.repeat(63), '1'.repeat(65), 'A'.repeat(64), 1],
     membership: ['g'.repeat(64), true],
-    root: [['3'.repeat(64)], '3'.repeat(64).toUpperCase().replace(/3/g, 'F')],
+    root: [['3'.repeat(64)], 'F'.repeat(64)],
     subject: [SUBJECT.toUpperCase(), SUBJECT.slice(2), 5],
     aud: [1, ['https://app.example']],
     scopes: ['read', { read: true }],
@@ -95,7 +96,7 @@ test('root assertion: must cover this record and be signed by the root key', () 
   rejects(build({ rootSecret: Uint8Array.from({ length: 32 }, (_, i) => i + 7) }), 'sig-invalid', 'another passkey')
   const { id } = envelope.seal('delegation', BODY)
   assert.deepEqual(result(build({ covers: ['0'.repeat(64), id, 'f'.repeat(64)].sort() })), { ok: true }, 'covered with others')
-  rejects(ok, 'key-point', 'wrong root key in context', { ...CTX, rootKey: '04' + '00'.repeat(64) })
+  rejects(ok, 'root', 'a key that is not the named root', { ...CTX, rootKey: '04' + '00'.repeat(64) })
 })
 
 test('subject consent (D6): exactly the accept prefix and the raw id bytes, by the subject', () => {
@@ -115,9 +116,10 @@ test('subject consent (D6): exactly the accept prefix and the raw id bytes, by t
 
 test('a context that is not well formed is a programming error', () => {
   for (const ctx of [undefined, null, 'ctx', { ...CTX, now: 1.5 }, { ...CTX, now: -1 }, { ...CTX, skew: '60' },
-    { ...CTX, maxLifetime: 2 ** 53 }, { ...CTX, rootKey: 1 }, { ...CTX, rpId: undefined }, { ...CTX, origin: null }]) {
+    { ...CTX, maxLifetime: 2 ** 53 }, { ...CTX, rootKey: 1 }, { ...CTX, rootKey: 'ab' }, { ...CTX, rootKey: CTX.rootKey.toUpperCase() },
+    { ...CTX, rootKey: 'x' + CTX.rootKey }, { ...CTX, rootKey: CTX.rootKey + '0' }, { ...CTX, rpId: undefined }, { ...CTX, origin: null }]) {
     assert.throws(() => checkDelegation(ok, ctx),
-      { name: 'TypeError', message: 'context must hold rootKey, rpId, origin and non-negative now, skew, maxLifetime' }, JSON.stringify(ctx))
+      { name: 'TypeError', message: 'context must hold a P-256 rootKey, rpId and origin, and non-negative now, skew, maxLifetime' }, JSON.stringify(ctx))
   }
 })
 
@@ -144,4 +146,37 @@ test('a foreign error from opening (patched built-ins in the hash library) fails
   let out
   try { out = { ...checkDelegation(ok, CTX) } } catch (e) { out = { threw: String(e) } } finally { Uint8Array.prototype.fill = original }
   assert.deepEqual(out, { ok: false, reason: 'envelope-encoding' })
+})
+
+test('root binding: the key given must be the key of the root the delegation names', () => {
+  rejects(build({ body: { ...BODY, root: 'f'.repeat(64) } }), 'root', 'body names another root')
+  const otherSecret = Uint8Array.from({ length: 32 }, (_, i) => i + 7)
+  const otherKey = '04' + hex(p256.getPublicKey(otherSecret, false).subarray(1))
+  // Signed by the other passkey, given its key, but naming the test passkey's root: refused before the assertion.
+  rejects(build({ rootSecret: otherSecret }), 'root', 'signed and keyed by another root', { ...CTX, rootKey: otherKey })
+  rejects(ok, 'root', 'right key, another rp ID', { ...CTX, rpId: 'other.example' })
+})
+
+test('an accept carries the record id and its body', () => {
+  const r = checkDelegation(ok, CTX)
+  assert.equal(r.ok, true)
+  assert.equal(r.id, envelope.seal('delegation', BODY).id)
+  assert.deepEqual(JSON.parse(JSON.stringify(r.body)), JSON.parse(JSON.stringify(BODY)))
+  assert.ok(Object.isFrozen(r) && Object.isFrozen(r.body))
+  assert.deepEqual(Object.keys(r), ['ok', 'id', 'body'])
+})
+
+test('the context is read once: getters cannot change values between checks', () => {
+  const reads = {}
+  const ctx = {}
+  for (const [k, v] of Object.entries(CTX)) {
+    Object.defineProperty(ctx, k, { enumerable: true, get () { reads[k] = (reads[k] ?? 0) + 1; return reads[k] === 1 ? v : (k === 'now' ? NaN : v) } })
+  }
+  assert.equal(checkDelegation(ok, ctx).ok, true)
+  assert.ok(Object.values(reads).every((n) => n === 1), JSON.stringify(reads))
+  const late = {}
+  let n = 0
+  Object.defineProperty(late, 'now', { enumerable: true, get () { return n++ === 0 ? BODY.exp : NaN } })
+  for (const k of ['rootKey', 'rpId', 'origin', 'skew', 'maxLifetime']) late[k] = CTX[k]
+  rejects(ok, 'expired', 'now read once', late)
 })

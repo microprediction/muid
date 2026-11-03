@@ -150,11 +150,11 @@ function concat (a, b) {
 }
 
 export function checkRootAssertion (sig, ctx) {
-  if (typeof ctx !== 'object' || ctx === null || typeof ctx.record !== 'string' || typeof ctx.rpId !== 'string' ||
-    typeof ctx.origin !== 'string' || typeof ctx.key !== 'string') {
+  // Each field is read once, so a getter cannot change a value between checks.
+  const { record, rpId, origin, key } = typeof ctx === 'object' && ctx !== null ? ctx : {}
+  if (typeof record !== 'string' || typeof rpId !== 'string' || typeof origin !== 'string' || typeof key !== 'string') {
     throw new TypeError('context must hold record, rpId, origin and key strings')
   }
-  const { record, rpId, origin, key } = ctx
   const s = snapshot(sig)
   if (!shapeOk(s)) return refuse('assertion-shape')
   if (!coversOk(s.covers, record)) return refuse('covers')

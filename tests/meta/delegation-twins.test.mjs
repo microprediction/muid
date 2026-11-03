@@ -13,7 +13,7 @@ const SUITE = readdirSync(SUITE_DIR).filter((f) => f.endsWith('.test.mjs')).map(
 
 // A twin lives outside the repository, so its imports are made absolute.
 const absolute = (m) => new URL('../../src/' + m + '.js', import.meta.url).href
-const IMPORTS = ['envelope', 'assertion', 'ed25519', 'origin'].map((m) => ["from './" + m + ".js'", "from '" + absolute(m) + "'"])
+const IMPORTS = ['envelope', 'assertion', 'ed25519', 'origin', 'root'].map((m) => ["from './" + m + ".js'", "from '" + absolute(m) + "'"])
 
 // [name, bug class, [find, replace] pairs]
 const TWINS = [
@@ -21,11 +21,12 @@ const TWINS = [
   ['inclusive-exp', 'a delegation is still valid at exp', [["  if (ctx.now >= b.exp) return refuse('expired')", "  if (ctx.now > b.exp) return refuse('expired')"]]],
   ['no-lifetime-cap', 'any lifetime is accepted', [[' || b.exp - b.nbf > ctx.maxLifetime', '']]],
   ['scopes-unsorted', 'scopes need not be sorted or distinct', [["    if (i > 0 && !(scopes[i - 1] < scopes[i])) return false\n", '']]],
-  ['no-consent', 'the subject\'s countersignature is not checked', [["  return checkEd25519(sig.subject, acceptMessage(id), b.subject).ok ? root : refuse('subject-consent')", '  return root']]],
+  ['no-consent', 'the subject\'s countersignature is not checked', [["  return checkEd25519(sig.subject, acceptMessage(id), b.subject).ok ? accept(id, b) : refuse('subject-consent')", '  return accept(id, b)']]],
   ['consent-over-hex', 'the countersignature covers the id as hex text', [
     ['      byte = byte * 16 + (c <= 57 ? c - 48 : c - 87)\n    }\n    out[ACCEPT_PREFIX.length + i] = byte', '      byte = byte * 16 + (c <= 57 ? c - 48 : c - 87)\n    }\n    out[ACCEPT_PREFIX.length + i] = apply(charCodeAt, id, [i])']]],
   ['aud-unchecked', 'the audience is not checked', [["  if (!isCanonicalOrigin(b.aud)) return refuse('aud')\n", '']]],
   ['fixed-record', 'the root assertion is checked against the payload text, not the record id', [['{ record: id, rpId', '{ record: record.payload.slice(0, 64), rpId']]],
+  ['root-unbound', 'the key given is not tied to the root the delegation names', [["  if (rootIdOf(ctx.rpId, ctx.rootKey) !== b.root) return refuse('root')\n", '']]],
   ['subject-key-unchecked', 'the subject key is not checked for K1', [["  if (!checkEd25519Key(b.subject).ok) return refuse('subject-key')\n", '']]],
 ]
 
@@ -70,7 +71,7 @@ test('delegation broken twins', { timeout: 600_000 }, async (t) => {
     })
 
     const jobs = TWINS.map(([name, why, edits]) => [name, why, generate(name, edits)])
-    assert.equal(jobs.length, 9, 'twin count')
+    assert.equal(jobs.length, 10, 'twin count')
     const results = []
     const queue = [...jobs]
     const workers = Math.max(1, Math.floor(availableParallelism() / 4))

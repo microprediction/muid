@@ -88,6 +88,10 @@ which root.
   must produce identical signature bytes for the same key and message — a differential test. Safari signs through
   CryptoKit, which randomises Ed25519 signatures, so there the test is that noble verifies what WebCrypto signs.
   (Custody code is not core, but this rule binds it.)
+- **K7 ED25519 MESSAGES:** an Ed25519 key signs only `UTF-8("muid/v1\n") ‖ payload` (a record: the payload's
+  `type` separates kinds, so a future claim is a record of its own type) or `UTF-8("muid/v1/<tag>\n") ‖` a
+  fixed-length suffix, with tags from a closed list: `accept` (D6, 32 bytes). Custody code never signs bytes it did
+  not build. These prefixes differ by their eighth byte and none is a prefix of another.
 - **Pinning:** library versions are pinned exactly; an upgrade is a reviewed change that re-runs every vector suite.
 
 Research: [`signatures.md`](research/signatures.md), [`webauthn.md`](research/webauthn.md).
@@ -204,10 +208,12 @@ Its envelope's `sig` is `{ root, subject }`: `root` the passkey assertion (W0–
   `UTF-8("muid/v1/accept\n") ‖` the delegation's record id as 32 raw bytes. Without it, a root could attach someone
   else's public key to its identity and have that key's signatures counted as its own.
 - **D7 CHECKS, IN ORDER:** `checkDelegation(text, { rootKey, rpId, origin, now, skew, maxLifetime })` opens the
-  envelope itself — so the id it checks is always the id of the bytes it was given — and returns `{ ok: true }` or
-  `{ ok: false, reason }`, never throwing for any `text`. Reasons: V4's, for the envelope; `delegation-shape` (body keys other than the eight, or a field of the wrong form,
+  envelope itself — so the id it checks is always the id of the bytes it was given — and returns
+  `{ ok: true, id, body }` or `{ ok: false, reason }`, never throwing for any `text`. The context is read once. Reasons: V4's, for the envelope; `delegation-shape` (body keys other than the eight, or a field of the wrong form,
   or `sig` not `{ root, subject }`); `scopes`; `aud` (O1); `subject-key` (K1, via K5's key checks); `lifetime`
-  (`exp ≤ nbf` or D2); `not-yet` and `expired` (D1); then W6's reasons for `sig.root` with this record's id; then
+  (`exp ≤ nbf` or D2); `not-yet` and `expired` (D1); `root` (the root id of `rootKey` under `rpId` is not the body's
+  `root`, so a caller cannot verify one root's assertion as another's); then W6's reasons for `sig.root` with this
+  record's id; then
   `subject-consent` (any K5 signature reason for `sig.subject`). Whether `root` has authority under `membership`
   (R6), and whether the verifier's view is fresh (open decision 7), are the verifier's to decide (§6), not this
   check's. `skew` and `maxLifetime` are configuration (open decision 3).
@@ -324,6 +330,17 @@ verified records for, and `revoked` adds revocations.
 - **F3 OPTIONS ONLY REMOVE TRUST:** no per-call input can make a record pass that the same verifier would reject with
   narrower inputs (fewer roots, more revocations). Tested as a monotonicity property.
 - **F4 EXPIRY FIRST:** short-lived records do the revocation work; the revoked set is a backstop.
+
+**What the verifier must add to the record checks** (each check above leaves these to it):
+1. The root key passed to `checkDelegation` comes from a root record checked with `checkRoot`; it is looked up by the
+   delegation's `root`, never found by trying keys (D7's `root` reason also refuses a mismatch).
+2. R6: the delegation's `membership` is the last settled membership of its `identity`, or that membership's pending
+   successor; neither is frozen; the root is in it (and, while pending, in both). For epoch 1, `membership` is the
+   identity id, which must equal `identityOf(root)`; otherwise the membership record's `identity` must match.
+3. Freshness: a head no older than `MAX_STALENESS` (open decision 7).
+4. The delegation's id is not revoked.
+5. D5 and scope: the delegation's `aud` is the verifier's own origin, and the requested scope is in `scopes`.
+6. `skew` and `maxLifetime` are fixed configuration, never chosen per call.
 
 **Root assertion checks** (the `sig` object of a root-signed record: `{ covers, authenticator_data,
 client_data_json, signature }`; WebAuthn fields base64url):

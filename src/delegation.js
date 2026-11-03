@@ -7,6 +7,7 @@ import { open, EnvelopeError } from './envelope.js'
 import { checkRootAssertion } from './assertion.js'
 import { checkEd25519, checkEd25519Key } from './ed25519.js'
 import { isCanonicalOrigin } from './origin.js'
+import { rootIdOf } from './root.js'
 
 const { apply } = Reflect
 const { create, freeze } = Object
@@ -74,13 +75,30 @@ function acceptMessage (id) {
   return out
 }
 
-function contextOk (ctx) {
-  return typeof ctx === 'object' && ctx !== null && typeof ctx.rootKey === 'string' && typeof ctx.rpId === 'string' &&
-    typeof ctx.origin === 'string' && isTime(ctx.now) && isTime(ctx.skew) && isTime(ctx.maxLifetime)
+const ROOT_KEY = /^04[0-9a-f]{128}$/
+
+// Each field is read once, so a getter cannot change a value between checks.
+function readContext (ctx) {
+  if (typeof ctx !== 'object' || ctx === null) return undefined
+  const { rootKey, rpId, origin, now, skew, maxLifetime } = ctx
+  if (!isHex(ROOT_KEY, rootKey) || typeof rpId !== 'string' || typeof origin !== 'string' || !isTime(now) ||
+    !isTime(skew) || !isTime(maxLifetime)) return undefined
+  return { rootKey, rpId, origin, now, skew, maxLifetime }
 }
 
-export function checkDelegation (text, ctx) {
-  if (!contextOk(ctx)) throw new TypeError('context must hold rootKey, rpId, origin and non-negative now, skew, maxLifetime')
+function accept (id, body) {
+  const out = create(null)
+  out.ok = true
+  out.id = id
+  out.body = body
+  return freeze(out)
+}
+
+export function checkDelegation (text, context) {
+  const ctx = readContext(context)
+  if (ctx === undefined) {
+    throw new TypeError('context must hold a P-256 rootKey, rpId and origin, and non-negative now, skew, maxLifetime')
+  }
   let record
   try {
     record = open(text, 'delegation')
@@ -96,7 +114,9 @@ export function checkDelegation (text, ctx) {
   if (b.exp <= b.nbf || b.exp - b.nbf > ctx.maxLifetime) return refuse('lifetime')
   if (ctx.now < b.nbf - ctx.skew) return refuse('not-yet')
   if (ctx.now >= b.exp) return refuse('expired')
+  // The key the caller gives must be the key of the root the delegation names (W3), under this rp ID.
+  if (rootIdOf(ctx.rpId, ctx.rootKey) !== b.root) return refuse('root')
   const root = checkRootAssertion(sig.root, { record: id, rpId: ctx.rpId, origin: ctx.origin, key: ctx.rootKey })
   if (!root.ok) return root
-  return checkEd25519(sig.subject, acceptMessage(id), b.subject).ok ? root : refuse('subject-consent')
+  return checkEd25519(sig.subject, acceptMessage(id), b.subject).ok ? accept(id, b) : refuse('subject-consent')
 }

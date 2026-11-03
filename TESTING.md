@@ -286,6 +286,9 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   accepted.
 - **Audience:** every refused case of §4c gives `aud`; a canonical origin is accepted.
 - **Subject key (K1):** a small-order and a mixed-order key give `subject-key`.
+- **Root binding:** a body naming another root, a key that is another root's, the right key under another rp ID —
+  each `root`, before the assertion is checked.
+- **Result and context:** an accept carries `id` and `body`, frozen; each context field is read once.
 - **Root assertion:** an assertion covering another record (`covers`), one signed by another passkey (`sig-invalid`),
   one whose covers include this record and others (accepted).
 - **Subject consent (D6):** signed by another key; over the hex id instead of its bytes; with the signed-bytes or
