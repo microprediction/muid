@@ -62,7 +62,7 @@ test('claim-shape: keys, forms, sig', () => {
   assert.deepEqual(call({ claim: delegation }), refused('type'))
 })
 
-test('the delegation is verified in full, with the claim\\'s scope', () => {
+test("the delegation is verified in full, with the claim's scope", () => {
   assert.deepEqual(call({ claim: claim({ scope: 'admin' }).text }), refused('scope'))
   assert.deepEqual(call({ claim: claim({ scope: 'read' }).text }), { ok: true })
   assert.deepEqual(call({ head: 'x' }), refused('head'))
