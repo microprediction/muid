@@ -373,12 +373,15 @@ the implementation only through `tests/impl.mjs`, which loads the real module or
 variable; a guard test fails if any test file imports `src/` directly, since that import would bypass the twin. A
 meta-test runs the layer's suite once per twin and passes only if every run exits non-zero. A twin that the suite cannot kill is a missing test, and the layer is not mergeable.
 
-## 7. CI order
+## 7. CI
 
-1. `npm ci --ignore-scripts`, registry signature check, lockfile and pin checks.
-2. Semgrep with its rule tests (`semgrep --test`), line budget, duplication check, gitleaks.
-3. `node --test` (vector hashes, vectors, properties, adversarial cases), with coverage.
-4. Broken-twin meta-tests.
-5. Mutation testing, one parallel job per core module (a guard fails if a module has no config or its config is
-   not in the matrix).
-6. CodeQL.
+Three kinds of job run in parallel, so wall time is the slowest single job, not the sum:
+
+1. **Tests** on Node 22, 24 and 26: `npm ci --ignore-scripts`, the registry signature check, then every suite
+   outside `tests/meta/` (vector hashes, vectors, properties, adversarial cases, guards) with 100% coverage of `src/`.
+2. **Twins:** one job per harness in `tests/meta/`.
+3. **Mutation testing:** one job per core module.
+
+Guards fail the build if a test file is in no job, a module has no mutation config, or a config is not in the
+matrix. Still to add when their tools are approved: Semgrep with its rule tests, a duplication check, gitleaks,
+CodeQL.
