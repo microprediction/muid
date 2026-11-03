@@ -10,7 +10,7 @@ const RUNS = Number(process.env.FC_RUNS ?? 300)
 const urlAgrees = (x) => { try { return new URL(x).origin === x } catch { return false } }
 
 const label63 = 'a' + 'b'.repeat(61) + 'c'
-const host253 = [label63, label63, label63, 'd'.repeat(59) + '.ex'].join('.')
+const host253 = [label63, label63, label63, 'd'.repeat(58) + '.ex'].join('.')
 
 const ACCEPT = [
   'https://example.org', 'https://a.b', 'https://a.b.c.d.e.example', 'https://x-1.y2.example', 'https://123.example',
@@ -25,7 +25,7 @@ const REFUSE = [
   'https://example.org:65536', 'https://example.org:080', 'https://example.org:', 'https://localhost', 'https://.example.org',
   'https://example..org', `https://${label63}d.example`, `https://${host253}x`, 'https://-a.example', 'https://a-.example',
   'https://xn--bcher-kva.example', 'https://ab--cd.example', 'https://a.xn--p1ai', 'https://192.168.0.1', 'https://1.2.3.4',
-  'https://[::1]', 'https://exa%6dple.org', 'https://exa mple.org', ' https://example.org', 'https://example.org ',
+  'https://[::1]', 'https://example.123', 'https://a.b.0', 'https://exa%6dple.org', 'https://exa mple.org', ' https://example.org', 'https://example.org ',
   'https://example.org\n', 'https://exam\tple.org', 'https://ex_ample.org', 'https://example.org:+80', 'https://example.org:8 0',
   'https:///example.org', 'https:example.org', 'https://', '', 'https://é.example', 'https://example.org\u0000',
 ]
