@@ -28,17 +28,23 @@ reason code on refusal.
 
 ### 2.1 Known answers
 
-- **RFC 8785 reference vectors** (cyberphone `testdata/input` and `output`). Cases inside our value domain must
-  produce the published bytes exactly. Cases outside it (floats, `null`, keys outside the grammar) must be refused
-  with the matching reason. The test lists which cases are which, and asserts both counts.
-- **Hand-written vectors** (`tests/vectors/encoding/hand.json`): each is `{ value, bytes }` or `{ value, reason }`
-  or `{ text, reason }`, with the expected bytes written by hand.
+- **RFC 8785 reference vectors** (cyberphone `testdata/`, pinned; see `tests/vectors/jcs/SOURCE.md`). None of the six
+  cases lies inside our value domain, so (a) each must be refused with its E5 reason, and (b) every string key and
+  value in the upstream *outputs* is cut as raw bytes and wrapped as `{"s": …}`; our encoder must reproduce those
+  upstream bytes exactly. This is the independent check of string escaping.
+- **Hand-written vectors**, written as literals in the test files (`E1-hand-vectors`, `E2-decode-refusals`,
+  `E3-value-refusals`): the expected bytes or reason for each case are typed by hand, never computed.
+- The reference implementation used in P4 formats strings with `JSON.stringify`, as an encoder of ours would, so P4
+  cannot catch a string-escaping error common to both; the upstream vectors above cover that.
 
 ### 2.2 Adversarial cases (every one has a vector)
 
 | Input | Expected |
 |---|---|
-| key `__proto__`, `constructor`, `toString`, `hasOwnProperty` | `__proto__` refused (grammar); the others encode and decode as ordinary own keys |
+| key `__proto__`, `toString`, `hasOwnProperty` | refused (grammar: leading underscore, uppercase) |
+| key `constructor`, `valueof` | encode and decode as ordinary own keys |
+| one object reachable by 2^15 paths (a "diamond") | refused with `size` in well under a second (E4) |
+| UTF-8 output of exactly 65,536 bytes; of 65,538 bytes with only 32,773 UTF-16 code units | accepted; refused (`size` counts bytes, not code units) |
 | keys `"1"`, `"10"`, `"A"`, `""`, a 33-character key, a key with a lone surrogate | refused (grammar) |
 | a 32-character key | accepted |
 | keys inserted in different orders | identical bytes |
@@ -108,8 +114,11 @@ Generators cover deep and wide nesting, every string class in §2.2, and integer
    accept).
 5. **Attestation** (A1–A3): witness key outside its window; unknown provider; each provider's account format and its
    near misses (GitHub leading zero or login string; ORCID bad check digit).
-6. **Link, retire, veto, revocation** (R1–R3): one-sided link; retire before the delay; veto after `effective`;
-   pruning only after the target's expiry. Model traces from the Quint/TLA+ model replayed as tests.
+6. **Membership, freeze, revocation** (R1–R5): next epoch signed by exactly half (rejected) and by a strict
+   majority (accepted); an added root that did not sign; a freeze by a retired root; two valid records for one epoch
+   (R3); every permutation of a record set gives the same state (R5, property); a delegation from a root of an older
+   epoch; pruning a revocation only after its target's expiry. The three stolen-root scenarios, and traces from the
+   Quint/TLA+ model, replayed as tests.
 
 Candidate cases drawn from the published behaviour of Porto, Farcaster and Keybase are added to these sections as they
 are expanded.

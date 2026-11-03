@@ -61,9 +61,11 @@ which root.
 - **Bytes in text:** lowercase hex. Exception: WebAuthn fields keep their standard unpadded base64url. Each decoder
   rejects any input that does not re-encode to itself.
 - **Time:** integer seconds since the Unix epoch. `now` is always a parameter, never read from a clock inside the core.
-- **Delegate key custody (not core):** in browsers a delegate key is a non-extractable WebCrypto Ed25519 key, so the
-  secret never sits in JS memory; verification always uses noble, for one verdict everywhere. Ed25519 signing is
-  deterministic, so both must produce identical signature bytes for the same key and message.
+- **K3 NON-EXTRACTABLE DELEGATE KEYS:** in browsers a delegate key is generated as a WebCrypto Ed25519 key with
+  `extractable: false`, so the secret never sits in JS memory and cannot be exported by any script, ours included. A
+  machine's key lives in a file readable only by its owner (mode `0600`). Verification always uses noble, for one
+  verdict everywhere. Ed25519 signing is deterministic, so WebCrypto and noble must produce identical signature bytes
+  for the same key and message; that is a differential test. (Custody code is not core, but this rule binds it.)
 - **Pinning:** library versions are pinned exactly; an upgrade is a reviewed change that re-runs every vector suite.
 
 Research: [`signatures.md`](research/signatures.md), [`webauthn.md`](research/webauthn.md).
@@ -81,8 +83,18 @@ Records are RFC 8785 (JCS) text over a restricted value domain:
 **E2 CANONICAL INPUT:** `decode(b)` succeeds only if `encode(decode(b))` equals `b` byte for byte. This rejects
 duplicate keys, whitespace, alternative escapes and key-order variants.
 **E3 TOTAL OR REFUSED:** a value outside the domain throws; nothing is silently dropped or converted.
-**E4 BOUNDED:** input longer than `MAX_BYTES` is refused before it is parsed; nesting deeper than `MAX_DEPTH` is
-refused before recursion can exhaust the stack.
+**E4 BOUNDED:** `MAX_BYTES` = 65,536 bytes of UTF-8 and `MAX_DEPTH` = 16 (the top-level object is depth 1). Input
+longer than `MAX_BYTES` is refused before it is parsed. Encoding stops as soon as its output would exceed
+`MAX_BYTES`, so work is bounded by the limit even when one object is reachable by many paths. Nesting deeper than
+`MAX_DEPTH` is refused before recursion can exhaust the stack.
+**E5 ONE REASON:** a refusal carries exactly one reason code, and it is the same for every implementation. The top
+level must be a plain object. Each container is checked on entry — cycle, then depth, then shape (prototype, symbol
+keys, array holes and extra properties). An object's members are then visited in canonical key order, each key
+checked (grammar, then data-property descriptor) before its value; array elements in index order. The first
+violation found is the reason. Numbers are checked in the order non-finite, `-0`, non-integer, unsafe integer. Reason
+codes: `top-level`, `key`, `symbol-key`, `accessor`, `non-enumerable`, `non-plain`, `array-shape`, `cycle`, `depth`,
+`size`, `null`, `undefined`, `non-finite`, `negative-zero`, `float`, `unsafe-integer`, `type`, `surrogate`, `syntax`,
+`non-canonical`.
 
 Research: [`encoding.md`](research/encoding.md).
 
@@ -103,12 +115,18 @@ Research: [`encoding.md`](research/encoding.md).
 
 ## 5. Record types
 
-**root** — signed by its own passkey (proof of possession). Registration with `attestation: "none"` signs nothing
-the verifier can use, so the root record is signed by a separate assertion made immediately after `create()`.
-`{ pub, rp_id, cred_id, created }`. Root id = hex SHA-256(`"muid-root\n"` ‖ `rp_id` ‖ `"\n"` ‖ point bytes).
+**root** — unsigned and self-certifying. `{ pub, rp_id }`, where `pub` is the passkey public key from `create()`
+(65-byte uncompressed point, hex). Root id = hex SHA-256(`"muid-root\n"` ‖ `rp_id` ‖ `"\n"` ‖ point bytes). Anyone can
+publish anyone's root record and gains nothing: the id is derived from the key, and only the key's holder can sign
+under it. The record carries nothing else: a credential id is a client-side lookup hint, not covered by any assertion
+signature, and a creation time would be chosen by the signer and prove nothing.
+
+**identity** — the identity id is hex SHA-256(`"muid-identity\n"` ‖ first root id). It never changes, whatever
+happens to its roots afterwards.
 
 **delegation** — signed by a root (passkey assertion). Never by an Ed25519 key.
-`{ root, subject, aud, scopes, nbf, exp }`. `subject` is an Ed25519 public key; `aud` is one exact origin;
+`{ identity, epoch, root, subject, aud, scopes, nbf, exp }`. `root` is a member of `epoch` (R-rules below);
+`subject` is an Ed25519 public key; `aud` is one exact origin;
 `scopes` is a non-empty sorted list of distinct scope strings (`^[a-z][a-z0-9_.:-]{0,63}$`). A scope's meaning
 belongs to the relying party; the core checks only exact membership — no prefix, wildcard or hierarchy rule.
 - **D1 WINDOW:** `nbf − skew ≤ now < exp`. Skew applies to `nbf` only; it never extends `exp`.
@@ -118,9 +136,11 @@ belongs to the relying party; the core checks only exact membership — no prefi
 - **D6 SUBJECT CONSENT:** a delegation is valid only together with an Ed25519 signature by `subject` over the
   delegation's record id (domain `"muid/v1/accept\n"`). Without it, a root could attach someone else's public key to
   its identity and have that key's signatures counted as its own.
-- **D5 AUDIENCE:** `aud` is compared to the relying origin by exact string equality, after the origin itself is
-  checked to be in canonical form (`https`, lowercase ASCII host with IDNs in punycode, no trailing slash, no default
-  port, no path, query, fragment or userinfo).
+- **D5 AUDIENCE:** `aud` is the origin of the relying party — the service that verifies the delegate's signatures. It
+  is compared by exact string equality, after the origin itself is checked to be in canonical form (`https`,
+  lowercase ASCII host with IDNs in punycode, no trailing slash, no default port, no path, query, fragment or
+  userinfo). For an app, the relying party is the app (I3). For a machine, it is the service the machine calls,
+  chosen by the user on the id page (§8). There is no audience form other than an origin.
 
 **attestation** — signed by a witness key.
 `{ root, provider, account, nbf, exp }`.
@@ -133,12 +153,31 @@ belongs to the relying party; the core checks only exact membership — no prefi
   leading zeros); Google `sub`; ORCID iD (`dddd-dddd-dddd-dddX`, ISO 7064 MOD 11-2 check digit). Never an email,
   handle, login or domain.
 
-**link** — signed by a root. `{ root, peer, nbf }`. Two roots are one identity when each has linked the other.
+**membership** — the identity's root set at one epoch. `{ identity, epoch, roots, prev }`. `roots` is a sorted list
+of 1–5 distinct root ids; `prev` is the record id of the previous epoch's membership. Epoch 1 is implicit: it is the
+single first root, and needs no record. One membership record is carried by several envelopes with the same payload,
+each signed by one root.
+- **R1 CHANGE BY MAJORITY:** epoch `n + 1` is valid only if signed by a strict majority of epoch `n`'s roots and by
+  every root it adds. A root is retired by leaving it out.
+- **R2 FREEZE BY ANY:** a `freeze` record `{ identity, epoch }` signed by any one root of that epoch freezes it:
+  delegations under a frozen epoch fail. Only a valid next epoch (R1) moves past a freeze. Freezing only removes
+  trust, so any single root may do it.
+- **R3 EQUIVOCATION FREEZES:** two different valid membership records for the same epoch freeze the epoch before
+  them. A fork is never resolved by choosing one side.
+- **R4 CURRENT EPOCH:** delegations are accepted only under the highest epoch reachable by a valid chain from epoch 1,
+  if it is not frozen, and only from that epoch's roots.
+- **R5 ORDER-FREE:** the identity's state is a function of the *set* of membership and freeze records the verifier
+  holds, never of their order or of any timestamp in them. Recovery therefore needs no time anchor.
 
-**retire** — signed by a root mutually linked to `target`. `{ target, by, effective }`.
-- **R1 DELAY:** `effective` is at least `RECOVERY_DELAY` after the retire record's anchored time (open decision 2).
-- **R2 VETO:** a `veto` record `{ retire }` signed by `target` before `effective` cancels it.
-- **R3 EFFECT:** from `effective`, delegations by `target` fail and `target` can sign nothing further.
+What this gives (to be model-checked, §12):
+- **Three roots, one stolen:** the other two sign the next epoch without it, at once. The thief can freeze the old
+  epoch, but the new one moves past it.
+- **Two roots, one stolen:** neither side reaches a majority alone. Either side can freeze, and the thief then has no
+  authority either. The owner starts a new identity and re-attests their provider accounts.
+- **One root, lost or stolen:** the identity ends. The owner starts a new identity and re-attests. Linking the old and
+  new identities through shared provider attestations is the reputation layer's job (§12), not the core's.
+- **Residual:** a verifier that has not yet seen a newer epoch still accepts the older epoch's roots. That window is
+  bounded by delegation lifetimes and by how membership records reach verifiers (open decision 3).
 
 **revocation** — signed by the root, or by the witness for its own attestations, or by a delegate for itself.
 `{ target, at }`. `target` is a record id. A revocation may be pruned once its target's `exp` has passed.
@@ -166,20 +205,21 @@ verified records for, and `revoked` adds revocations.
   narrower inputs (fewer roots, more revocations). Tested as a monotonicity property.
 - **F4 EXPIRY FIRST:** short-lived records do the revocation work; the revoked set is a backstop.
 
-**Root assertion checks** (the `sig` object of a root-signed record: `{ covers, cred_id, authenticator_data,
+**Root assertion checks** (the `sig` object of a root-signed record: `{ covers, authenticator_data,
 client_data_json, signature }`; WebAuthn fields base64url):
-- **W0 COVERAGE:** one assertion may cover several records, so a first run needs one prompt for the root record and
-  the first delegation together. `covers` is a sorted list of 1–8 distinct record ids (lowercase hex) that contains
-  this record's own id. A single record is a list of length one; there is no other form.
+- **W0 COVERAGE:** one assertion may cover several records, so one prompt can renew several delegations or sign a
+  membership change together with the delegations that go with it. `covers` is a sorted list of 1–8 distinct record
+  ids (lowercase hex) that contains this record's own id. A single record is a list of length one; there is no other
+  form.
 - **W1 CLIENT DATA:** `type` is `"webauthn.get"`; `challenge` equals
   base64url(SHA-256(`UTF-8("muid/v1/assert\n")` ‖ the ids in `covers`, each followed by `"\n"`)) exactly — a domain
   distinct from the signed-bytes prefix `"muid/v1\n"`; `origin` equals the configured id origin exactly;
   `crossOrigin` is absent or `false`; `topOrigin` is absent.
 - **W2 AUTHENTICATOR DATA:** `rpIdHash` equals SHA-256(`rp_id`); UP and UV are set; AT and ED are clear and no bytes
   follow the 37-byte header; BS set implies BE set.
-- **W3 SIGNATURE:** strict DER, verified as in §2.
-- **W4 CREDENTIAL:** `cred_id` equals the root record's `cred_id`.
+- **W3 SIGNATURE:** strict DER, verified as in §2, under the `pub` of the root the record names.
 - **W5 NO COUNTER:** the signature counter is not consulted (synced passkeys report a constant).
+- (There is no W4. A credential id is not covered by the assertion signature, so checking it would prove nothing.)
 
 Research: [`webauthn.md`](research/webauthn.md).
 
@@ -192,20 +232,24 @@ test fails the build on any direct `indexedDB` or `localStorage` use outside the
 
 - The id origin is a dedicated host serving nothing else, with no subdomains. `rp_id` and the exact origin are
   deployment configuration, compared exactly; no suffix or wildcard rule exists anywhere.
+- **`rp_id` is permanent and public.** Every root record contains it, so every identity is publicly associated with
+  that domain, and passkeys can never move to another. Related Origin Requests add origins but never change the
+  `rp_id`. It is confirmed deliberately, as a branding and attribution decision, before the first real root.
 - Root registration and every root-signed action happen in a top-level id-origin window (popup or redirect).
   Cross-origin iframe `create()` is not available in Safari or iOS browsers.
 - **I1 SENDER:** a request is accepted only if `event.source` is this window's opener (or parent, for an iframe) and
   `event.origin` is a canonical origin (D5). `document.referrer` is never consulted.
 - **I2 REPLY:** a reply is posted with `targetOrigin` equal to the request's `event.origin` — never `'*'` — and is not
   sent if the opener has navigated away.
-- **I3 AUDIENCE FROM THE CHANNEL:** `aud` is the request's `event.origin`. A requester cannot name a different
-  audience.
+- **I3 AUDIENCE FROM THE CHANNEL:** for a delegation an app requests, `aud` is the request's `event.origin`. An app
+  cannot name a different audience. A machine delegation has no requesting app: the user chooses its `aud` on the id
+  page, and the page shows it under I4.
 - **I4 WHAT YOU SEE IS WHAT YOU SIGN:** the page renders `aud`, `scopes` and `exp` of every record in `covers`, from
   the exact payloads whose ids become the challenge; nothing is computed between display and signing.
 - **I5 NO CACHED VERIFICATION:** every root assertion is a fresh ceremony with user verification; nothing is cached
   across actions.
-- **U1 FIRST RUN:** one id-origin window and at most two user-verification prompts — passkey creation, then one
-  assertion covering the root record and the app's first delegation (W0).
+- **U1 FIRST RUN:** one id-origin window and at most two user-verification prompts — passkey creation (which yields
+  the root record, unsigned), then one assertion signing the app's first delegation.
 - **U2 STEADY STATE:** at most one user-verification prompt per device per 30 days in ordinary use. Delegation
   lifetimes are chosen to meet U2 (open decision 3), and renewal happens during a root ceremony the user is already
   in where possible. A delegation cannot be renewed without a root assertion; "silent renewal" does not exist.
@@ -221,29 +265,54 @@ test fails the build on any direct `indexedDB` or `localStorage` use outside the
 
 1. **Claims and time — the most important open decision.** The spec does not yet define the record a delegate
    signs. Any timestamp inside a record is chosen by its signer, so a delegate whose delegation has expired could
-   backdate a claim into the old window, and a compromised root could backdate a `retire`. Either (a) claims are
-   **ephemeral**: verified on receipt against the verifier's `now`, and unverifiable once the delegation lapses; or
-   (b) claims are **durable**: a time anchor (a witness countersignature over the record id and the time it was seen)
-   fixes when the record existed, and authority is judged at that anchored time. The same anchor would serve R1.
+   backdate a claim into the old window. Either (a) claims are **ephemeral**: verified on receipt against the
+   verifier's `now`, and unverifiable once the delegation lapses; or (b) claims are **durable**: a time anchor fixes
+   when the record existed, and authority is judged at that anchored time. A durable anchor is a witness
+   countersignature over the record id and the time it was seen — another record checked against pinned keys. A
+   verifier's own "first seen" time is not an option: different verifiers would reach different verdicts, against
+   F1. Recommendation: (a) in version 1; (b) as a later layer for records that must outlive their delegation.
    Either way, a claim names the record id of the delegation it is made under, so a signature made under one
    delegation is never accepted under another. Revocation semantics follow from this choice: whether a revocation
    is retroactive, what `at` means, and whether a verifier may ever forget a revocation it has seen.
-2. **Recovery under symmetric compromise.** Two mutually linked roots cannot tell the owner from a thief: each can
-   retire the other and each can veto. Options: (a) a 2-of-3 root quorum retires without veto; (b) a priority order
-   fixed at link time (safe only if the thief does not hold the higher root); (c) a vetoed retire freezes every root
-   of the identity, which is then re-established from provider attestations. R1–R3 change with the choice.
-3. **Lifetimes, per kind of subject** (own device, third-party app, machine), chosen to meet U2; attestation
-   lifetime; `skew`; `RECOVERY_DELAY` (if recovery keeps a delay).
+2. **Recovery — drafted as R1–R5, pending the model check.** Epochs changed by majority and frozen by any one root
+   replace link/retire/veto, whose two-root case was a stalemate in the thief's favour. Confirm once the Quint/TLA+
+   model has explored the one-, two- and three-root cases with one root stolen.
+3. **Lifetimes, and the conflict they must resolve.** F4 wants delegations short so that expiry does the revocation
+   work. D3 and U2 mean every renewal is a passkey prompt by a human. A machine that runs for weeks makes the two
+   collide. Options: (a) long machine delegations, which make the revocation set the primary mechanism — then the
+   spec must define how revocations and membership records reach verifiers, and a maximum staleness after which a
+   verifier refuses; (b) batched renewal, where one prompt renews every delegate at once (W0), keeping F4 true at the
+   cost of a periodic prompt. Values per kind of subject (own device, third-party app, machine); attestation lifetime;
+   `skew`.
 4. **Machine autonomy:** which scopes a machine may hold without per-action approval, and for how long.
 5. **Boundary parser:** a schema library (valibot) or a hand-written strict parser for this small fixed set of types.
 6. **`clientDataJSON` parsing:** the WebAuthn spec's limited (prefix) verification, which needs no JSON parser, or a
    strict JSON parse confined to the WebAuthn module. Decided by testing real browser output.
 
-## 10. Budget
+## 10. What the reputation layer consumes (not core)
+
+Sybil resistance and reputation live outside the core and must be able to change without reopening it. The core's
+whole contribution is a set of verified facts:
+
+- an identity id, its current epoch and that epoch's roots (R4);
+- each verified attestation: (`provider`, `account`, witness key, `nbf`, `exp`);
+- each verified delegation: (`subject`, `aud`, `scopes`, `nbf`, `exp`);
+- each verified claim and the delegation it was made under.
+
+The reputation layer reads these and nothing else. It never sees a key, never verifies a signature itself, and never
+writes a record the core trusts.
+
+**Memorable names (outside the core).** A root's key cannot be mined, but a name can be mined over an identity id:
+find a nonce such that SHA-256(`"muid-name\n"` ‖ identity id ‖ nonce) begins with bits that map to a readable name.
+That restores the original meaning of MUID — a memorable identifier whose cost is work — and puts a price on
+creating identities, without touching custody. Its rules (domain, difficulty, word mapping) are specified with the
+reputation layer.
+
+## 11. Budget
 
 Trusted core ≤ 1,500 lines. Going over is a design problem, not a reason to raise the budget.
 
-## 11. Automated assurance
+## 12. Automated assurance
 
 A tool counts only once it runs in CI and can fail the build. Each item lands with the first code it applies to,
 never afterwards. Details and thresholds: `TESTING.md`; sources: [`assurance.md`](research/assurance.md).
@@ -270,8 +339,9 @@ never afterwards. Details and thresholds: `TESTING.md`; sources: [`assurance.md`
 **Scheduled, not gating**
 
 - Long fuzz runs of `decode` and `verify` (fast-check at high iteration counts; Jazzer.js).
-- A model of the delegation, revocation, succession and time-window rules (Quint or TLA+), with its traces replayed
-  against `verify`.
+- A model of the delegation, revocation, membership (R1–R5) and time-window rules (Quint or TLA+), with its traces
+  replayed against `verify`. It must cover one, two and three roots with any one of them stolen, and fail if a
+  thief holding a minority of roots can ever keep authority the owner cannot remove.
 - An adversarial review agent against the core. Its findings go to a **private** security advisory, never a public
   issue.
 - After every fix, a variant-analysis sweep for siblings of the bug.
