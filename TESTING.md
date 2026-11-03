@@ -330,6 +330,22 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   without a majority; new roots with authority while pending; a freeze lifted at anchoring; settlements ignored; one
   of two anchored rivals chosen; root assertions not verified.
 
+## 4g. Layer 8 — the verifier (`src/verifier.js`): F1–F5, R9
+
+- **Accept path:** a delegation, its root record and a fresh head give the delegation's id and body.
+- **Head:** another type, an extra key, empty or three memberships, a repeated membership, no or six roots of
+  authority, unsorted or repeated authority, ids with junk, a non-integer `at`, an unpinned witness, a signature by
+  another key than named, a key whose window does not hold `at` — each `head`.
+- **Staleness:** exactly `maxStaleness` old (accepted) and one second more; `skew` in the future (accepted) and one
+  second more; `at = 0`.
+- **Composition:** root-record refusals; D7's reasons passed through (including `root` for another root's record);
+  identity, membership (settled and pending both accepted) and authority judged by the head; revoked, audience, scope.
+- **F3:** adding revocations never turns a refusal into an accept (property).
+- **Programming errors** for configuration, `now`, `scope` and `revoked`; the configuration is copied at
+  construction; arbitrary and hostile records never throw.
+- **Twins:** no staleness bound; heads from the future; membership, authority, identity, revocation, audience or
+  scope unchecked; the head's signature unchecked.
+
 ## 5. Later layers (outline; each is expanded here before its code is written)
 
 1. **Envelope and record id:** expanded as §3.

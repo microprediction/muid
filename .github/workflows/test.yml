@@ -55,6 +55,7 @@ jobs:
           - origin-twins.test.mjs
           - p256-twins.test.mjs
           - root-twins.test.mjs
+          - verifier-twins.test.mjs
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -84,6 +85,7 @@ jobs:
           - stryker.bytes.config.json
           - stryker.attestation.config.json
           - stryker.membership.config.json
+          - stryker.verifier.config.json
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

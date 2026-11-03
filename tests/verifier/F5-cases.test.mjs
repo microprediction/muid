@@ -58,16 +58,27 @@ test('head: wrong type, wrong form, unpinned or out-of-window witness', () => {
     ['no memberships', headText({ memberships: [] })],
     ['three memberships', headText({ memberships: [IDENTITY, '1'.repeat(64), '2'.repeat(64)] })],
     ['membership not an id', headText({ memberships: ['x'] })],
+    ['the same membership twice', headText({ memberships: [IDENTITY, IDENTITY] })],
+    ['six roots of authority', headText({ authority: ['1', '2', '3', '4', '5', '6'].map((c) => c.repeat(64)) })],
     ['no authority', headText({ authority: [] })],
     ['authority unsorted', headText({ authority: ['f'.repeat(64), ROOT] })],
     ['authority duplicated', headText({ authority: [ROOT, ROOT] })],
     ['at not an integer', headText({ at: String(NOW) })],
     ['identity not an id', headText({ identity: 'x' })],
+    ['identity of 65 characters', headText({ identity: IDENTITY + '0' })],
+    ['identity with a prefix', headText({ identity: 'x' + IDENTITY })],
+    ['membership as an array', headText({ memberships: [[IDENTITY]] })],
+    ['authority with a suffix', headText({ authority: [ROOT + '0'] })],
     ['unpinned witness', headText({}, { secret: APP, witness: hex(ed25519.getPublicKey(APP)) })],
     ['signed by another key than named', headText({}, { secret: APP })],
     ['not JSON', 'x'],
   ]
   for (const [name, head] of cases) assert.deepEqual(call({ head }), refused('head'), name)
+  assert.deepEqual(call({ head: headText({ authority: [ROOT, 'f'.repeat(64)] }) }), { ok: true }, 'two roots of authority, sorted')
+  assert.deepEqual(call({ head: headText({ at: 0 }) }), refused('stale'), 'at = 0 is a time, and long past')
+  const edge = verifier({ ...CONFIG, witnessKeys: [{ key: WITNESS, nbf: 0, exp: NOW - 100 }] })
+  const e = edge.verifyDelegation({ delegation: D.text, root: rootText, head: headText() }, { now: NOW, scope: 'post', revoked: [] })
+  assert.deepEqual({ ...e }, refused('head'), 'the key\'s window ends at the head\'s at')
   const window = verifier({ ...CONFIG, witnessKeys: [{ key: WITNESS, nbf: NOW, exp: NOW + 10 }] })
   const r = window.verifyDelegation({ delegation: D.text, root: rootText, head: headText() }, { now: NOW, scope: 'post', revoked: [] })
   assert.deepEqual({ ...r }, refused('head'), 'the key\'s window does not hold the head\'s at')
@@ -121,11 +132,12 @@ test('F3: adding revocations never turns a refusal into an accept', () => {
 })
 
 test('programming errors: configuration, now, scope, revoked', () => {
-  for (const c of [undefined, { ...CONFIG, audience: 'http://x' }, { ...CONFIG, maxStaleness: -1 }, { ...CONFIG, witnessKeys: null },
+  for (const c of [undefined, null, { ...CONFIG, audience: 'http://x' }, { ...CONFIG, maxStaleness: -1 }, { ...CONFIG, witnessKeys: null },
     { ...CONFIG, rpId: 1 }, { ...CONFIG, origin: undefined }, { ...CONFIG, skew: 1.5 }, { ...CONFIG, maxLifetime: '1' }]) {
     assert.throws(() => verifier(c), { name: 'TypeError', message: 'verifier configuration is not well formed' })
   }
-  for (const ctx of [undefined, { now: -1, scope: 'post', revoked: [] }, { now: NOW, scope: 'Post', revoked: [] },
+  for (const ctx of [undefined, null, { now: -1, scope: 'post', revoked: [] }, { now: NOW, scope: 'Post', revoked: [] },
+    { now: NOW, scope: 'post!', revoked: [] }, { now: NOW, scope: ['post'], revoked: [] },
     { now: NOW, scope: 'post', revoked: 'x' }, { now: NOW, scope: 'post' }]) {
     assert.throws(() => v.verifyDelegation({ delegation: D.text, root: rootText, head: headText() }, ctx),
       { name: 'TypeError', message: 'call must hold now, a scope and a revoked list' })
@@ -150,4 +162,6 @@ test('arbitrary records never throw', () => {
     }
   }
   assert.equal(v.verifyDelegation(undefined, { now: NOW, scope: 'post', revoked: [] }).ok, false)
+  const hostile = new Proxy({}, { get () { throw new Error('trap') } })
+  assert.deepEqual({ ...v.verifyDelegation(hostile, { now: NOW, scope: 'post', revoked: [] }) }, { ok: false, reason: 'head' })
 })

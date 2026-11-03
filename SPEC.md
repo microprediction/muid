@@ -1,6 +1,6 @@
 # muid — threat model and record spec
 
-Status: draft 2. Layers 1–7 are implemented in `src/`; the verifier that composes them is not. Every invariant below
+Status: draft 2. Layers 1–8, the verifier included, are implemented in `src/`. Every invariant below
 gets a test before the code it governs (see `TESTING.md`). Sources and reasoning for each rule are in
 [`research/`](research/README.md).
 
