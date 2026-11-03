@@ -99,7 +99,8 @@ test('client-data (W1): the prefix, one JSON object, no disagreeing duplicate, n
 test('client-data: any repeat of a prefix key is refused, even one that agrees; non-string members are refused', () => {
   const ch = challengeFor([RECORD])
   for (const [name, tail] of [['agreeing type', ',"type":"webauthn.get"'], ['agreeing challenge', `,"challenge":"${ch}"`],
-    ['number', ',"n":1'], ['object', ',"o":{}'], ['escaped string', ',"s":"a\\"b"'], ['empty key', ',"":"x"']]) {
+    ['number', ',"n":1'], ['object', ',"o":{}'], ['raw NUL in a value', ',"x":"a' + String.fromCharCode(0) + 'b"'],
+    ['raw newline in a value', ',"x":"a\nb"'], ['raw tab in a value', ',"x":"a\tb"'], ['escaped string', ',"s":"a\\"b"'], ['empty key', ',"":"x"']]) {
     rejects(make({ cdj: clientData({ challenge: ch, tail }) }), 'client-data', name)
   }
   assert.deepEqual(result(make({ cdj: clientData({ challenge: ch, tail: ',"a":"x","b":""' }) })), { ok: true }, 'two string members')

@@ -317,7 +317,9 @@ client_data_json, signature }`; WebAuthn fields base64url):
 - **W1 CLIENT DATA:** `type` is `"webauthn.get"`; `challenge` equals
   base64url(SHA-256(`UTF-8("muid/v1/assert\n")` ‖ the ids in `covers`, each followed by `"\n"`)) exactly — a domain
   distinct from the signed-bytes prefix `"muid/v1\n"`; `origin` equals the configured id origin exactly;
-  `crossOrigin` is absent or `false`; `topOrigin` is absent.
+  `crossOrigin` is present and `false` (every browser measured emits it); `topOrigin` is absent. This separation
+  holds only because nothing else on the id origin ever asks the passkey to sign: no login, no server challenge, no
+  other ceremony (§8).
 - **W2 AUTHENTICATOR DATA:** `rpIdHash` equals SHA-256(`rp_id`); UP and UV are set; AT and ED are clear and no bytes
   follow the 37-byte header; BS set implies BE set.
 - **W3 SIGNATURE:** strict DER, verified as in §2, under the `pub` of the root the record names.
@@ -325,6 +327,8 @@ client_data_json, signature }`; WebAuthn fields base64url):
 - (There is no W4. A credential id is not covered by the assertion signature, so checking it would prove nothing.)
 - **W6 CHECKS, IN ORDER:** `checkRootAssertion(sig, { record, rpId, origin, key })` returns `{ ok: true }` or
   `{ ok: false, reason }` and never throws for any `sig` (a context that is not four strings is a programming error).
+  `sig` is first read as plain data through the encoder (§3), so anything the encoder refuses — an accessor, a Proxy
+  that throws, a `null`, a float or a lone surrogate anywhere inside it — is `assertion-shape`.
   `record` is the id of the record being verified; `key` is the root's `pub` (K6). The first failure is the reason:
   `assertion-shape` (`sig` is not an object with exactly the four keys, three strings and an array);
   `covers` (W0); `assertion-encoding` (a WebAuthn field is not canonical unpadded base64url, or `client_data_json`
@@ -335,7 +339,8 @@ client_data_json, signature }`; WebAuthn fields base64url):
 - **W1 in bytes:** `client_data_json` begins with exactly
   `{"type":"webauthn.get","challenge":"<challenge>","origin":"<origin>","crossOrigin":false` and the next byte is
   `}` (the last byte) or `,`. The four fields are compared as bytes. What follows may only be further members whose
-  value is a string without escapes, `,"<key>":"<text>"`, with keys other than the prefix's four and `topOrigin`,
+  value is a string without escapes or control characters, `,"<key>":"<text>"`, with keys other than the prefix's four
+  and `topOrigin`,
   then `}` as the last byte. Browsers add such members (Chromium sometimes adds one on purpose); nothing else is
   accepted, so no second JSON parser reads these bytes (§1).
 
@@ -350,6 +355,9 @@ test fails the build on any direct `indexedDB` or `localStorage` use outside the
 
 - The id origin is a dedicated host serving nothing else, with no subdomains. `rp_id` and the exact origin are
   deployment configuration, compared exactly; no suffix or wildcard rule exists anywhere.
+- **I6 ONE CEREMONY:** the id page asks the passkey to sign only W1 challenges — never a server-chosen or login
+  challenge — so no other use of the passkey can carry a muid challenge. It registers roots offering ES256 only
+  (`alg: -7`), and never requests an authenticator extension (W2 refuses ED).
 - **`rp_id` is permanent and public.** Every root record contains it, so every identity is publicly associated with
   that domain, and passkeys can never move to another. Related Origin Requests add origins but never change the
   `rp_id`. It is confirmed deliberately, as a branding and attribution decision, before the first real root.

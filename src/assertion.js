@@ -26,9 +26,10 @@ const MAX_COVERS = 8
 // W1: the four fields, compared byte for byte; the challenge and origin are captured for their own reasons.
 // Stryker disable next-line Regex: equivalent; without ^ a match after leading bytes leaves the scan below starting
 // inside "false", where no member and no closing brace can begin, so it refuses all the same
-const PREFIX = /^\{"type":"webauthn\.get","challenge":"([^"\\]*)","origin":"([^"\\]*)","crossOrigin":false/
-// After the prefix, only further string members, none of them a key of the prefix or topOrigin, then the end.
-const MEMBER = /,"([A-Za-z0-9_]{1,64})":"[^"\\]*"/y
+const PREFIX = /^\{"type":"webauthn\.get","challenge":"([^"\\\x00-\x1f]*)","origin":"([^"\\\x00-\x1f]*)","crossOrigin":false/
+// After the prefix, only further string members without escapes or control characters (as JSON requires), none
+// with a key of the prefix or topOrigin, then the end.
+const MEMBER = /,"([A-Za-z0-9_]{1,64})":"[^"\\\x00-\x1f]*"/y
 const RESERVED = freeze(['type', 'challenge', 'origin', 'crossOrigin', 'topOrigin'])
 const { includes } = Array.prototype
 const UP = 0x01
