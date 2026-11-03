@@ -197,7 +197,9 @@ function evaluate (first, ctx, r) {
   const frozenBy = (x) => r.freezes.some((f) => f.membership === x.id && has(x.roots, f.signer))
   return accept({
     dead: false,
+    identity: ctx.identity,
     membership: m.id,
+    settled: cur.id,
     epoch: m.epoch,
     roots: freeze(copy(m.roots)),
     pending: pending !== undefined,
@@ -217,4 +219,14 @@ export function membershipState (records, context) {
   }
   for (const id of r.rootKeys.keys()) if (identityOf(id) === ctx.identity) return evaluate(id, ctx, r)
   return refuse('unknown-identity')
+}
+
+// R9: the body of the head a witness signs for a state at time `at`: the settled membership then the pending one, the
+// roots with authority, and the revocations it holds for the identity (record ids or subject keys). None for a dead or
+// frozen identity, a refusal, or a state in which no root has authority.
+export function headOf (state, at, revoked = []) {
+  if (!state.ok || state.dead || state.frozen || state.authority.length === 0 || !isInteger(at) || at < 0) return undefined
+  const memberships = state.pending ? [state.settled, state.membership] : [state.settled]
+  return freeze({ identity: state.identity, memberships: freeze(memberships), authority: state.authority,
+    revoked: freeze(copy(revoked).sort()), at })
 }

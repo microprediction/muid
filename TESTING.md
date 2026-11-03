@@ -340,11 +340,15 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   second more; `at = 0`.
 - **Composition:** root-record refusals; D7's reasons passed through (including `root` for another root's record);
   identity, membership (settled and pending both accepted) and authority judged by the head; revoked, audience, scope.
+- **Revocation and lag (R9):** the head's revocations by delegation id and by subject key; `minHeadAt`; a witness key
+  whose window holds the head's `at` but not `now`, or ends exactly at `now`; malformed revocation entries are a
+  programming error.
 - **F3:** adding revocations never turns a refusal into an accept (property).
 - **Programming errors** for configuration, `now`, `scope` and `revoked`; the configuration is copied at
   construction; arbitrary and hostile records never throw.
-- **Twins:** no staleness bound; heads from the future; membership, authority, identity, revocation, audience or
-  scope unchecked; the head's signature unchecked.
+- **Twins:** no staleness bound; heads from the future; `minHeadAt` ignored; membership, authority, identity,
+  revocation (call's or head's), audience or scope unchecked; revocation by id only; the witness key's window checked
+  at the head's time only; the head's signature unchecked.
 
 ## 5. Later layers (outline; each is expanded here before its code is written)
 

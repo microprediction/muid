@@ -17,7 +17,11 @@ const IMPORTS = ['envelope', 'root', 'delegation', 'attestation', 'origin', 'byt
 
 // [name, bug class, [find, replace] pairs]
 const TWINS = [
-  ['no-staleness', 'a head of any age is accepted', [["    if (h.at < now - cfg.maxStaleness || h.at > now + cfg.skew) return refuse('stale')\n", '']]],
+  ['no-staleness', 'a head of any age is accepted', [['h.at < now - cfg.maxStaleness || ', '']]],
+  ['min-head-at-ignored', 'a head older than one already seen is accepted', [[' || h.at < minHeadAt', '']]],
+  ['head-revocations-ignored', 'revocations carried by the head are not applied', [["    if (has(h.revoked, d.id) || has(h.revoked, b.subject)) return refuse('revoked')\n", '']]],
+  ['revoke-by-id-only', 'revoking a subject key does not revoke its delegations', [[' || has(h.revoked, b.subject)', '']]],
+  ['key-window-at-head-only', 'a retired witness key\'s heads are accepted', [['  const until = (now > b.at ? now : b.at) + 1', '  const until = b.at + 1']]],
   ['head-from-the-future', 'a head dated after now is accepted', [[' || h.at > now + cfg.skew', '']]],
   ['membership-unchecked', 'the delegation may name any membership', [["    if (!has(h.memberships, b.membership)) return refuse('membership')\n", '']]],
   ['authority-unchecked', 'any root of the identity may delegate', [["    if (!has(h.authority, b.root)) return refuse('authority')\n", '']]],
@@ -25,7 +29,7 @@ const TWINS = [
   ['revocations-ignored', 'revoked delegations are accepted', [["    for (let i = 0; i < n; i++) if (revoked[i] === d.id) return refuse('revoked')\n", '']]],
   ['audience-unchecked', 'a delegation for another relying party is accepted', [["    if (b.aud !== cfg.audience) return refuse('audience')\n", '']]],
   ['scope-unchecked', 'any scope is granted', [["    if (!has(b.scopes, scope)) return refuse('scope')\n", '']]],
-  ['head-unsigned', 'the head\'s signature is not checked', [['  if (!isWitnessSig(r.sig) || witnessReason(r.sig, r.payload, cfg.keys, b.at, b.at + 1) !== undefined) return undefined\n', '']]],
+  ['head-unsigned', 'the head\'s signature is not checked', [['  if (!isWitnessSig(r.sig) || witnessReason(r.sig, r.payload, cfg.keys, b.at, until) !== undefined) return undefined\n', '']]],
 ]
 
 function run (implPath) {
@@ -69,7 +73,7 @@ test('verifier broken twins', { timeout: 600_000 }, async (t) => {
     })
 
     const jobs = TWINS.map(([name, why, edits]) => [name, why, generate(name, edits)])
-    assert.equal(jobs.length, 9, 'twin count')
+    assert.equal(jobs.length, 13, 'twin count')
     const results = []
     const queue = [...jobs]
     const workers = Math.max(1, Math.floor(availableParallelism() / 4))

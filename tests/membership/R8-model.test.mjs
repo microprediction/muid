@@ -15,7 +15,7 @@ const RUNS = Number(process.env.FC_RUNS ?? 100)
 function modelAnswer (genesis, items, real) {
   const e = evaluate(genesis, items)
   if (e.dead) return { dead: true }
-  return { dead: false, membership: real(e.record.id), roots: [...e.record.roots].map((l) => l).sort(), pending: e.pending,
+  return { dead: false, membership: real(e.record.id), settled: real(e.base.id), roots: [...e.record.roots].map((l) => l).sort(), pending: e.pending,
     authority: [...e.authority].sort(), frozen: e.frozen }
 }
 
@@ -25,7 +25,7 @@ function implAnswer (genesis, items) {
   assert.equal(r.ok, true, JSON.stringify(r))
   if (r.dead) return { answer: { dead: true }, real }
   const letters = (ids) => ids.map(letterOf).sort()
-  return { answer: { dead: false, membership: r.membership, roots: letters(r.roots), pending: r.pending,
+  return { answer: { dead: false, membership: r.membership, settled: r.settled, roots: letters(r.roots), pending: r.pending,
     authority: letters(r.authority), frozen: r.frozen }, real }
 }
 

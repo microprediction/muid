@@ -298,7 +298,8 @@ one envelope each, so its `sig` names the signer: `{ root, assertion }`, where `
   `memberships`, `contests`, `freezes`, `anchors`, `settlements`, each a list of envelope texts) and
   `ctx = { identity, rpId, origin, witnessKeys }`, verifies each record on its own — a record that does not verify
   carries no authority and is ignored — and returns `{ ok: true, dead: true }`, or
-  `{ ok: true, dead: false, membership, epoch, roots, pending, authority, frozen }`, or `{ ok: false, reason }`
+  `{ ok: true, dead: false, identity, membership, settled, epoch, roots, pending, authority, frozen }` (`settled`
+  is the last settled membership, `membership` the effective one), or `{ ok: false, reason }`
   with `unknown-identity` when no root record given is the identity's first root, or `records` when a list is
   longer than `MAX_RECORDS` (256) or cannot be read. Each text counts once, and a signer already counted for a
   record is not verified again, so the work a caller can cause is bounded. A signature counts only if its
@@ -307,11 +308,20 @@ one envelope each, so its `sig` names the signer: `{ root, assertion }`, where `
   executable form: every state the model's explorer reaches, and every partial view of it, is translated into
   signed records and must give the model's answer.
 
-- **R9 FRESH HEAD:** a **head** `{ identity, memberships, authority, at }` is signed by the membership witness (A4's
-  `sig`): `membershipState` of every record the witness holds for the identity, at time `at`. `memberships` is the
-  last settled membership id, followed by its pending successor's if there is one; `authority` is the sorted root ids
-  with authority (R6). The witness signs no head for an identity that is dead or frozen, and a verifier accepts none
+- **R9 FRESH HEAD:** a **head** `{ identity, memberships, authority, revoked, at }` is signed by the membership
+  witness (A4's `sig`): `membershipState` of every record the witness holds for the identity, at time `at`.
+  `memberships` is the last settled membership id, followed by its pending successor's if there is one; `authority`
+  is the sorted root ids with authority (R6); `revoked` is up to 64 sorted ids — delegation record ids or subject keys
+  — revoked and not yet expired, so a revocation reaches verifiers as fast as a membership change, and revoking a
+  subject key also revokes its renewals. The witness admits a revocation only when it is signed by a root with
+  authority, or by the delegate for itself. `headOf(state, at, revoked)` builds the body from R8's result. The witness
+  signs no head for an identity that is dead or frozen or in which no root has authority, and a verifier accepts none
   older than `maxStaleness`, so a stolen retired root is refused whatever records it is shown.
+- **Head lag (residual):** a delegate chooses which head to present, so an anchored change, a freeze or a revocation
+  reaches a verifier only once every older head has aged past `maxStaleness` — a day — unless the verifier passes
+  `minHeadAt`, the newest head time it has seen for the identity. A relying party that needs faster effect for a scope
+  sets a smaller `maxStaleness`. Settlement retires the old membership's name: the id page renews delegations under
+  the pending name before the window closes.
 
 Why the witness: without a trusted time, a record signed late cannot be told from one signed early. Every set of
 roots that was ever a majority of any epoch — including the first root alone, and roots long retired — could then
@@ -355,7 +365,7 @@ Research: [`delegation.md`](research/delegation.md), [`oidc-witness.md`](researc
 
 ```
 const v = verifier({ rpId, origin, audience, witnessKeys, skew, maxLifetime, maxStaleness })  // fixed, frozen
-v.verifyDelegation({ delegation, root, head }, { now, scope, revoked })  // per call
+v.verifyDelegation({ delegation, root, head }, { now, scope, revoked, minHeadAt })  // per call
   -> { ok: true, id, body } | { ok: false, reason }
 ```
 
@@ -363,7 +373,8 @@ Configuration is set once, when the verifier is constructed, and cannot be chang
 are the id origin's; `audience` is this relying party's own origin (D5); `witnessKeys` are the membership witness's
 pinned keys; `skew`, `maxLifetime` (D2) and `maxStaleness` (R9) are the values of decisions 3 and 7. Per call,
 `delegation`, `root` and `head` are envelope texts: the delegation, the root record it names, and a head for its
-identity. `scope` is the one scope the request needs; `revoked` lists revoked record ids.
+identity. `scope` is the one scope the request needs; `revoked` lists further revoked record ids or subject keys the
+relying party holds; `minHeadAt` (optional) refuses heads older than one it has already seen.
 
 - **F1 SYNCHRONOUS AND PURE:** no `await`, no clock, no storage, no network inside a decision.
 - **F2 DENY BY DEFAULT:** every branch that is not an explicit accept is a reject. An unknown field is a reject.
@@ -371,13 +382,16 @@ identity. `scope` is the one scope the request needs; `revoked` lists revoked re
   narrower inputs (more revocations). Tested as a monotonicity property.
 - **F4 EXPIRY FIRST:** short-lived records do the revocation work; the revoked set is a backstop.
 - **F5 CHECKS, IN ORDER:** `head` (the head does not open as a `head`, is not of its form, or is not signed as A4
-  requires by a pinned key whose window holds its `at`); `stale` (`at` is more than `maxStaleness` before `now`, or
-  more than `skew` after it); `root-record` (any `checkRoot` refusal); then D7's reasons for `delegation`, given
+  requires by a pinned key whose window holds both its `at` and `now`); `stale` (`at` is more than `maxStaleness`
+  before `now`, more than `skew` after it, or before `minHeadAt`); `root-record` (any `checkRoot` refusal); then D7's
+  reasons for `delegation`, given
   the root record's key; `identity` (the head's identity is not the delegation's); `membership` (the delegation's
   membership is not among the head's `memberships`); `authority` (its root is not among the head's `authority`);
-  `revoked` (its id is in `revoked`); `audience` (its `aud` is not `audience`); `scope` (`scope` is not among its
+  `revoked` (its id or its subject key is in the head's `revoked`, or its id in the call's); `audience` (its `aud` is
+  not `audience`); `scope` (`scope` is not among its
   `scopes`). It never throws for any `delegation`, `root` or `head`; a malformed configuration, `now`, `scope`, or
-  a `revoked` that is not an array, is a programming error (refusing silently would fail open on revocation).
+  a `revoked` that is not an array of ids, is a programming error (ignoring a malformed entry would fail open on
+  revocation).
 
 The verifier needs no membership records: the head carries their result. The witness makes the head (R9); a delegate
 fetches a fresh one and presents it with its requests, as OCSP stapling does.

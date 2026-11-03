@@ -31,7 +31,8 @@ function delegationText (over = {}, { secret, covers } = {}) {
 }
 
 function headText (over = {}, { secret = W, witness = WITNESS, type = 'head' } = {}) {
-  const body = { identity: IDENTITY, memberships: [IDENTITY], authority: [ROOT], at: NOW - 100, ...over }
+  const body = { identity: IDENTITY, memberships: [IDENTITY], authority: [ROOT], revoked: [], at: NOW - 100, ...over }
+  for (const k of Object.keys(body)) if (body[k] === '__drop__') delete body[k]
   const { payload } = envelope.seal(type, body)
   return envelope.wrap(payload, { signature: hex(ed25519.sign(envelope.signedBytes(payload), secret)), witness })
 }
@@ -59,6 +60,10 @@ test('head: wrong type, wrong form, unpinned or out-of-window witness', () => {
     ['three memberships', headText({ memberships: [IDENTITY, '1'.repeat(64), '2'.repeat(64)] })],
     ['membership not an id', headText({ memberships: ['x'] })],
     ['the same membership twice', headText({ memberships: [IDENTITY, IDENTITY] })],
+    ['revoked unsorted', headText({ revoked: ['f'.repeat(64), '0'.repeat(64)] })],
+    ['revoked not ids', headText({ revoked: ['x'] })],
+    ['revoked too long', headText({ revoked: Array.from({ length: 65 }, (_, i) => i.toString(16).padStart(64, '0')) })],
+    ['no revoked key', headText({ revoked: '__drop__' })],
     ['six roots of authority', headText({ authority: ['1', '2', '3', '4', '5', '6'].map((c) => c.repeat(64)) })],
     ['no authority', headText({ authority: [] })],
     ['authority unsorted', headText({ authority: ['f'.repeat(64), ROOT] })],
@@ -75,6 +80,7 @@ test('head: wrong type, wrong form, unpinned or out-of-window witness', () => {
   ]
   for (const [name, head] of cases) assert.deepEqual(call({ head }), refused('head'), name)
   assert.deepEqual(call({ head: headText({ authority: [ROOT, 'f'.repeat(64)] }) }), { ok: true }, 'two roots of authority, sorted')
+  assert.deepEqual(call({ head: headText({ revoked: ['0'.repeat(64), 'f'.repeat(64)] }) }), { ok: true }, 'two revocations, sorted')
   assert.deepEqual(call({ head: headText({ at: 0 }) }), refused('stale'), 'at = 0 is a time, and long past')
   const edge = verifier({ ...CONFIG, witnessKeys: [{ key: WITNESS, nbf: 0, exp: NOW - 100 }] })
   const e = edge.verifyDelegation({ delegation: D.text, root: rootText, head: headText() }, { now: NOW, scope: 'post', revoked: [] })
@@ -114,9 +120,33 @@ test('identity, membership and authority are judged by the head', () => {
   assert.deepEqual(call({ head: headText({ memberships: [IDENTITY, pending] }) }), { ok: true }, 'under the settled one, while pending')
 })
 
+test('revocations in the head (R9): by delegation id or by subject key', () => {
+  assert.deepEqual(call({ head: headText({ revoked: [D.id] }) }), refused('revoked'))
+  const subject = hex(ed25519.getPublicKey(APP))
+  assert.deepEqual(call({ head: headText({ revoked: [subject] }) }), refused('revoked'), 'the subject key: renewals are revoked too')
+  assert.deepEqual(call({ head: headText({ revoked: ['0'.repeat(64)] }) }), { ok: true })
+})
+
+test('minHeadAt: a relying party that has seen a newer head refuses older ones (removes trust only)', () => {
+  assert.deepEqual(call({}, { minHeadAt: NOW - 100 }), { ok: true })
+  assert.deepEqual(call({}, { minHeadAt: NOW - 99 }), refused('stale'))
+})
+
+test('the witness key must still be pinned and in its window now, not only at the head\'s at', () => {
+  const retired = verifier({ ...CONFIG, witnessKeys: [{ key: WITNESS, nbf: 0, exp: NOW - 50 }] })
+  const r = retired.verifyDelegation({ delegation: D.text, root: rootText, head: headText() }, { now: NOW, scope: 'post', revoked: [] })
+  assert.deepEqual({ ...r }, refused('head'))
+  const endsNow = verifier({ ...CONFIG, witnessKeys: [{ key: WITNESS, nbf: 0, exp: NOW }] })
+  assert.deepEqual({ ...endsNow.verifyDelegation({ delegation: D.text, root: rootText, head: headText() }, { now: NOW, scope: 'post', revoked: [] }) },
+    refused('head'), 'a window ending at now does not hold now')
+  const early = verifier({ ...CONFIG, witnessKeys: [{ key: WITNESS, nbf: 0, exp: NOW + 30 }] })
+  assert.deepEqual({ ...early.verifyDelegation({ delegation: D.text, root: rootText, head: headText({ at: NOW + 50 }) }, { now: NOW, scope: 'post', revoked: [] }) },
+    refused('head'), 'a head dated after its key\'s window, within skew')
+})
+
 test('revoked, audience and scope', () => {
   assert.deepEqual(call({}, { revoked: [D.id] }), refused('revoked'))
-  assert.deepEqual(call({}, { revoked: ['f'.repeat(64), 1, null] }), { ok: true }, 'other entries do not matter')
+  assert.deepEqual(call({}, { revoked: ['f'.repeat(64)] }), { ok: true }, 'other ids do not matter')
   assert.deepEqual(call({ delegation: delegationText({ aud: 'https://other.example' }).text }), refused('audience'))
   assert.deepEqual(call({}, { scope: 'admin' }), refused('scope'))
   assert.deepEqual(call({}, { scope: 'read' }), { ok: true })
@@ -138,7 +168,8 @@ test('programming errors: configuration, now, scope, revoked', () => {
   }
   for (const ctx of [undefined, null, { now: -1, scope: 'post', revoked: [] }, { now: NOW, scope: 'Post', revoked: [] },
     { now: NOW, scope: 'post!', revoked: [] }, { now: NOW, scope: ['post'], revoked: [] },
-    { now: NOW, scope: 'post', revoked: 'x' }, { now: NOW, scope: 'post' }]) {
+    { now: NOW, scope: 'post', revoked: 'x' }, { now: NOW, scope: 'post' }, { now: NOW, scope: 'post', revoked: [D.id.toUpperCase()] },
+    { now: NOW, scope: 'post', revoked: [1] }, { now: NOW, scope: 'post', revoked: [D.id + '\n'] }, { now: NOW, scope: 'post', revoked: [], minHeadAt: -1 }]) {
     assert.throws(() => v.verifyDelegation({ delegation: D.text, root: rootText, head: headText() }, ctx),
       { name: 'TypeError', message: 'call must hold now, a scope and a revoked list' })
   }
