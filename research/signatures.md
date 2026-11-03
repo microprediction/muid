@@ -91,22 +91,22 @@
   derived from a signature" is required, not optional (cf. did:plc, finding 13, which must mandate low-S because it
   hashes signatures).
 - §4: record id = SHA-256 of signed bytes excluding the signature is the malleability-safe choice given findings 2 and 8.
-- §8.1(a): pin `p256.verify(sig, authData ‖ SHA-256(clientDataJSON), pub65, { format: 'der', lowS: false, prehash: true })`
+- W0–W5 (§6): pin `p256.verify(sig, authData ‖ SHA-256(clientDataJSON), pub65, { format: 'der', lowS: false, prehash: true })`
   with every option passed explicitly, as §2 already does for `zip215: false` (findings 3, 4, 11).
 - F2: `p256.verify` can throw (finding 5); the core must map any throw to reject, or pre-validate lengths.
 - §2 (canonical bytes): noble's DER decoder accepts one encoding per signature (finding 6), so a strict DER rule costs
   nothing; it is a parser-alignment rule, not a security property, given the high-S malleability.
-- §10 differential oracles: SimpleWebAuthn accepts a strict superset of noble on malformed DER (finding 9). The
+- §12 differential oracles: SimpleWebAuthn accepts a strict superset of noble on malformed DER (finding 9). The
   differential must assert "noble accepts ⇒ SimpleWebAuthn accepts" and allow divergence only in the direction
   noble-rejects / SimpleWebAuthn-accepts on non-canonical DER, recorded in a committed divergence list. It must not
   assert equality.
-- §10 known-answer vectors: Wycheproof P-256 DER must give 484/484 with `lowS: false`; a negative control running
+- §12 known-answer vectors: Wycheproof P-256 DER must give 484/484 with `lowS: false`; a negative control running
   `lowS: true` must fail exactly 71 (finding 8). The r = s = 0 class (finding 12) is in that file.
 - D4: `zip215: false` does not reject mixed-order subject keys (finding 17). D4 needs an explicit torsion-freeness check
   (e.g. noble `isTorsionFree()`) in addition to `isSmallOrder()`, at issue and at verify.
-- D4, §10: the 29 Wycheproof "acceptable" Ed25519 vectors (finding 18) and speccheck vectors 0–11 (finding 19) must map to
+- D4, §12: the 29 Wycheproof "acceptable" Ed25519 vectors (finding 18) and speccheck vectors 0–11 (finding 19) must map to
   **reject**; a harness treating "acceptable" as "either outcome" makes D4 vacuous. The loader asserts counts.
-- §10 differential (noble vs WebCrypto Ed25519): run on valid vectors only, because implementations differ on
+- §12 differential (noble vs WebCrypto Ed25519): run on valid vectors only, because implementations differ on
   small-order checks (finding 16).
 - V3: root records use ES256 only, delegate and witness records Ed25519 only; the choice is never read from a key or
   record.

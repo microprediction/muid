@@ -85,7 +85,7 @@
 - A2: Fulcio's proof of possession (finding 2) is identical for every sign-in by the same identity; A2's signature over
   the per-session `state` is session-bound. Stronger still: sign a witness-chosen, domain-separated message such as
   `"muid-attest-v1\n" ‖ witness_id ‖ provider ‖ state ‖ root ‖ exp`. The exact message is not yet in spec.
-- A2, not yet in spec: for OIDC providers (Google, ORCID), set `nonce` = hex(SHA-256(that signed message)) so the
+- A2: for OIDC providers (Google, ORCID), set `nonce` = hex(SHA-256(that signed message)) so the
   provider-signed id_token commits to the proof of possession (findings 5, 6). GitHub has no id_token, so binding there
   rests on `state` and the witness's own API call.
 - not yet in spec (witness protocol): code flow with PKCE S256 only, never implicit (findings 5, 11); `state` ≥ 128 bits,
@@ -99,19 +99,19 @@
   bare iD from `sub`, format-checked, never the URI form. No account merging by email.
 - §5 attestation (`provider`): a closed enum mapped one-to-one to a pinned issuer; Google's two `iss` spellings map to
   one provider value (finding 9); ORCID sandbox issuer rejected outside tests (finding 11).
-- §8.4: short attestation lifetimes let deleted or reassigned accounts age out and limit provider-side mis-issuance;
+- §9 decision 3: short attestation lifetimes let deleted or reassigned accounts age out and limit provider-side mis-issuance;
   a Google `sub` change (finding 10) fails closed by requiring re-attestation.
 - not yet in spec: publishing attestations to an append-only log lets account owners detect mis-issuance (Fulcio
   model, finding 1).
 - §1: a provider minting a token for the wrong user is out of scope as "a compromised provider"; short lifetimes and a log
   bound the damage.
-- §8.5, D3: device-flow onboarding (findings 14–16): the machine generates its Ed25519 key first and the request carries
+- §8 and §9 decision 4, D3: device-flow onboarding (findings 14–16): the machine generates its Ed25519 key first and the request carries
   it as `subject`; the id-origin approval page shows the key fingerprint (also shown on the machine) and the requested
   `aud`, `scopes` and `exp`; approval yields a delegation signed by the root passkey, never a bearer token; user codes
   short-lived (≤ 10 min), single use, ≥ 8 base-20 characters, rate-limited; every device-flow delegation logged or
   notified.
-- A2, §8.5: the `attest` scope and any root-equivalent scope are never granted through device flow.
-- §8.5: preferred order of machine enrolment: same-device WebAuthn; FIDO hybrid with BLE proximity (finding 16);
+- A2, §8 and §9 decision 4: the `attest` scope and any root-equivalent scope are never granted through device flow.
+- §8 and §9 decision 4: preferred order of machine enrolment: same-device WebAuthn; FIDO hybrid with BLE proximity (finding 16);
   user-initiated out-of-band enrolment (the user enters the machine's public key on the id origin and the machine polls),
   which reverses the direction a phisher needs; QR transport only with fingerprint binding.
 

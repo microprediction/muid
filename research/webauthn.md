@@ -104,7 +104,7 @@
   surface (findings 15–18) is registration and attestation. Option (a) needs only the stateless subset of §7.2, and
   findings 6 and 11 show option (b) would bring SimpleWebAuthn's option surface (UP skipped under `advancedFIDOConfig`,
   challenge callback, lenient DER, no credential-id check) into the trust decision and split it across F1.
-- §8.1(a) checklist, each with no option that weakens it: `rawId` equals `root.cred_id`; strict canonical base64url for
+- W0–W5 (§6) checklist, each with no option that weakens it: `rawId` equals `root.cred_id`; strict canonical base64url for
   every field (§2); fatal UTF-8 decode, BOM stripped; `type === "webauthn.get"`; challenge equals
   b64url(SHA-256(signed bytes)) exactly, no prefix or substring match; origin equals the id origin exactly; reject
   `crossOrigin === true` and any `topOrigin`; authData ≥ 37 bytes with no leftover bytes; rpIdHash equals
@@ -112,31 +112,31 @@
   signature verified as in [signatures.md](signatures.md) with a throw mapped to reject.
 - F3: UP and UV are configurable in go-webauthn, webauthn4j and SimpleWebAuthn (findings 6, 8, 10) and the UV default
   differs between libraries (findings 6, 7); the core hard-codes both as required.
-- §8.2: origin and RP ID are compared by exact equality; findings 12 and 13 are the failure modes of host-only and
+- §8: origin and RP ID are compared by exact equality; findings 12 and 13 are the failure modes of host-only and
   suffix matching.
-- §8.6, §10 (`JSON.parse` ban): clientDataJSON is parsed either by the single boundary parser, which must reject
+- §9 decision 6, §12 (`JSON.parse` ban): clientDataJSON is parsed either by the single boundary parser, which must reject
   duplicate `type`/`challenge`/`origin` keys (`JSON.parse` keeps the last), or by the Limited Verification Algorithm
   (finding 3), which needs no JSON parser but assumes browser key order.
-- not yet in spec: signCount and stored BE/BS comparisons are stateful (finding 2) and meaningless for records verified
+- W5: signCount and stored BE/BS comparisons are stateful (finding 2) and meaningless for records verified
   later by third parties; §1 should declare them out of scope for record verification. If a counter rule is ever added,
   it uses the spec's OR condition and is tested at (0, n > 0) (finding 14).
 - §5 root, V3: COSE is parsed once, at root creation: require kty = 2, alg = −7, crv = 1, |x| = |y| = 32; build
   `0x04 ‖ x ‖ y`; validate; store 65 bytes. The verify path never reads COSE, and `alg` never selects anything
   (finding 20).
-- §10 differential oracle (SimpleWebAuthn): compare `rawId` with `root.cred_id` in the harness; never set
+- §12 differential oracle (SimpleWebAuthn): compare `rawId` with `root.cred_id` in the harness; never set
   `advancedFIDOConfig`; `requireUserVerification: true`; `expectedType: 'webauthn.get'`; exact `expectedOrigin` and
   `expectedRPID`; no `expectedTopOrigin`; `expectedChallenge` = b64url(SHA-256(signed bytes)); `credential.counter = 0`.
   Keep a committed divergence register (lenient DER, credential id, counters, extensions) so a new divergence fails the
   build.
-- §10 generated vectors: a software P-256 authenticator (fast-check) emits valid assertions in low-S and high-S forms;
+- §12 generated vectors: a software P-256 authenticator (fast-check) emits valid assertions in low-S and high-S forms;
   single-field mutations must all be rejected: each flag bit (UP, UV, BE/BS, AT, ED); rpIdHash byte; type
   `webauthn.create`; challenge off by one byte, padded, standard alphabet, prefix or suffix; origin with other scheme,
   port, trailing slash, uppercase, subdomain, `evil-<host>`, `<host>.evil`; `crossOrigin: true`; `topOrigin`; BOM;
   invalid UTF-8; duplicate, reordered and extra keys; truncated or extended authData; signature over the wrong data or
   double-hashed; wrong credential id.
-- §10 negative controls: verifiers that skip the challenge, use `origin.endsWith`, use `lowS: true`, or use the AND-form
+- §12 negative controls: verifiers that skip the challenge, use `origin.endsWith`, use `lowS: true`, or use the AND-form
   counter (finding 14) must each fail the suite.
-- §10 mutation testing: every check in the §8.1(a) checklist needs a test that kills its removal.
+- §12 mutation testing: every check in the W0–W5 (§6) checklist needs a test that kills its removal.
 
 ## Unverified
 

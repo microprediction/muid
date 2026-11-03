@@ -76,17 +76,17 @@
 
 ## Consequences for the spec
 
-- §10 mutation testing: the TAP runner makes each file one test (finding 1), so split tests into many small files,
+- §12 mutation testing: the TAP runner makes each file one test (finding 1), so split tests into many small files,
   roughly one per rule (E1, E2, V1, D1, ...). Mutate only core files.
-- §10 mutation testing: set `thresholds.break` (finding 2) as a backstop (e.g. 95) under the existing rule that every
+- §12 mutation testing: set `thresholds.break` (finding 2) as a backstop (e.g. 95) under the existing rule that every
   survivor is killed or carries a reviewed `Stryker disable` reason. Do not exclude `StringLiteral` on the core:
   mutants of `muid/v1\n` and `muid-root\n` (§4, §5) must be killed by committed record-id vectors.
 - D1, D2: EqualityOperator mutants on `now < exp` and `nbf − skew ≤ now` are killed by a boundary property over
   `now ∈ {nbf − skew − 1, nbf − skew, exp − 1, exp}`.
 - §2, D4: a BooleanLiteral mutant of `zip215: false` must be killed by a vector.
-- §10: mutation score is necessary, not sufficient (finding 3, ~17% uncoupled), which is the case for targeted
+- §12: mutation score is necessary, not sufficient (finding 3, ~17% uncoupled), which is the case for targeted
   negative controls alongside Stryker.
-- §10: lower fast-check `numRuns` under Stryker and use `incremental` on pull requests; run full mutation and
+- §12: lower fast-check `numRuns` under Stryker and use `incremental` on pull requests; run full mutation and
   high-iteration runs on schedule.
 - E2: properties: `decode(encode(v))` deep-equals `v` and `encode(decode(encode(v)))` is byte-identical over a
   domain generator; byte-level mutations of `encode(v)` (whitespace, key swap, duplicate key, `\uXXXX` escape, leading
@@ -103,37 +103,37 @@
 - D1: a record without `nbf` always rejects.
 - F1, F4: model-based tests (`fc.commands`) over issue, delegate, revoke, advance-time and verify, compared with a
   simple model.
-- §10: commit shrunk counterexamples as literal unit tests; check generator statistics so a meaningful share of
+- §12: commit shrunk counterexamples as literal unit tests; check generator statistics so a meaningful share of
   generated valid records reaches `ok: true` (otherwise "never accepts a forged record" passes vacuously).
-- §10 scheduled fuzzing: a Jazzer.js harness asserting byte-exact `encode(decode(b)) === b` (E2) and a `verify`
+- §12 scheduled fuzzing: a Jazzer.js harness asserting byte-exact `encode(decode(b)) === b` (E2) and a `verify`
   harness asserting no unexpected throw, no `ok: true` without a known root, and a frozen result. Jazzer.js is a native
   addon: install it only in the fuzz job, pinned exactly, outside the `--ignore-scripts` gate (finding 7).
-- §10 known-answer vectors: a per-file verdict policy as committed data: Wycheproof valid → accept, invalid → reject,
+- §12 known-answer vectors: a per-file verdict policy as committed data: Wycheproof valid → accept, invalid → reject,
   Ed25519 acceptable → **reject** (D4, finding 9); speccheck 0–11 → reject; loaders assert exact counts (210, 484) and
   non-empty accept and reject buckets (findings 8–10).
-- §10, §4: expected canonical bytes and record ids are produced once by an independent tool (a separate JCS
+- §12, §4: expected canonical bytes and record ids are produced once by an independent tool (a separate JCS
   implementation and hash library), committed as hex, and never computed by the code under test.
-- §10 differential oracles: encoder vs a reference JCS (finding 11); noble Ed25519 vs WebCrypto on valid vectors only;
+- §12 differential oracles: encoder vs a reference JCS (finding 11); noble Ed25519 vs WebCrypto on valid vectors only;
   P-256 vs WebCrypto (DER converted to P1363 in the test) and SimpleWebAuthn. noble's own suite is a model (finding
   12).
-- §10 negative controls, one per rule: an encoder that does not sort keys (E2); a decoder that accepts duplicate keys
+- §12 negative controls, one per rule: an encoder that does not sort keys (E2); a decoder that accepts duplicate keys
   (E2); a verifier that skips the `v` check (V1); one that accepts a missing `nbf` (D1); one where a caller option
   restores trust (F3); one that re-serialises instead of verifying received bytes (§4); one with `zip215: true` (§2,
   D4); a storage adapter that returns `{ absent: true }` on error (§7). CI must see the suite fail against each.
-- §10 linter gates: a fixture containing every banned construct with a CI step asserting the exact number of findings,
+- §12 linter gates: a fixture containing every banned construct with a CI step asserting the exact number of findings,
   so a renamed path cannot make rules vacuous; `semgrep --test` annotations; a 1,501-line fixture for the line budget
   (§9); a duplicated-block fixture for jscpd.
-- F1, §10: extend the Semgrep bans to `.then(` and `Promise`; for the `{}`-seeded serializer rule, ban
+- F1, §12: extend the Semgrep bans to `.then(` and `Promise`; for the `{}`-seeded serializer rule, ban
   `Object.assign({}`, spread into `{}`, `for…in` and unsorted `Object.keys` in core; allow only one module to call
   `ed25519.verify`/`p256.verify` and one to call `TextDecoder`.
-- not yet in spec (§10): fail CI on any skipped or TODO test, or a drop in test count against the default branch.
-- §10 supply chain: SHA-pinned actions (finding 14); `npm ci --ignore-scripts`, which also blocks preinstall
+- §12: fail CI on any skipped or TODO test, or a drop in test count against the default branch.
+- §12 supply chain: SHA-pinned actions (finding 14); `npm ci --ignore-scripts`, which also blocks preinstall
   (finding 17), plus `ignore-scripts=true` in the repository `.npmrc` for local installs; exact pins and a committed
   lockfile for the two noble packages; `npm audit signatures` (finding 18).
-- not yet in spec (§10): a dependency cooldown of a few days would have avoided the 2.5-hour chalk/debug window
+- §12: a dependency cooldown of a few days would have avoided the 2.5-hour chalk/debug window
   (finding 15); `permissions: {}` at workflow level with per-job grants; `persist-credentials: false`; CODEOWNERS on
   workflows, core, vectors and lockfile; npm trusted publishing only, no stored tokens (finding 16).
-- not yet in spec: a small TLA+, Alloy or Quint model of delegation, revocation and time windows checking: no accepted
+- §12 (scheduled): a small TLA+, Alloy or Quint model of delegation, revocation and time windows checking: no accepted
   delegate action outside `[nbf − skew, exp)`; no depth-two delegation; revocation by an unauthorised signer has no
   effect; adding a revocation or removing a pinned key never turns reject into accept. Model traces can be exported as
   vectors.

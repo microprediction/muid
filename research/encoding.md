@@ -53,9 +53,9 @@
 - V3: findings 6 and 9 support fixing the algorithm by record type; no header or field may select or weaken it.
 - V2, §4, §5: domain-separation prefixes (`muid/v1\n`, `muid-root\n`) play the EIP-712 role (finding 10); the expected
   `type` check prevents cross-type replay.
-- §10: commit the cyberphone vectors (finding 5) with an explicit per-file classification: in domain (must match
+- §12: commit the cyberphone vectors (finding 5) with an explicit per-file classification: in domain (must match
   `outhex` byte for byte) or out of domain (must throw, E3). Use only the safe-integer lines of the number file.
-- §10: a known-answer vector for r = s = 0 (finding 9) belongs in the P-256 set; Wycheproof covers it (see
+- §12: a known-answer vector for r = s = 0 (finding 9) belongs in the P-256 set; Wycheproof covers it (see
   [signatures.md](signatures.md)).
 - not yet in spec: confusable and normalisation policy for any human-readable name (UTS #39, finding 11) belongs to name
   registration or display, not the codec.

@@ -80,35 +80,35 @@
 
 ## Consequences for the spec
 
-- §8.2: ROR is capped at 5 labels and edited only by the RP ID owner (findings 1, 2), so it cannot share one root across
+- §8: ROR is capped at 5 labels and edited only by the RP ID owner (findings 1, 2), so it cannot share one root across
   open third-party origins; at most it serves a small first-party family. Whoever can write `/.well-known/webauthn` on
   the id host can authorise new origins to request root assertions, which supports "the id host serves nothing else".
-- §8.2, §8.1(a): if ROR is ever used, `clientDataJSON.origin` is the related origin, not `https://<rp_id>`; the exact
+- §8, W0–W5 (§6): if ROR is ever used, `clientDataJSON.origin` is the related origin, not `https://<rp_id>`; the exact
   single-origin rule would become an exact-match allowlist. Not yet in spec.
-- §8.2: clients without ROR or cross-origin `create()` need a top-level id-origin window anyway (findings 3, 4); ROR can
+- §8: clients without ROR or cross-origin `create()` need a top-level id-origin window anyway (findings 3, 4); ROR can
   only be an optimisation over it.
-- not yet in spec: root-level actions (issuing a delegation, revocation, recovery) happen in a top-level id-origin window,
+- §8: root-level actions (issuing a delegation, revocation, recovery) happen in a top-level id-origin window,
   whose address bar is the anti-phishing anchor; an iframe can be overlaid by its embedder (§13.4.2, finding 7).
 - §5 delegation (`aud`): the id-origin page takes `aud` from the opener's or parent's `event.origin`, never from a
   value the app supplies and never from `topOrigin`.
-- not yet in spec (§10 rule): postMessage on the id origin uses an explicit targetOrigin (never `*`), checks
+- I1–I2 (§8): postMessage on the id origin uses an explicit targetOrigin (never `*`), checks
   `event.origin` by exact equality and `event.source`, and rejects the `null` origin (finding 14).
-- §8.1(a), F3: UV must be required and checked; Pass-ta-key works exactly where it is not (finding 15).
+- W0–W5 (§6), F3: UV must be required and checked; Pass-ta-key works exactly where it is not (finding 15).
 - not yet in spec (§5 root): record BE/BS at root creation so policy can treat a synced root as relying on the sync
   provider.
-- not yet in spec (§1): add "compromise of the passkey sync-provider account" to the threat table; it yields valid root
+- §1: add "compromise of the passkey sync-provider account" to the threat table; it yields valid root
   assertions (finding 15), is not covered by short delegation lifetimes, and is recoverable only by another root.
-- §8.3: a second passkey in a different sync domain is the FIDO-preferred direction (findings 16, 17) and hedges
+- R1–R5 (§5): a second passkey in a different sync domain is the FIDO-preferred direction (findings 16, 17) and hedges
   against finding 15; a printed recovery code is a bearer secret whose strength depends on storage and rate limiting.
-- not yet in spec (§5): root id depends on `rp_id` and the passkey point, so recovery produces a new root id; carrying
+- R1–R5 (§5): root id depends on `rp_id` and the passkey point, so recovery produces a new root id; carrying
   attestations and reputation over needs a signed root-to-root succession record.
-- §5 delegation, §8.5: Porto's expiring, call-scoped session keys under a passkey admin key (finding 10) are the closest
+- §5 delegation, §8 and §9 decision 4: Porto's expiring, call-scoped session keys under a passkey admin key (finding 10) are the closest
   analogue to depth-one Ed25519 delegations; unlike Porto and Base, scope is enforced by every relying verifier calling
   `verify`, with no single enforcement point.
-- §8.5: Spend Permissions (finding 11) show that "no further signatures" delegation is where value at risk concentrates.
-- not yet in spec: one id-origin popup that creates the root and issues the first delegation (finding 9) halves
+- §8 and §9 decision 4: Spend Permissions (finding 11) show that "no further signatures" delegation is where value at risk concentrates.
+- U1 (§8): one id-origin popup that creates the root and issues the first delegation (finding 9) halves
   onboarding prompts.
-- F4, not yet in spec: delegate private keys in app-origin storage are exposed to storage-scraping attacks; short `exp`
+- F4, K3: delegate private keys in app-origin storage are exposed to storage-scraping attacks; short `exp`
   bounds the damage, and non-extractable WebCrypto Ed25519 keys prevent exfiltration (not live misuse).
 
 ## Unverified
