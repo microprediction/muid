@@ -1,6 +1,7 @@
 # muid — threat model and record spec
 
-Status: draft 2. Layers 1–8, the verifier included, are implemented in `src/`. Every invariant below
+Status: draft 2. Everything below is implemented in `src/` except the revocation record's own check (§5), which the
+witness performs. Every invariant below
 gets a test before the code it governs (see `TESTING.md`). Sources and reasoning for each rule are in
 [`research/`](research/README.md).
 
@@ -39,7 +40,7 @@ minimal page built reproducibly. `rp_id` is permanent: every root id commits to 
 for every user.
 
 **What a root proves:** a WebAuthn assertion is a P-256 signature over bytes, which anyone holding a P-256 key can
-produce with any flags, origin and `rp_id`. W1–W5 protect a real passkey from use through another origin; they cannot
+produce with any flags, origin and `rp_id`. W0–W3 protect a real passkey from use through another origin; they cannot
 show that a root *is* a passkey. Roots are free to create and carry no sybil weight of their own; weight comes only
 from attestations and the separate reputation layer.
 
@@ -80,7 +81,8 @@ which root.
 - **Bytes in text:** lowercase hex. Exception: WebAuthn fields keep their standard unpadded base64url. Each decoder
   rejects any input that does not re-encode to itself.
 - **Ids inside hashes and signatures:** wherever an id (record, root or identity id) is an input to a hash or a
-  signature, it is its 32 raw bytes, never its hex text — except in the W1 challenge, which is defined as text.
+  signature outside a record payload, it is its 32 raw bytes, never its hex text — except in the W1 challenge, which is
+  defined as text. Inside a payload, ids are hex text, and the payload's bytes are what is hashed and signed.
 - **Time:** integer seconds since the Unix epoch. `now` is always a parameter, never read from a clock inside the core.
 - **K3 NON-EXTRACTABLE DELEGATE KEYS:** in browsers a delegate key is generated as a WebCrypto Ed25519 key with
   `extractable: false`, so the secret never sits in JS memory and cannot be exported by any script, ours included. A
@@ -90,7 +92,7 @@ which root.
   CryptoKit, which randomises Ed25519 signatures, so there the test is that noble verifies what WebCrypto signs.
   (Custody code is not core, but this rule binds it.)
 - **K7 ED25519 MESSAGES:** an Ed25519 key signs only `UTF-8("muid/v1\n") ‖ payload` (a record: the payload's
-  `type` separates kinds, so a future claim is a record of its own type) or `UTF-8("muid/v1/<tag>\n") ‖` a
+  `type` separates kinds; a claim is a record of its own type) or `UTF-8("muid/v1/<tag>\n") ‖` a
   fixed-length suffix, with tags from a closed list: `accept` (D6, 32 bytes). Custody code never signs bytes it did
   not build. These prefixes differ by their eighth byte and none is a prefix of another.
 - **Pinning:** library versions are pinned exactly; an upgrade is a reviewed change that re-runs every vector suite.
@@ -125,7 +127,8 @@ then visited in canonical key order, each key checked (grammar, then data-proper
 array elements in index order. The first violation found is the reason. Numbers are checked in the order non-finite,
 `-0`, non-integer, unsafe integer. Reason codes: `top-level`, `key`, `symbol-key`, `accessor`, `non-enumerable`,
 `non-plain`, `array-shape`, `cycle`, `depth`, `size`, `null`, `undefined`, `non-finite`, `negative-zero`, `float`,
-`unsafe-integer`, `type`, `surrogate`, `syntax`, `non-canonical`, `exotic`. `exotic` covers anything an object throws
+`unsafe-integer`, `type`, `surrogate`, `syntax`, `non-canonical`, `exotic`. `exotic` covers an array length that is not
+a non-negative safe integer, anything an object throws
 of its own while being read (a Proxy trap, a revoked Proxy) and a key listed without a descriptor; nothing other
 than an `EncodingError` ever leaves `encode` or `decode`.
 **E6 READ ONCE:** every prototype, key list, array length and property descriptor is read exactly once per encode, and
@@ -154,8 +157,8 @@ Research: [`encoding.md`](research/encoding.md).
 
 - The envelope is itself canonical (E2). Its keys are exactly `payload` and `sig`, except for a `root`, whose envelope
   is `{"payload": …}` alone (§5: a root is unsigned).
-- **Signed bytes** = `UTF-8("muid/v1\n") ‖ UTF-8(payload)`. The verifier checks the signature over the payload bytes
-  it received, then decodes those same bytes. It never re-serialises in order to verify.
+- **Signed bytes** = `UTF-8("muid/v1\n") ‖ UTF-8(payload)`. The verifier decodes the payload text it received and
+  checks the signature over those same bytes. It never re-serialises in order to verify.
 - **Record id** = hex SHA-256 of the signed bytes. It excludes the signature (§2).
 - **V1 VERSION:** `v` must equal 1. Any other value is rejected.
 - **V2 TYPE:** the verifier is told which `type` it expects; a mismatch is rejected. Types form a closed list:
@@ -167,7 +170,8 @@ Research: [`encoding.md`](research/encoding.md).
 - **V4 SHAPE BEFORE MEANING:** `open(text, type)` checks, in this order, and refuses with the first that fails:
   `envelope-encoding` (the text is not a canonical encoding), `envelope-shape` (keys other than above, `payload` not a
   string, `sig` not an object), `payload-size` (V5), `payload-encoding`, `payload-shape` (keys other than `v`,
-  `type`, `body`, or `body` not an object), `version`, `type`. It returns `{ id, type, body, sig, payload }`, frozen,
+  `type`, `body`, or `body` not an object), `version`, `type`. It returns `{ id, type, body, sig, payload }` (no `sig`
+  for a root), frozen,
   where `payload` is the received text itself. The signature's contents are checked by the record type's own rules,
   not here.
 - **V5 PAYLOAD SIZE:** a payload, measured as the UTF-8 bytes it occupies inside the envelope (with its escapes), is
@@ -183,8 +187,8 @@ Research: [`encoding.md`](research/encoding.md).
 (65-byte uncompressed point, 130 lowercase hex). Root id = hex SHA-256(`UTF-8("muid-root\n")` ‖ `UTF-8(rp_id)` ‖
 `"\n"` ‖ the 65 point bytes). `checkRoot(text, { rpId })` opens the envelope as a `root` and returns
 `{ ok: true, id, key }` or `{ ok: false, reason }`, never throwing for any `text`: V4's reasons; `root-shape` (keys
-other than `pub` and `rp_id`, or either not a string); `rp-id` (not the configured one); then K6's key reasons for
-`pub`. Anyone can
+other than `pub` and `rp_id`, `rp_id` not a string, or `pub` not 130 lowercase hex starting `04`); `rp-id` (not the
+configured one); `key-point` (`pub` not on the curve). Anyone can
 publish anyone's root record and gains nothing: the id is derived from the key, and only the key's holder can sign
 under it. The record carries nothing else: a credential id is a client-side lookup hint, not covered by any assertion
 signature, and a creation time would be chosen by the signer and prove nothing.
@@ -203,7 +207,7 @@ non-negative integers.
 Its envelope's `sig` is `{ root, subject }`: `root` the passkey assertion (W0–W6), `subject` the D6 signature
 (128 lowercase hex).
 - **D1 WINDOW:** `nbf − skew ≤ now < exp`. Skew applies to `nbf` only; it never extends `exp`.
-- **D2 LIFETIME:** `exp − nbf ≤ MAX_DELEGATION`.
+- **D2 LIFETIME:** `exp − nbf ≤ maxLifetime` (configuration; decision 3).
 - **D3 DEPTH ONE BY TYPE:** only a root can sign a delegation (V3). There is no depth counter to get wrong.
 - **D4 SUBJECT KEY:** the subject key satisfies K1 at issue and at verify.
 - **D6 SUBJECT CONSENT:** a delegation is valid only together with an Ed25519 signature by `subject` over
@@ -213,13 +217,14 @@ Its envelope's `sig` is `{ root, subject }`: `root` the passkey assertion (W0–
   envelope itself — so the id it checks is always the id of the bytes it was given — and returns
   `{ ok: true, id, body }` or `{ ok: false, reason }`, never throwing for any `text`. The context is read once.
   Reasons: V4's, for the envelope; `delegation-shape` (body keys other than the eight, or a field of the wrong form,
-  or `sig` not `{ root, subject }`); `scopes`; `aud` (O1); `subject-key` (K1, via K5's key checks); `lifetime`
+  or `sig` not `{ root, subject }` with `subject` 128 lowercase hex); `scopes`; `aud` (O1); `subject-key` (K1, via K5's
+  key checks); `lifetime`
   (`exp ≤ nbf` or D2); `not-yet` and `expired` (D1); `root` (the root id of `rootKey` under `rpId` is not the body's
   `root`, so a caller cannot verify one root's assertion as another's); then W6's reasons for `sig.root` with this
   record's id; then
   `subject-consent` (any K5 signature reason for `sig.subject`). Whether `root` has authority under `membership`
-  (R6), and whether the verifier's view is fresh (open decision 7), are the verifier's to decide (§6), not this
-  check's. `skew` and `maxLifetime` are configuration (open decision 3).
+  (R6), and whether the verifier's view is fresh (R9), are the verifier's to decide (§6), not this check's. `skew`
+  and `maxLifetime` are configuration (decision 3).
 - **D5 AUDIENCE:** `aud` is the origin of the relying party — the service that verifies the delegate's signatures. It
   is compared by exact string equality, after the origin itself is checked to be canonical (O1). For an app, the
   relying party is the app (I3). For a machine, it is the service the machine calls, chosen by the user on the id
@@ -253,7 +258,8 @@ Its envelope's `sig` is `{ root, subject }`: `root` the passkey assertion (W0–
   non-negative integers,
   `provider`/`account` not strings, or `sig` not as above); `provider` (not `github`, `google` or `orcid`);
   `account` (not that provider's form); `lifetime` (`exp ≤ nbf`, or longer than `maxLifetime`); `not-yet`,
-  `expired` (D1's window); `witness` (not a pinned key, or `now` outside that key's window — A1); then K5's signature
+  `expired` (D1's window); `witness` (not a pinned key, or its window does not hold `now` and `[nbf, exp]` — A1); then
+  K5's signature
   reasons.
 
 **membership** — the identity's root set at one epoch. `{ identity, prev, epoch, roots }`. `roots` is a sorted list
@@ -271,8 +277,9 @@ one envelope each, so its `sig` names the signer: `{ root, assertion }`, where `
 - **R1 CHANGE BY MAJORITY:** a membership record is valid only if signed by a strict majority of `prev`'s roots and by
   every root it adds. A root is retired by leaving it out.
 - **R2 FREEZE BY ANY:** a freeze signed by any one root of the membership it names freezes it: delegations under it
-  fail, and so do delegations under a pending successor of it. Only a settled successor (R4) moves past it. Freezing
-  only removes trust, so any single root may do it.
+  fail, and so do delegations under a pending successor of it. A freeze of the pending record itself, by any of its
+  roots (new ones included), freezes the identity until settlement. Only a settled successor (R4) moves past a freeze
+  of the settled membership. Freezing only removes trust, so any single root may do it.
 - **R3 ONE ANCHOR PER EPOCH:** the witness applies R1 exactly as verifiers do (an `epoch` one more than `prev`'s
   included) and anchors a valid membership record only if its `prev` is the last settled
   membership and nothing else with that `prev` is anchored. It anchors each record once and notifies the owner. Every
@@ -301,8 +308,9 @@ one envelope each, so its `sig` names the signer: `{ root, assertion }`, where `
   `{ ok: true, dead: false, identity, membership, settled, epoch, roots, pending, authority, frozen }` (`settled`
   is the last settled membership, `membership` the effective one), or `{ ok: false, reason }`
   with `unknown-identity` when no root record given is the identity's first root, or `records` when a list is
-  longer than `MAX_RECORDS` (256) or cannot be read. Each text counts once, and a signer already counted for a
-  record is not verified again, so the work a caller can cause is bounded. A signature counts only if its
+  longer than `MAX_RECORDS` (256) or cannot be read; a list that is not an array is empty. A signer already counted
+  for a record is not verified again, and `MAX_RECORDS` bounds each list, so the work a caller can cause is bounded. A
+  signature counts only if its
   root's key comes from a root record given (`checkRoot`) and its assertion covers that record's id. It never
   throws for any `records`; a malformed `ctx` is a programming error. `model/settled.mjs` is its specification in
   executable form: every state the model's explorer reaches, and every partial view of it, is translated into
@@ -348,13 +356,18 @@ Residuals:
   published to an append-only public log, so equivocation is visible; more than one witness is a later step.
 - **Notification carries the window.** An owner who does not learn of a change within `CONTEST_WINDOW` — or whose
   contest a network attacker delays past it — loses the ability to contest. Where notifications go must itself be
-  bound to a settled membership, so a thief cannot redirect them first. The window's length is part of open decision 3.
+  bound to a settled membership, so a thief cannot redirect them first. `CONTEST_WINDOW` is 72 hours (259,200 s), the
+  override window that did:plc's recovery keys have used in practice.
 - **Freshness (R9).** A verifier given only records, without a fresh head, would accept an older membership's roots
   — and a thief holding a retired root could mint new delegations under it. The guarantees above hold for a verifier
   that requires a head no older than `maxStaleness`; the residual is that window.
 
-**revocation** — signed by the root, or by the witness for its own attestations, or by a delegate for itself.
-`{ target, at }`. `target` is a record id. A revocation may be pruned once its target's `exp` has passed.
+**revocation** — `{ identity, target, at }`, where `target` is a delegation's record id or a subject key. It is signed
+by a root with authority (`sig = { root, assertion }`, as for membership records), or by the delegate for itself (`sig
+= { signature }` by the subject key, as for claims); the witness revokes its own attestations in its log (decision 8).
+The witness checks revocations and carries the live ones in heads (R9), which is how they reach verifiers; this
+version of the core does not check revocation records itself. A revocation stays in heads until every delegation it
+can affect has expired.
 
 Reputation is computed from records. It is never signed as a record.
 
@@ -392,7 +405,8 @@ relying party holds; `minHeadAt` (optional) refuses heads older than one it has 
   membership is not among the head's `memberships`); `authority` (its root is not among the head's `authority`);
   `revoked` (its id or its subject key is in the head's `revoked` or the call's); `audience` (its `aud` is
   not `audience`); `scope` (`scope` is not among its
-  `scopes`). It never throws for any `delegation`, `root` or `head`; a malformed configuration, `now`, `scope`, or
+  `scopes`). Records that cannot be read are `head`. It never throws for any `delegation`, `root` or `head`; a
+  malformed configuration, `now`, `scope`, or
   a `revoked` that is not an array of ids, is a programming error (ignoring a malformed entry would fail open on
   revocation).
 
@@ -402,7 +416,8 @@ relying party holds; `minHeadAt` (optional) refuses heads older than one it has 
   request it is for — `request` in the relying party's own canonical form (its method, URL and body hash, and a
   server nonce if it issues them, as DPoP does), so a claim seen in transit cannot be used on another request; `at`
   is the signer's time; `data` any object. `verifyClaim` takes the scope and request the relying party needs, and
-  refuses, in order, with: V4's reasons for the claim; `claim-shape` (keys other than the five, a field of the wrong
+  refuses, in order, with: V4's reasons for the claim (`envelope-encoding` too when the records cannot be read);
+  `claim-shape` (keys other than the five, a field of the wrong
   form, or `sig` not as above); `claim-scope`; `claim-request`; then F5's reasons for the delegation;
   `claim-delegation` (the claim names another delegation); `claim-time` (`at` more than `maxClaimAge` before `now`,
   more than `skew` after it, or outside the delegation's window); then K5's signature reasons under the subject key.
@@ -428,8 +443,9 @@ client_data_json, signature }`; WebAuthn fields base64url):
   `crossOrigin` is present and `false` (every browser measured emits it); `topOrigin` is absent. This separation
   holds only because nothing else on the id origin ever asks the passkey to sign: no login, no server challenge, no
   other ceremony (§8).
-- **W2 AUTHENTICATOR DATA:** `rpIdHash` equals SHA-256(`rp_id`); UP and UV are set; AT and ED are clear and no bytes
-  follow the 37-byte header; BS set implies BE set.
+- **W2 AUTHENTICATOR DATA:** `rpIdHash` equals SHA-256(`rp_id`); UP and UV are set; AT, ED and the two reserved bits
+  are clear
+  and no bytes follow the 37-byte header; BS set implies BE set.
 - **W3 SIGNATURE:** strict DER, verified as in §2, under the `pub` of the root the record names.
 - **W5 NO COUNTER:** the signature counter is not consulted (synced passkeys report a constant).
 - (There is no W4. A credential id is not covered by the assertion signature, so checking it would prove nothing.)
@@ -448,7 +464,8 @@ client_data_json, signature }`; WebAuthn fields base64url):
 - **W1 in bytes:** `client_data_json` begins with exactly
   `{"type":"webauthn.get","challenge":"<challenge>","origin":"<origin>","crossOrigin":false` and the next byte is
   `}` (the last byte) or `,`. The four fields are compared as bytes. What follows may only be further members whose
-  value is a string without escapes or control characters, `,"<key>":"<text>"`, with keys other than the prefix's four
+  value is a string without escapes or control characters, `,"<key>":"<text>"`, with `<key>` of 1–64 characters of
+  `[A-Za-z0-9_]` other than the prefix's four
   and `topOrigin`,
   then `}` as the last byte. Browsers add such members (Chromium sometimes adds one on purpose); nothing else is
   accepted, so no second JSON parser reads these bytes (§1).
@@ -473,20 +490,21 @@ test fails the build on any direct `indexedDB` or `localStorage` use outside the
 - Root registration and every root-signed action happen in a top-level id-origin window (popup or redirect).
   Cross-origin iframe `create()` is not available in Safari or iOS browsers.
 - **I1 SENDER:** a request is accepted only if `event.source` is this window's opener (or parent, for an iframe) and
-  `event.origin` is a canonical origin (D5). `document.referrer` is never consulted.
+  `event.origin` is a canonical origin (O1). `document.referrer` is never consulted.
 - **I2 REPLY:** a reply is posted with `targetOrigin` equal to the request's `event.origin` — never `'*'` — and is not
   sent if the opener has navigated away.
 - **I3 AUDIENCE FROM THE CHANNEL:** for a delegation an app requests, `aud` is the request's `event.origin`. An app
   cannot name a different audience. A machine delegation has no requesting app: the user chooses its `aud` on the id
   page, and the page shows it under I4.
-- **I4 WHAT YOU SEE IS WHAT YOU SIGN:** the page renders `aud`, `scopes` and `exp` of every record in `covers`, from
+- **I4 WHAT YOU SEE IS WHAT YOU SIGN:** the page renders every record in `covers` — a delegation's `aud`, `scopes`
+  and `exp`; a membership change's added and removed roots; what a contest or freeze stops — from
   the exact payloads whose ids become the challenge; nothing is computed between display and signing.
 - **I5 NO CACHED VERIFICATION:** every root assertion is a fresh ceremony with user verification; nothing is cached
   across actions.
 - **U1 FIRST RUN:** one id-origin window and at most two user-verification prompts — passkey creation (which yields
   the root record, unsigned), then one assertion signing the app's first delegation.
 - **U2 STEADY STATE:** at most one user-verification prompt per device per 30 days in ordinary use. Delegation
-  lifetimes are chosen to meet U2 (open decision 3), and renewal happens during a root ceremony the user is already
+  lifetimes are chosen to meet U2 (decision 3), and renewal happens during a root ceremony the user is already
   in where possible. A delegation cannot be renewed without a root assertion; "silent renewal" does not exist.
 - **U3 ONE ROOT IS ENOUGH TO START:** a first-time user has one root. Adding a second and third is encouraged later
   and never required to proceed.
@@ -512,7 +530,8 @@ test fails the build on any direct `indexedDB` or `localStorage` use outside the
    at once (W0 covers up to 8 records), so expiry keeps doing the revocation work (F4) at the cost of a periodic
    prompt. `skew` is 60 s. Attestations last at most 365 days.
 4. **Machine autonomy:** which scopes a machine may hold without per-action approval, and for how long.
-5. **Boundary parser:** a schema library (valibot) or a hand-written strict parser for this small fixed set of types.
+5. **Boundary parser — decided: hand-written.** Every record type is checked by its own strict, hand-written code over
+   the canonical decoder's output; a guard refuses any import other than noble and the core itself.
 6. **`clientDataJSON` parsing — decided: the WebAuthn spec's limited (prefix) verification.** Chrome, Safari and
    Firefox all emit `{"type":…,"challenge":…,"origin":…,"crossOrigin":false` in that order, and Chromium deliberately
    appends an extra key to about one assertion in five (`RandDouble() < 0.2` in its source) so that verifiers do not
@@ -541,7 +560,8 @@ whole contribution is a set of verified facts:
 - each verified delegation: (`subject`, `aud`, `scopes`, `nbf`, `exp`);
 - each verified claim and the delegation it was made under.
 
-The reputation layer reads these and nothing else. It never sees a key, never verifies a signature itself, and never
+The reputation layer reads these and nothing else. It never holds a secret key, never verifies a signature itself, and
+never
 writes a record the core trusts.
 
 **Memorable names (outside the core).** A root's key cannot be mined, but a name can be mined over an identity id:
@@ -559,30 +579,31 @@ Trusted core ≤ 1,500 lines. Going over is a design problem, not a reason to ra
 A tool counts only once it runs in CI and can fail the build. Each item lands with the first code it applies to,
 never afterwards. Details and thresholds: `TESTING.md`; sources: [`assurance.md`](research/assurance.md).
 
-**Gates on every pull request**
+**Gates running on every pull request**
 
 | Gate | What it fails on |
 |---|---|
 | Unit + property tests (`node --test`, fast-check) | any invariant in this spec broken over adversarial generated inputs |
-| Known-answer vectors, committed as data | RFC 8785; RFC 8032, Wycheproof Ed25519 and the Taming-EdDSA cases; Wycheproof ECDSA P-256 DER — with the loaded count asserted |
-| Differential oracles | encoder ≠ reference JCS; an assertion we accept that SimpleWebAuthn rejects (one-directional; known differences are a committed list) |
-| Negative controls | a deliberately broken implementation, one per known bug class, that the suite fails to reject |
-| Mutation testing (Stryker, tap runner) on the core | score below the break threshold, or a surviving mutant not explained in the PR |
-| Branch coverage on the core | any uncovered branch |
-| Custom rules (Semgrep, each with its own `--test` fixtures) | in core files: `async`/`await`, `Date.now`, `Math.random`, `JSON.parse` outside the parser, `indexedDB`/`localStorage` outside the adapter, a `{}`-seeded serializer, imports other than noble and the core itself |
-| Duplication (jscpd, threshold 0 on the core) | a copied trust-path block |
-| Line budget | core over 1,500 lines |
-| Skipped tests | any skipped or `todo` test |
-| CodeQL (`security-extended`) | new alerts |
-| Secret scanning (gitleaks, plus GitHub push protection) | any credential-shaped string |
-| Supply chain | lockfile drift; non-exact pins; install scripts (`npm ci --ignore-scripts`); unverified registry signatures; a dependency version younger than the cooldown |
+| Known-answer vectors, committed as data and pinned by hash | RFC 8785; NIST CAVP SHA-256; RFC 8032, Wycheproof Ed25519, ed25519-speccheck; Wycheproof ECDSA P-256 DER; W3C WebAuthn L3 §16 — with the loaded count asserted |
+| Differential oracles | encoder ≠ reference JCS; Ed25519 and P-256 accepts that Node's crypto rejects; the membership state ≠ the executable model |
+| Negative controls (broken twins) | a deliberately broken implementation, one per bug class, that its suite fails to reject |
+| Mutation testing (Stryker, one job per module) | score below the break threshold |
+| Coverage of the core | any uncovered line, branch or function |
+| Core bans (a guard test) | in core files: `async`/`await`, clock and randomness reads, `JSON.parse` outside the decoder, imports other than noble and the core itself |
+| Line budget, skipped tests, vector pinning, CI coverage of every test file and module | as named |
+| Supply chain | install scripts (`npm ci --ignore-scripts`); unverified registry signatures |
 | CI hardening | an action not pinned by commit SHA; a workflow with write permissions it does not need; any `pull_request_target` |
+
+**Planned gates** (they count once they run): Semgrep with rule tests; duplication (jscpd); CodeQL
+(`security-extended`); gitleaks; a SimpleWebAuthn differential for root assertions; guards for exact pins and the
+release-age cooldown.
 
 **Scheduled, not gating**
 
-- Long fuzz runs of `decode` and `verify` (fast-check at high iteration counts; Jazzer.js).
-- The membership model (`model/recovery.mjs`) at greater depth than the pinned tests, and models of the delegation,
-  revocation and time-window rules, with their traces replayed against `verify`.
+Not yet scheduled:
+- Long fuzz runs of `decode`, `verifyDelegation` and `verifyClaim` (fast-check at high iteration counts; Jazzer.js).
+- The membership model (`model/settled.mjs`) at greater depth than the pinned tests, and models of the delegation,
+  revocation and time-window rules, with their traces replayed against the verifier.
 - An adversarial review agent against the core. Its findings go to a **private** security advisory, never a public
   issue.
 - After every fix, a variant-analysis sweep for siblings of the bug.

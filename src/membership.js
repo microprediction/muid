@@ -11,12 +11,13 @@ const { freeze } = Object
 const { isArray } = Array
 const { isSafeInteger } = Number
 const { exec } = RegExp.prototype
-const { includes } = Array.prototype
+const { includes, splice } = Array.prototype
 
 const ID = /^[0-9a-f]{64}$/
 const MAX_ROOTS = 5
 // Each list of records is at most this long, so the work a caller can cause is bounded.
 export const MAX_RECORDS = 256
+const MAX_REVOKED = 64 // R9
 const isId = (x) => typeof x === 'string' && apply(exec, ID, [x]) !== null
 // An integer; a negative `at` or `epoch` fails the witness window or the epoch check (R1) after it.
 const isInteger = (x) => isSafeInteger(x)
@@ -225,8 +226,19 @@ export function membershipState (records, context) {
 // roots with authority, and the revocations it holds for the identity (record ids or subject keys). None for a dead or
 // frozen identity, a refusal, or a state in which no root has authority.
 export function headOf (state, at, revoked = []) {
-  if (!state.ok || state.dead || state.frozen || state.authority.length === 0 || !isInteger(at) || at < 0) return undefined
+  if (!state.ok || state.dead || state.frozen || state.authority.length === 0 || !isInteger(at) || at < 0 ||
+    !isArray(revoked)) return undefined
+  // Distinct ids, sorted by insertion (no built-in sort to patch), at most 64.
+  const list = []
+  for (let i = 0; i < revoked.length; i++) {
+    const x = revoked[i]
+    if (!isId(x)) return undefined
+    let j = list.length
+    while (list[j - 1] > x) j-- // list[-1] is undefined, which is never greater
+    if (list[j - 1] !== x) apply(splice, list, [j, 0, x])
+  }
+  if (list.length > MAX_REVOKED) return undefined
   const memberships = state.pending ? [state.settled, state.membership] : [state.settled]
   return freeze({ identity: state.identity, memberships: freeze(memberships), authority: state.authority,
-    revoked: freeze(copy(revoked).sort()), at })
+    revoked: freeze(list), at })
 }

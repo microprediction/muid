@@ -70,9 +70,12 @@ function headBody (text, cfg, now) {
   for (const k in b) if (k !== HEAD_KEYS[i++]) return undefined
   if (!isId(b.identity) || !ids(b.memberships, 1, 2, false) || !ids(b.authority, 1, 5, true) ||
     !ids(b.revoked, 0, MAX_REVOKED, true) || !isTime(b.at)) return undefined
+  // The key's window must hold both the head's time and now, whichever comes first.
+  // Stryker disable next-line EqualityOperator: equivalent; at now === at both branches give the same value
+  const from = now < b.at ? now : b.at
   // Stryker disable next-line EqualityOperator: equivalent; at now === at both branches give the same value
   const until = (now > b.at ? now : b.at) + 1
-  if (!isWitnessSig(r.sig) || witnessReason(r.sig, r.payload, cfg.keys, b.at, until) !== undefined) return undefined
+  if (!isWitnessSig(r.sig) || witnessReason(r.sig, r.payload, cfg.keys, from, until) !== undefined) return undefined
   return b
 }
 

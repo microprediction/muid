@@ -29,6 +29,7 @@ const TWINS = [
   ['claim-outside-delegation', 'a claim dated outside its delegation\'s window is accepted', [[' || b.at < d.body.nbf - cfg.skew ||\n      b.at >= d.body.exp', '']]],
   ['call-revoked-by-id-only', 'a subject key in the call\'s revoked list is ignored', [[' || revoked[i] === b.subject', '']]],
   ['key-window-at-head-only', 'a retired witness key\'s heads are accepted', [['  const until = (now > b.at ? now : b.at) + 1', '  const until = b.at + 1']]],
+  ['key-window-from-head-only', 'a key not yet valid now is accepted for a head dated within skew', [['  const from = now < b.at ? now : b.at', '  const from = b.at']]],
   ['head-from-the-future', 'a head dated after now is accepted', [[' || h.at > now + cfg.skew', '']]],
   ['membership-unchecked', 'the delegation may name any membership', [["    if (!has(h.memberships, b.membership)) return refuse('membership')\n", '']]],
   ['authority-unchecked', 'any root of the identity may delegate', [["    if (!has(h.authority, b.root)) return refuse('authority')\n", '']]],
@@ -36,7 +37,7 @@ const TWINS = [
   ['revocations-ignored', 'revoked delegations are accepted', [["    for (let i = 0; i < n; i++) if (revoked[i] === d.id || revoked[i] === b.subject) return refuse('revoked')\n", '']]],
   ['audience-unchecked', 'a delegation for another relying party is accepted', [["    if (b.aud !== cfg.audience) return refuse('audience')\n", '']]],
   ['scope-unchecked', 'any scope is granted', [["    if (!has(b.scopes, scope)) return refuse('scope')\n", '']]],
-  ['head-unsigned', 'the head\'s signature is not checked', [['  if (!isWitnessSig(r.sig) || witnessReason(r.sig, r.payload, cfg.keys, b.at, until) !== undefined) return undefined\n', '']]],
+  ['head-unsigned', 'the head\'s signature is not checked', [['  if (!isWitnessSig(r.sig) || witnessReason(r.sig, r.payload, cfg.keys, from, until) !== undefined) return undefined\n', '']]],
 ]
 
 function run (implPath) {
@@ -80,7 +81,7 @@ test('verifier broken twins', { timeout: 600_000 }, async (t) => {
     })
 
     const jobs = TWINS.map(([name, why, edits]) => [name, why, generate(name, edits)])
-    assert.equal(jobs.length, 20, 'twin count')
+    assert.equal(jobs.length, 21, 'twin count')
     const results = []
     const queue = [...jobs]
     const workers = Math.max(1, Math.floor(availableParallelism() / 4))

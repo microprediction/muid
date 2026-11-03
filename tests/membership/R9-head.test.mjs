@@ -41,6 +41,17 @@ test('no head for a dead or frozen identity, or for a refusal', () => {
   assert.equal(headOf(membershipState({ roots }, ctx), -1), undefined, 'a time is a non-negative integer')
   assert.equal(headOf(membershipState({ roots }, ctx), 0).at, 0, 'zero is a time')
   assert.deepEqual(plain(headOf(membershipState({ roots }, ctx), 3, ['f'.repeat(64), '0'.repeat(64)])).revoked, ['0'.repeat(64), 'f'.repeat(64)], 'revocations sorted')
+  const s1 = membershipState({ roots }, ctx)
+  assert.deepEqual(plain(headOf(s1, 3, ['f'.repeat(64), 'f'.repeat(64)])).revoked, ['f'.repeat(64)], 'duplicates once')
+  assert.equal(headOf(s1, 3, ['x']), undefined, 'a revocation that is not an id')
+  assert.equal(headOf(s1, 3, 'x'), undefined, 'revoked not a list')
+  assert.equal(headOf(s1, 3, Array.from({ length: 65 }, (_, i) => i.toString(16).padStart(64, '0'))), undefined, 'more than 64')
+  assert.equal(headOf(s1, 3, Array.from({ length: 64 }, (_, i) => i.toString(16).padStart(64, '0'))).revoked.length, 64, '64 fit')
+  const original = Array.prototype.sort
+  Array.prototype.sort = function () { return this }
+  let patched
+  try { patched = plain(headOf(s1, 3, ['f'.repeat(64), '0'.repeat(64)])) } finally { Array.prototype.sort = original }
+  assert.deepEqual(patched.revoked, ['0'.repeat(64), 'f'.repeat(64)], 'sorting does not use a patchable built-in')
   assert.equal(headOf({ ok: true, dead: false, frozen: false, pending: true, identity: I, settled: I, membership: 'x', authority: [] }, 1), undefined,
     'no head when no root has authority')
 })

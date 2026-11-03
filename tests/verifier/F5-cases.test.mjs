@@ -142,6 +142,9 @@ test('the witness key must still be pinned and in its window now, not only at th
   const early = verifier({ ...CONFIG, witnessKeys: [{ key: WITNESS, nbf: 0, exp: NOW + 30 }] })
   assert.deepEqual({ ...early.verifyDelegation({ delegation: D.text, root: rootText, head: headText({ at: NOW + 50 }) }, { now: NOW, scope: 'post', revoked: [] }) },
     refused('head'), 'a head dated after its key\'s window, within skew')
+  const late = verifier({ ...CONFIG, witnessKeys: [{ key: WITNESS, nbf: NOW + 10, exp: NOW + 1000 }] })
+  assert.deepEqual({ ...late.verifyDelegation({ delegation: D.text, root: rootText, head: headText({ at: NOW + 50 }) }, { now: NOW, scope: 'post', revoked: [] }) },
+    refused('head'), 'a head dated within skew, but its key not yet valid now')
 })
 
 test('revoked, audience and scope', () => {
