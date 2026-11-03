@@ -67,9 +67,9 @@ test('any past majority, even one fully retired, ends the identity with one reco
 // Variant: membership records count only once a witness anchors the first valid record it sees for each epoch.
 const runAnchored = (epochs, roots, stolen) => analyse({ genesis: 'a', history: history('a', epochs),
   owner: new Set([...roots, 'o']), thief: new Set([...stolen, 't']), universe: [...roots, 'o', 't'],
-  maxEpoch: epochs.length + 3, thiefDepth: 1, anchored: true })
+  maxEpoch: epochs.length + 3, thiefDepth: 1, rule: 'first' })
 
-test('anchored: a stolen first or retired root can no longer end the identity', () => {
+test('first-seen anchor: a stolen first or retired root can no longer end the identity', () => {
   for (const [epochs, roots] of [[[['a', 'b']], ['a', 'b']], [[['a', 'b', 'c']], ['a', 'b', 'c']],
     [[['a', 'b', 'c'], ['b', 'c', 'd']], ['a', 'b', 'c', 'd']]]) {
     const r = runAnchored(epochs, roots, ['a'])
@@ -79,7 +79,7 @@ test('anchored: a stolen first or retired root can no longer end the identity', 
   }
 })
 
-test('anchored: when the thief holds every root the owner holds, its takeover is final and the owner cannot end it', () => {
+test('first-seen anchor: when the thief holds every root the owner holds, its takeover is final and the owner cannot end it', () => {
   for (const [epochs, roots, stolen] of [[[], ['a'], ['a']], [[['a', 'b', 'c']], ['a', 'b', 'c'], ['b', 'c']]]) {
     const r = runAnchored(epochs, roots, stolen)
     assert.ok(r.takeover)
@@ -87,9 +87,51 @@ test('anchored: when the thief holds every root the owner holds, its takeover is
   }
 })
 
-test('anchored: a later root stolen from two or three behaves as without anchoring', () => {
+test('first-seen anchor: a later root stolen from two or three behaves as without anchoring', () => {
   assert.equal(runAnchored([['a', 'b']], ['a', 'b'], ['b']).cannotStop, null)
   const r = runAnchored([['a', 'b', 'c']], ['a', 'b', 'c'], ['c'])
   assert.equal(r.unrecoverable, null)
   assert.equal(r.kill, null)
+})
+
+// Variant: the witness timestamps every valid record; the earliest wins unless a rival came within the window.
+// The thief plays inside one window and the owner answers inside the same window (the witness notifies the owner).
+const runWindow = (epochs, roots, stolen) => analyse({ genesis: 'a', history: history('a', epochs),
+  owner: new Set([...roots, 'o']), thief: new Set([...stolen, 't']), universe: [...roots, 'o', 't'],
+  maxEpoch: epochs.length + 3, thiefDepth: 1, rule: 'window' })
+
+test('window: a stolen first or retired root cannot end the identity once its epoch is past the window', () => {
+  for (const [epochs, roots] of [[[['a', 'b']], ['a', 'b']], [[['a', 'b', 'c']], ['a', 'b', 'c']],
+    [[['a', 'b', 'c'], ['b', 'c', 'd']], ['a', 'b', 'c', 'd']]]) {
+    const r = runWindow(epochs, roots, ['a'])
+    assert.equal(r.kill, null)
+    assert.equal(r.takeover, null)
+    assert.equal(r.unrecoverable, null)
+    assert.equal(r.cannotStop, null)
+  }
+})
+
+test('window: a thief holding every root the owner holds can take over, and the owner can end it within the window', () => {
+  for (const [epochs, roots, stolen] of [[[], ['a'], ['a']], [[['a', 'b', 'c']], ['a', 'b', 'c'], ['b', 'c']]]) {
+    const r = runWindow(epochs, roots, stolen)
+    assert.ok(r.takeover)
+    assert.equal(r.cannotStop, null)
+    assert.ok(r.lateOwnerCannotStop, 'after the window, the takeover is final')
+  }
+})
+
+test('window: a later root stolen from two or three behaves as without anchoring', () => {
+  const two = runWindow([['a', 'b']], ['a', 'b'], ['b'])
+  assert.equal(two.takeover, null)
+  assert.equal(two.kill, null)
+  assert.equal(two.cannotStop, null)
+  const three = runWindow([['a', 'b', 'c']], ['a', 'b', 'c'], ['c'])
+  assert.equal(three.unrecoverable, null)
+  assert.equal(three.kill, null)
+})
+
+test('window: a freeze never makes an inactive identity active', () => {
+  for (const [epochs, roots, stolen] of [[[], ['a'], ['a']], [[['a', 'b', 'c']], ['a', 'b', 'c'], ['b', 'c']]]) {
+    assert.equal(runWindow(epochs, roots, stolen).freezeRevives, null)
+  }
 })

@@ -6,12 +6,18 @@
 // Items:
 //   { kind: 'M', n, roots, prev, signer }  one root's signature over a membership payload (roots sorted)
 //   { kind: 'F', n, signer }               one root's freeze of epoch n
-//   { kind: 'W', id }                      a witness anchor on membership record `id` (variant `anchored` only)
+//   { kind: 'W', id, at }                  a witness anchor on membership record `id` at time `at` (anchored rules)
+//   { kind: 'T', k }                       the k-th tick of the witness clock; the time is the number of ticks
 //
-// Variant `anchored`: a membership record counts only once a witness has anchored it, and the witness anchors only
-// the first valid record it sees for each epoch. Two anchored records for one epoch still end the identity (R3).
+// Rules for choosing between valid records for the same epoch:
+//   'none'    as drafted: two valid records end the identity (R3).
+//   'first'   a record counts only once anchored; the witness anchors only the first valid record per epoch.
+//   'window'  the witness anchors every valid record extending the current chain, with its time. The earliest
+//             anchored record wins, unless another was anchored less than WINDOW after it: then the identity ends.
+//             Records anchored later than that are ignored.
 
 export const MAX_ROOTS = 5
+export const WINDOW = 1
 
 export const membershipId = (n, roots, prev) => `M${n}{${roots.join(',')}}<${prev}`
 export const genesisOf = (root) => ({ id: membershipId(1, [root], '-'), n: 1, roots: [root] })
@@ -41,39 +47,58 @@ export function payloadsOf (items) {
 // R3–R5: the state is a function of the set of items. Returns
 //   { dead: true, at }                         an equivocation froze epoch `at` permanently (R3)
 //   { dead: false, epoch, roots, frozen, id }  the current epoch (R4) and whether a freeze applies (R2)
-export function evaluate (genesis, items, anchored = false) {
+export function evaluate (genesis, items, rule = 'none') {
   const payloads = payloadsOf(items)
-  const anchors = new Set(items.filter((it) => it.kind === 'W').map((it) => it.id))
+  const anchoredAt = new Map()
+  for (const it of items) {
+    if (it.kind === 'W' && !(anchoredAt.get(it.id) <= it.at)) anchoredAt.set(it.id, it.at)
+  }
   let cur = genesisOf(genesis)
+  const chain = [cur]
   for (;;) {
     const next = []
     for (const p of payloads.values()) {
-      if (p.n === cur.n + 1 && p.prev === cur.id && validNext(cur, p) && (!anchored || anchors.has(p.id))) next.push(p)
+      if (p.n === cur.n + 1 && p.prev === cur.id && validNext(cur, p) && (rule === 'none' || anchoredAt.has(p.id))) next.push(p)
     }
-    if (next.length > 1) return { dead: true, at: cur.n }
     if (next.length === 0) break
+    if (rule === 'window') {
+      next.sort((x, y) => anchoredAt.get(x.id) - anchoredAt.get(y.id) || (x.id < y.id ? -1 : 1))
+      const t = anchoredAt.get(next[0].id)
+      if (next.some((p, i) => i > 0 && anchoredAt.get(p.id) < t + WINDOW)) return { dead: true, at: cur.n }
+    } else if (next.length > 1) {
+      return { dead: true, at: cur.n }
+    }
     cur = next[0]
+    chain.push(cur)
   }
   let frozen = false
   for (const it of items) if (it.kind === 'F' && it.n === cur.n && cur.roots.includes(it.signer)) frozen = true
-  return { dead: false, epoch: cur.n, roots: cur.roots, frozen, id: cur.id }
+  return { dead: false, epoch: cur.n, roots: cur.roots, frozen, id: cur.id, chain }
 }
 
 export const active = (s) => !s.dead && !s.frozen
 
-// The witness: while the current epoch has a valid unanchored successor, anchor the first one (by id).
-export function witness (genesis, items) {
+// The witness, run after every move. 'first': anchor the first valid successor of the current epoch, by id.
+// 'window': anchor, at the current time, every valid record whose previous epoch is on the current chain.
+export function witness (genesis, items, rule) {
+  if (rule === 'none') return items
+  const now = items.filter((it) => it.kind === 'T').length
   let out = items
   for (;;) {
-    const e = evaluate(genesis, out, true)
+    const e = evaluate(genesis, out, rule)
     if (e.dead) return out
-    const cur = { id: e.id, n: e.epoch, roots: e.roots }
-    const next = [...payloadsOf(out).values()]
-      .filter((p) => p.n === cur.n + 1 && p.prev === cur.id && validNext(cur, p)).map((p) => p.id).sort()
-    if (next.length === 0) return out
-    out = [...out, { kind: 'W', id: next[0] }]
+    const anchored = new Set(out.filter((it) => it.kind === 'W').map((it) => it.id))
+    const onChain = rule === 'window' ? e.chain : [e.chain[e.chain.length - 1]]
+    const fresh = [...payloadsOf(out).values()]
+      .filter((p) => !anchored.has(p.id) && onChain.some((c) => p.n === c.n + 1 && p.prev === c.id && validNext(c, p)))
+      .map((p) => p.id).sort()
+    if (fresh.length === 0) return out
+    const add = rule === 'window' ? fresh : fresh.slice(0, 1)
+    out = [...out, ...add.map((id) => ({ kind: 'W', id, at: now }))]
   }
 }
+
+export const tick = (items) => [...items, { kind: 'T', k: items.filter((it) => it.kind === 'T').length }]
 
 // Every nonempty subset of `universe` with at most MAX_ROOTS members, sorted.
 export function subsets (universe) {
@@ -86,7 +111,8 @@ export function subsets (universe) {
   return out
 }
 
-const itemKey = (it) => (it.kind === 'M' ? `${membershipId(it.n, it.roots, it.prev)}/${it.signer}` : it.kind === 'F' ? `F${it.n}/${it.signer}` : `W${it.id}`)
+const itemKey = (it) => it.kind === 'M' ? `${membershipId(it.n, it.roots, it.prev)}/${it.signer}`
+  : it.kind === 'F' ? `F${it.n}/${it.signer}` : it.kind === 'W' ? `W${it.id}@${it.at}` : `T${it.k}`
 export const setKey = (items) => items.map(itemKey).sort().join(' ')
 
 // One move: an actor publishes a payload signed by every root it holds that could matter, or freezes an epoch with
@@ -114,14 +140,14 @@ export function moves (genesis, items, holds, universe, maxEpoch) {
 }
 
 // Every item set reachable from `start` by at most `depth` moves of one actor (deduplicated), including `start`.
-export function reach (genesis, start, holds, universe, maxEpoch, depth, anchored = false) {
+export function reach (genesis, start, holds, universe, maxEpoch, depth, rule = 'none') {
   const seen = new Map([[setKey(start), start]])
   let frontier = [start]
   for (let d = 0; d < depth; d++) {
     const next = []
     for (const items of frontier) {
       for (const add of moves(genesis, items, holds, universe, maxEpoch)) {
-        const s = anchored ? witness(genesis, [...items, ...add]) : [...items, ...add]
+        const s = witness(genesis, [...items, ...add], rule)
         const k = setKey(s)
         if (!seen.has(k)) { seen.set(k, s); next.push(s) }
       }
@@ -133,49 +159,44 @@ export function reach (genesis, start, holds, universe, maxEpoch, depth, anchore
 
 // The questions asked of each scenario. `owner` holds every root of the scenario (theft copies a passkey, it does
 // not remove it) plus a fresh root `o`; `thief` holds the stolen roots plus a fresh root `t`.
-export function analyse ({ genesis, history: start, owner, thief, universe, maxEpoch, thiefDepth, anchored = false }) {
-  const evaluate_ = (g, s) => evaluate(g, s, anchored)
-  const reach_ = (g, s, holds, u, m, d) => reach(g, s, holds, u, m, d, anchored)
-  const history = anchored ? witness(genesis, start) : start
-  const thiefStates = reach_(genesis, history, thief, universe, maxEpoch, thiefDepth)
+// Under 'window', the honest history is anchored and then left for longer than WINDOW before the theft; the thief
+// plays within one window, and the owner answers within the same window (the witness notifies the owner). Whether
+// the owner's position survives is checked against a further thief move both now and after the window closes.
+export function analyse ({ genesis, history: start, owner, thief, universe, maxEpoch, thiefDepth, rule = 'none' }) {
+  const ev = (s) => evaluate(genesis, s, rule)
+  const by = (holds, s, depth) => reach(genesis, s, holds, universe, maxEpoch, depth, rule)
+  // A further thief move, now or (under 'window') after the window has closed.
+  const thiefNext = (s) => (rule === 'window' ? [...by(thief, s, 1), ...by(thief, tick(s), 1)] : by(thief, s, 1))
 
+  let history = witness(genesis, start, rule)
+  if (rule === 'window') for (let i = 0; i <= WINDOW; i++) history = tick(history)
+  const thiefStates = by(thief, history, thiefDepth)
   const result = { thiefStates: thiefStates.length }
 
-  // Can the thief, acting alone, control the current epoch, or end the identity?
-  // Takeover: the current epoch is active and the owner holds none of its roots.
-  result.takeover = thiefStates.find((s) => { const e = evaluate_(genesis, s); return active(e) && !e.roots.some((r) => owner.has(r)) }) ?? null
-  result.kill = thiefStates.find((s) => evaluate_(genesis, s).dead) ?? null
+  // Takeover: the current epoch is active and the owner holds none of its roots. Kill: the identity has ended.
+  result.takeover = thiefStates.find((s) => { const e = ev(s); return active(e) && !e.roots.some((r) => owner.has(r)) }) ?? null
+  result.kill = thiefStates.find((s) => ev(s).dead) ?? null
 
   // After any thief play, can the owner in one move reach an active epoch with none of the thief's roots, which no
-  // single further thief move undoes?
-  const secure = (s) => { const e = evaluate_(genesis, s); return active(e) && !e.roots.some((r) => thief.has(r)) }
-  result.unrecoverable = null
-  for (const s of thiefStates) {
-    const ok = reach_(genesis, s, owner, universe, maxEpoch, 1).some((q) =>
-      secure(q) && reach_(genesis, q, thief, universe, maxEpoch, 1).every(secure))
-    if (!ok) { result.unrecoverable = s; break }
+  // further thief move undoes?
+  const secure = (s) => { const e = ev(s); return active(e) && !e.roots.some((r) => thief.has(r)) }
+  result.unrecoverable = thiefStates.find((s) => !by(owner, s, 1).some((q) => secure(q) && thiefNext(q).every(secure))) ?? null
+
+  // After any thief play, can the owner in one move leave the thief with no authority, in a way no further thief
+  // move undoes?
+  const noThiefAuthority = (s) => { const e = ev(s); return !active(e) || !e.roots.some((r) => thief.has(r)) }
+  result.cannotStop = thiefStates.find((s) =>
+    !by(owner, s, 1).some((q) => noThiefAuthority(q) && thiefNext(q).every(noThiefAuthority))) ?? null
+
+  // Under 'window': if the owner does not answer before the window closes, is a thief takeover then final?
+  if (rule === 'window') {
+    result.lateOwnerCannotStop = thiefStates.find((s) => { const e = ev(s); return active(e) && !e.roots.some((r) => owner.has(r)) &&
+      !by(owner, tick(s), 1).some((q) => noThiefAuthority(q)) }) ?? null
   }
 
-  // After any thief play, can the owner in one move leave the thief with no authority: the identity ended, or the
-  // current epoch frozen in a way no single further thief move undoes?
-  const noThiefAuthority = (s) => { const e = evaluate_(genesis, s); return !active(e) || !e.roots.some((r) => thief.has(r)) }
-  result.cannotStop = null
-  for (const s of thiefStates) {
-    const ok = reach_(genesis, s, owner, universe, maxEpoch, 1).some((q) =>
-      noThiefAuthority(q) && reach_(genesis, q, thief, universe, maxEpoch, 1).every(noThiefAuthority))
-    if (!ok) { result.cannotStop = s; break }
-  }
-
-  // F-monotonicity of freezes: adding a freeze never turns an inactive state active.
-  result.freezeRevives = null
-  for (const s of thiefStates) {
-    if (active(evaluate_(genesis, s))) continue
-    for (const n of [1, 2, 3, 4]) {
-      for (const signer of universe) {
-        if (active(evaluate_(genesis, [...s, { kind: 'F', n, signer }]))) { result.freezeRevives = s; break }
-      }
-    }
-  }
+  // A freeze never turns an inactive state active.
+  result.freezeRevives = thiefStates.find((s) => !active(ev(s)) &&
+    [1, 2, 3, 4].some((n) => universe.some((signer) => active(ev([...s, { kind: 'F', n, signer }]))))) ?? null
   return result
 }
 
