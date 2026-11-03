@@ -98,15 +98,14 @@ function readCall (call, claim, cfg) {
 
 const within = (a, b) => { for (let i = 0; i < a.length; i++) if (!has(b, a[i])) return true; return false } // a ⊄ b
 
-// Decision 10: `h` cannot honestly follow `l`. Epochs never fall; one id, one epoch (R1, R3); authority (R6) follows
-// the memberships: unchanged, shrinking as a successor turns pending, growing as it settles alone. Index reads only.
+// Decision 10: `h` cannot honestly follow `l`: an epoch falls, an id stands at two epochs (R1, R3), or authority does
+// not follow the memberships (R6: unchanged; shrinking to pending; growing as it settles alone). Index reads only.
 function forked (l, h) {
   const lm = l.memberships
   const hm = h.memberships
   if (h.epoch < l.epoch || h.epoch + hm.length < l.epoch + lm.length) return true
-  for (let i = 0; i < lm.length; i++) for (let j = 0; j < hm.length; j++) {
-    if ((l.epoch + i === h.epoch + j) !== (lm[i] === hm[j])) return true
-  }
+  // Stryker disable next-line EqualityOperator: equivalent; j = hm.length matters only if the top epoch fell (above)
+  for (let i = 0; i < lm.length; i++) for (let j = 0; j < hm.length; j++) if ((l.epoch + i === h.epoch + j) !== (lm[i] === hm[j])) return true
   if (h.epoch === l.epoch) return within(h.authority, l.authority) || (hm.length === lm.length && within(l.authority, h.authority))
   return h.epoch === l.epoch + 1 && lm.length === 2 && hm.length === 1 && within(l.authority, h.authority)
 }
@@ -132,7 +131,7 @@ export function verifier (config) {
       return refuse('stale')
     }
     if (last && last.identity !== h.identity) return refuse('identity')
-    // Heads of one `at` may have been signed in either order: only a pair inconsistent both ways is evidence.
+    // Heads of one `at` may be signed in either order: such a pair is evidence only if inconsistent both ways.
     if (last && forked(last, h)) return refuse(h.at === last.at && !forked(h, last) ? 'stale' : 'equivocation')
     const r = checkRoot(given.root, { rpId: cfg.rpId })
     if (!r.ok) return refuse('root-record')

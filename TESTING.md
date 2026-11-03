@@ -352,9 +352,9 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   programming error.
 - **Equivocation (decision 10):** with `lastHead`, an honest witness's later heads are accepted (the same state, a
   successor pending, it settling, the next pending, two epochs on, authority shrinking when a successor turns pending
-  and growing when it settles); a lower settled epoch, another settled membership at the same epoch, a pending
+  and growing when it settles, and changing freely one epoch on from no pending successor or two epochs on); a lower settled epoch, another settled membership at the same epoch, a pending
   successor gone or replaced, the next epoch settling another than the pending successor, one membership at two
-  epochs, another authority over the same memberships, authority growing as a successor turns pending or shrinking as
+  epochs, more or less authority over the same memberships, authority growing as a successor turns pending or shrinking as
   it settles alone, and two heads of one second inconsistent both ways round are `equivocation`; a head of the same
   second that could honestly precede the last one is `stale`, as is an older head, even a consistent one; a last head of another identity is `identity`, never a throw; a last head signed by a key since retired
   still works; a last head that is not a pinned head is a programming error. Over every pair of a pool of heads, a

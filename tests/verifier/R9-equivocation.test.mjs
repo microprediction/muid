@@ -69,6 +69,9 @@ test('an honest witness\'s later heads are accepted after any earlier one', () =
     ['it settles and the next is pending: authority is the new shared roots', head(2, [P, R], NOW - 10),
       head(1, [I, P], NOW - 50, { authority: WIDE }), P],
     ['the same head again, at the same time', head(1, [I, P], NOW - 10), head(1, [I, P], NOW - 10), I],
+    ['one epoch on, unseen while pending: authority may shrink', head(2, [P], NOW - 10), head(1, [I], NOW - 50, { authority: WIDE }), P],
+    ['two epochs on from a pending successor: authority may shrink', head(3, [R], NOW - 10),
+      head(1, [I, P], NOW - 50, { authority: WIDE }), R],
   ]
   for (const [name, presented, last, membership] of cases) {
     assert.deepEqual(verify(presented, last, membership), { ok: true }, name)
@@ -85,7 +88,8 @@ test('equivocation: a lower settled epoch, another settled membership, or anothe
     ['a settled membership again at a later epoch', head(3, [P], NOW - 10), head(2, [P], NOW - 50), P],
     ['the pending successor settled two epochs on', head(3, [P], NOW - 10), head(1, [I, P], NOW - 50), P],
     ['a membership pending at another epoch than it settled', head(2, [Q, P], NOW - 10), head(2, [P], NOW - 50), Q],
-    ['the same memberships, another authority', head(1, [I], NOW - 10, { authority: WIDE }), head(1, [I], NOW - 50), I],
+    ['the same memberships, more authority', head(1, [I], NOW - 10, { authority: WIDE }), head(1, [I], NOW - 50), I],
+    ['the same memberships, less authority', head(1, [I], NOW - 10), head(1, [I], NOW - 50, { authority: WIDE }), I],
     ['a successor becomes pending and authority grows', head(1, [I, P], NOW - 10, { authority: WIDE }), head(1, [I], NOW - 50), I],
     ['it settles and authority shrinks', head(2, [P], NOW - 10), head(1, [I, P], NOW - 50, { authority: WIDE }), P],
     ['the settled epoch falls with a pending successor', head(1, [I, P], NOW - 10), head(2, [P], NOW - 50), P],
