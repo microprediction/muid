@@ -5,7 +5,8 @@ import { readFileSync } from 'node:fs'
 import { accepts, checkEd25519, bytes, REASONS } from './helpers.mjs'
 
 const text = readFileSync(new URL('../vectors/rfc8032/rfc8032.txt', import.meta.url), 'latin1')
-const section = text.slice(text.indexOf('7.1.  Test Vectors for Ed25519'), text.indexOf('7.2.  Test Vectors for Ed25519ctx'))
+// lastIndexOf: the first occurrences are in the table of contents.
+const section = text.slice(text.lastIndexOf('7.1.  Test Vectors for Ed25519'), text.lastIndexOf('7.2.  Test Vectors for Ed25519ctx'))
 
 function field (block, name, next) {
   const a = block.indexOf(name)

@@ -65,7 +65,9 @@ which root.
   `key` is 64 lowercase hex characters, `sig` 128. The first failure is the reason: `key-encoding` (not that hex),
   `key-point` (not a canonical encoding of a curve point), `key-small-order`, `key-mixed-order` (K1);
   `sig-encoding`; `sig-r-point`, `sig-r-small-order`, `sig-r-mixed-order` (K4); `sig-s-range` (S ≥ L); `sig-invalid`
-  (the equation fails, checked by `ed25519.verify` with `zip215: false`).
+  (the equation fails, checked by `ed25519.verify` with `zip215: false`). Built-ins the module uses are captured at load
+  (E7); those the library uses when called can only make it fail closed if patched — a reject, never a throw or a
+  new accept — which is tested, not proved.
 - **Hash:** SHA-256 (`@noble/hashes`).
 - **Bytes in text:** lowercase hex. Exception: WebAuthn fields keep their standard unpadded base64url. Each decoder
   rejects any input that does not re-encode to itself.

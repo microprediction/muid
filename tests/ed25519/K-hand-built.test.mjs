@@ -88,3 +88,9 @@ test('S + L, which a library reducing S would accept, is refused', () => {
   const big = S + L
   if (big < 2n ** 256n) rejects(hex(sig.slice(0, 32)) + hex(toLe(big)), msg, hex(A.toBytes()), 'sig-s-range', 'S + L')
 })
+
+test('x = 0 with the sign bit set (a non-canonical "negative zero") is refused as key and as R', () => {
+  const negZero = '01' + '00'.repeat(30) + '80'
+  rejects('00'.repeat(64), msg, negZero, 'key-point', 'key')
+  rejects(negZero + '00'.repeat(32), msg, hex(A.toBytes()), 'sig-r-point', 'R')
+})

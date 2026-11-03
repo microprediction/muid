@@ -197,9 +197,11 @@ Interface under test: `checkEd25519(sig, message, key)` → frozen `{ ok: true }
 
 ### 4.3 Broken twins
 
-`zip215: true`; no small-order check on the key; no mixed-order (torsion) check on the key; no K4 checks on R; no
-S range check (left to `verify`, which must then still reject — so this twin is caught only by its reason); uppercase
-hex accepted; a throw from the library escaping.
+`zip215: true` (in decoding and verifying); no small-order check; no mixed-order (torsion) check; no K4 checks on R;
+no S range check (left to `verify`, which must then still reject — so this twin is caught only by its reason);
+uppercase hex accepted; a throw from the library escaping; built-ins looked up live; signature checked before key.
+Calling the library without `zip215: false` is not a twin: our canonical, prime-order checks run first, so no input
+reaches it on which the two modes differ.
 
 ## 5. Later layers (outline; each is expanded here before its code is written)
 
