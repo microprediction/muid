@@ -43,11 +43,18 @@ function ids (list, min, max, sorted) {
   return true
 }
 
-// Every entry an id: a malformed revocation would otherwise fail open, silently.
+// A copy of the list if every entry is an id (a malformed revocation would otherwise fail open), else undefined.
 function allIds (list) {
-  if (!isArray(list)) return false
-  for (let i = 0; i < list.length; i++) if (!isId(list[i])) return false
-  return true
+  if (!isArray(list)) return undefined
+  // Stryker disable next-line ArrayDeclaration: equivalent; every index is assigned before it is read
+  const out = []
+  const n = list.length
+  for (let i = 0; i < n; i++) {
+    const x = list[i]
+    if (!isId(x)) return undefined
+    out[i] = x
+  }
+  return freeze(out)
 }
 
 // R9: the head's body if it is a head of its form, signed by a pinned witness key whose window holds its `at` and now.
@@ -69,17 +76,18 @@ function headBody (text, cfg, now) {
   return b
 }
 
-const CLAIM_KEYS = freeze(['at', 'data', 'delegation', 'scope'])
+const CLAIM_KEYS = freeze(['at', 'data', 'delegation', 'request', 'scope'])
 const SIG128 = /^[0-9a-f]{128}$/
 
-// The call's fields, each read once; `scope` is required unless the claim supplies it.
-function readCall (call, needScope) {
-  const { now, scope, revoked, minHeadAt = 0 } = typeof call === 'object' && call !== null ? call : {}
-  if (!isTime(now) || (needScope && (typeof scope !== 'string' || apply(exec, SCOPE, [scope]) === null)) ||
-    !isTime(minHeadAt) || !allIds(revoked)) {
+// The call's fields, each read once (the revoked list copied); a claim's call also names the request it is for.
+function readCall (call, claim) {
+  const { now, scope, request, revoked, minHeadAt = 0 } = typeof call === 'object' && call !== null ? call : {}
+  const list = allIds(revoked)
+  if (!isTime(now) || typeof scope !== 'string' || apply(exec, SCOPE, [scope]) === null || !isTime(minHeadAt) ||
+    list === undefined || (claim && typeof request !== 'string')) {
     throw new TypeError('call must hold now, a scope and a revoked list')
   }
-  return { now, scope, revoked, minHeadAt }
+  return { now, scope, request, revoked: list, minHeadAt }
 }
 
 // The fields of `records`, each read once; undefined if they cannot be read.
@@ -112,21 +120,21 @@ export function verifier (config) {
     if (has(h.revoked, d.id) || has(h.revoked, b.subject)) return refuse('revoked')
     const n = revoked.length
     // Stryker disable next-line EqualityOperator: equivalent; one more step reads undefined, never an id
-    for (let i = 0; i < n; i++) if (revoked[i] === d.id) return refuse('revoked')
+    for (let i = 0; i < n; i++) if (revoked[i] === d.id || revoked[i] === b.subject) return refuse('revoked')
     if (b.aud !== cfg.audience) return refuse('audience')
     if (!has(b.scopes, scope)) return refuse('scope')
     return d
   }
 
   function verifyDelegation (records, call) {
-    const c = readCall(call, true)
+    const c = readCall(call, false)
     const given = readRecords(records)
     return given === undefined ? refuse('head') : check(given, c)
   }
 
   // C1: an ephemeral claim, with its delegation verified in full under the claim's scope.
   function verifyClaim (records, call) {
-    const c = readCall(call, false)
+    const c = readCall(call, true)
     const given = readRecords(records)
     let claim
     try {
@@ -139,16 +147,21 @@ export function verifier (config) {
     for (const k in b) if (k !== CLAIM_KEYS[i++]) return refuse('claim-shape')
     let keys = 0
     for (const k in claim.sig) keys++ // eslint-disable-line no-unused-vars
-    if (!isId(b.delegation) || typeof b.scope !== 'string' || apply(exec, SCOPE, [b.scope]) === null || !isTime(b.at) ||
+    if (!isId(b.delegation) || typeof b.scope !== 'string' || apply(exec, SCOPE, [b.scope]) === null ||
+      typeof b.request !== 'string' || !isTime(b.at) ||
       typeof b.data !== 'object' || isArray(b.data) || keys !== 1 || typeof claim.sig.signature !== 'string' ||
       apply(exec, SIG128, [claim.sig.signature]) === null) return refuse('claim-shape')
-    const d = check(given, { ...c, scope: b.scope })
+    if (b.scope !== c.scope) return refuse('claim-scope')
+    if (b.request !== c.request) return refuse('claim-request')
+    const d = check(given, c)
     if (!d.ok) return d
     if (b.delegation !== d.id) return refuse('claim-delegation')
-    if (b.at < c.now - cfg.maxClaimAge || b.at > c.now + cfg.skew) return refuse('claim-time')
+    if (b.at < c.now - cfg.maxClaimAge || b.at > c.now + cfg.skew || b.at < d.body.nbf - cfg.skew ||
+      b.at >= d.body.exp) return refuse('claim-time')
     const s = checkEd25519(claim.sig.signature, signedBytes(claim.payload), d.body.subject)
     if (!s.ok) return s
-    return accept({ id: claim.id, body: b, delegation: freeze({ id: d.id, body: d.body }) })
+    // Replay inside the window is the caller's to refuse: keep the id until `until`.
+    return accept({ id: claim.id, body: b, delegation: freeze({ id: d.id, body: d.body }), until: b.at + cfg.maxClaimAge })
   }
 
   return freeze({ verifyDelegation, verifyClaim })

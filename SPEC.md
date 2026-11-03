@@ -367,8 +367,8 @@ Research: [`delegation.md`](research/delegation.md), [`oidc-witness.md`](researc
 const v = verifier({ rpId, origin, audience, witnessKeys, skew, maxLifetime, maxStaleness, maxClaimAge })
 v.verifyDelegation({ delegation, root, head }, { now, scope, revoked, minHeadAt })  // per call
   -> { ok: true, id, body } | { ok: false, reason }
-v.verifyClaim({ claim, delegation, root, head }, { now, revoked, minHeadAt })
-  -> { ok: true, id, body, delegation: { id, body } } | { ok: false, reason }
+v.verifyClaim({ claim, delegation, root, head }, { now, scope, request, revoked, minHeadAt })
+  -> { ok: true, id, body, delegation: { id, body }, until } | { ok: false, reason }
 ```
 
 Configuration is set once, when the verifier is constructed, and cannot be changed per call: `rpId` and `origin`
@@ -390,21 +390,25 @@ relying party holds; `minHeadAt` (optional) refuses heads older than one it has 
   reasons for `delegation`, given
   the root record's key; `identity` (the head's identity is not the delegation's); `membership` (the delegation's
   membership is not among the head's `memberships`); `authority` (its root is not among the head's `authority`);
-  `revoked` (its id or its subject key is in the head's `revoked`, or its id in the call's); `audience` (its `aud` is
+  `revoked` (its id or its subject key is in the head's `revoked` or the call's); `audience` (its `aud` is
   not `audience`); `scope` (`scope` is not among its
   `scopes`). It never throws for any `delegation`, `root` or `head`; a malformed configuration, `now`, `scope`, or
   a `revoked` that is not an array of ids, is a programming error (ignoring a malformed entry would fail open on
   revocation).
 
-- **C1 CLAIMS (decision 1: ephemeral):** a **claim** `{ delegation, scope, at, data }` is a record signed by the
-  delegation's subject key: its `sig` is `{ signature }`, an Ed25519 signature over the claim's signed bytes (K7).
-  `delegation` is the id of the delegation it is made under, `scope` one of that delegation's scopes, `at` the
-  signer's time, and `data` any object. `verifyClaim` refuses, in order, with: V4's reasons for the claim;
-  `claim-shape` (keys other than the four, or a field of the wrong form, or `sig` not as above); then F5's reasons for
-  the delegation, checked with the claim's `scope`; `claim-delegation` (the claim names another delegation);
-  `claim-time` (`at` more than `maxClaimAge` before `now`, or more than `skew` after it); then K5's signature reasons
-  under the subject key. A claim is verifiable only while its delegation and head are; replay inside `maxClaimAge` is
-  the relying party's to refuse, by the claim id the result carries.
+- **C1 CLAIMS (decision 1: ephemeral):** a **claim** `{ delegation, scope, request, at, data }` is a record signed by
+  the delegation's subject key: its `sig` is `{ signature }`, an Ed25519 signature over the claim's signed bytes
+  (K7). `delegation` is the id of the delegation it is made under; `scope` and `request` are the scope and the
+  request it is for — `request` in the relying party's own canonical form (its method, URL and body hash, and a
+  server nonce if it issues them, as DPoP does), so a claim seen in transit cannot be used on another request; `at`
+  is the signer's time; `data` any object. `verifyClaim` takes the scope and request the relying party needs, and
+  refuses, in order, with: V4's reasons for the claim; `claim-shape` (keys other than the five, a field of the wrong
+  form, or `sig` not as above); `claim-scope`; `claim-request`; then F5's reasons for the delegation;
+  `claim-delegation` (the claim names another delegation); `claim-time` (`at` more than `maxClaimAge` before `now`,
+  more than `skew` after it, or outside the delegation's window); then K5's signature reasons under the subject key.
+  A claim is verifiable only while its delegation and head are. Replay within the window is the relying party's to
+  refuse: the result carries the claim id and `until` (`at + maxClaimAge`), the time to keep that id, in a store
+  shared by every instance serving the audience. `data` is decoded data: frozen, with null prototypes.
 
 The verifier needs no membership records: the head carries their result. The witness makes the head (R9); a delegate
 fetches a fresh one and presents it with its requests, as OCSP stapling does.
