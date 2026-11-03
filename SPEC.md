@@ -159,7 +159,8 @@ Research: [`encoding.md`](research/encoding.md).
 - **Record id** = hex SHA-256 of the signed bytes. It excludes the signature (§2).
 - **V1 VERSION:** `v` must equal 1. Any other value is rejected.
 - **V2 TYPE:** the verifier is told which `type` it expects; a mismatch is rejected. Types form a closed list:
-  `root`, `delegation`, `attestation`, `membership`, `freeze`, `contest`, `anchor`, `settlement`, `revocation`. Asking
+  `root`, `delegation`, `attestation`, `membership`, `freeze`, `contest`, `anchor`, `settlement`, `head`, `claim`,
+  `revocation`. Asking
   for any other type is a programming error, not a reject.
 - **V3 ONE ALGORITHM PER TYPE:** the record type fixes the signature algorithm and the signer's role. Nothing in the
   record selects either.
@@ -306,6 +307,12 @@ one envelope each, so its `sig` names the signer: `{ root, assertion }`, where `
   executable form: every state the model's explorer reaches, and every partial view of it, is translated into
   signed records and must give the model's answer.
 
+- **R9 FRESH HEAD:** a **head** `{ identity, memberships, authority, at }` is signed by the membership witness (A4's
+  `sig`): `membershipState` of every record the witness holds for the identity, at time `at`. `memberships` is the
+  last settled membership id, followed by its pending successor's if there is one; `authority` is the sorted root ids
+  with authority (R6). The witness signs no head for an identity that is dead or frozen, and a verifier accepts none
+  older than `maxStaleness`, so a stolen retired root is refused whatever records it is shown.
+
 Why the witness: without a trusted time, a record signed late cannot be told from one signed early. Every set of
 roots that was ever a majority of any epoch — including the first root alone, and roots long retired — could then
 end or fork the identity at any time with one conflicting record.
@@ -332,10 +339,9 @@ Residuals:
 - **Notification carries the window.** An owner who does not learn of a change within `CONTEST_WINDOW` — or whose
   contest a network attacker delays past it — loses the ability to contest. Where notifications go must itself be
   bound to a settled membership, so a thief cannot redirect them first. The window's length is part of open decision 3.
-- **Freshness (open decision 7).** A verifier that does not hold the latest settlement accepts the older membership's
-  roots — and a thief holding a retired root can mint *new* delegations under the old membership, so delegation
-  lifetimes do not bound this. Withholding records is enough. Every guarantee above holds only for a verifier whose
-  view is fresh.
+- **Freshness (R9).** A verifier given only records, without a fresh head, would accept an older membership's roots
+  — and a thief holding a retired root could mint new delegations under it. The guarantees above hold for a verifier
+  that requires a head no older than `maxStaleness`; the residual is that window.
 
 **revocation** — signed by the root, or by the witness for its own attestations, or by a delegate for itself.
 `{ target, at }`. `target` is a record id. A revocation may be pruned once its target's `exp` has passed.
@@ -348,31 +354,33 @@ Research: [`delegation.md`](research/delegation.md), [`oidc-witness.md`](researc
 ## 6. The decision function
 
 ```
-const v = verifier({ rpId, origin, witnessKeys, skew })      // trust anchors: fixed configuration, frozen
-v.verify(envelopeText, { expectType, now, roots, revoked })  // per call: what is being checked, and when
-  -> frozen result | { ok: false, reason }
+const v = verifier({ rpId, origin, audience, witnessKeys, skew, maxLifetime, maxStaleness })  // fixed, frozen
+v.verifyDelegation({ delegation, root, head }, { now, scope, revoked })  // per call
+  -> { ok: true, id, body } | { ok: false, reason }
 ```
 
-Trust anchors (`rpId`, `origin`, `witnessKeys`, `skew`) are set once, when the verifier is constructed, and cannot be
-changed per call. Per-call inputs can only narrow what is accepted: `roots` lists the roots the caller already holds
-verified records for, and `revoked` adds revocations.
+Configuration is set once, when the verifier is constructed, and cannot be changed per call: `rpId` and `origin`
+are the id origin's; `audience` is this relying party's own origin (D5); `witnessKeys` are the membership witness's
+pinned keys; `skew`, `maxLifetime` (D2) and `maxStaleness` (R9) are the values of decisions 3 and 7. Per call,
+`delegation`, `root` and `head` are envelope texts: the delegation, the root record it names, and a head for its
+identity. `scope` is the one scope the request needs; `revoked` lists revoked record ids.
 
 - **F1 SYNCHRONOUS AND PURE:** no `await`, no clock, no storage, no network inside a decision.
 - **F2 DENY BY DEFAULT:** every branch that is not an explicit accept is a reject. An unknown field is a reject.
 - **F3 OPTIONS ONLY REMOVE TRUST:** no per-call input can make a record pass that the same verifier would reject with
-  narrower inputs (fewer roots, more revocations). Tested as a monotonicity property.
+  narrower inputs (more revocations). Tested as a monotonicity property.
 - **F4 EXPIRY FIRST:** short-lived records do the revocation work; the revoked set is a backstop.
+- **F5 CHECKS, IN ORDER:** `head` (the head does not open as a `head`, is not of its form, or is not signed as A4
+  requires by a pinned key whose window holds its `at`); `stale` (`at` is more than `maxStaleness` before `now`, or
+  more than `skew` after it); `root-record` (any `checkRoot` refusal); then D7's reasons for `delegation`, given
+  the root record's key; `identity` (the head's identity is not the delegation's); `membership` (the delegation's
+  membership is not among the head's `memberships`); `authority` (its root is not among the head's `authority`);
+  `revoked` (its id is in `revoked`); `audience` (its `aud` is not `audience`); `scope` (`scope` is not among its
+  `scopes`). It never throws for any `delegation`, `root` or `head`; a malformed configuration, `now`, `scope`, or
+  a `revoked` that is not an array, is a programming error (refusing silently would fail open on revocation).
 
-**What the verifier must add to the record checks** (each check above leaves these to it):
-1. The root key passed to `checkDelegation` comes from a root record checked with `checkRoot`; it is looked up by the
-   delegation's `root`, never found by trying keys (D7's `root` reason also refuses a mismatch).
-2. R6: the delegation's `membership` is the last settled membership of its `identity`, or that membership's pending
-   successor; neither is frozen; the root is in it (and, while pending, in both). For epoch 1, `membership` is the
-   identity id, which must equal `identityOf(root)`; otherwise the membership record's `identity` must match.
-3. Freshness: a head no older than `MAX_STALENESS` (open decision 7).
-4. The delegation's id is not revoked.
-5. D5 and scope: the delegation's `aud` is the verifier's own origin, and the requested scope is in `scopes`.
-6. `skew` and `maxLifetime` are fixed configuration, never chosen per call.
+The verifier needs no membership records: the head carries their result. The witness makes the head (R9); a delegate
+fetches a fresh one and presents it with its requests, as OCSP stapling does.
 
 **Root assertion checks** (the `sig` object of a root-signed record: `{ covers, authenticator_data,
 client_data_json, signature }`; WebAuthn fields base64url):
@@ -459,29 +467,19 @@ test fails the build on any direct `indexedDB` or `localStorage` use outside the
 
 ## 9. Open decisions
 
-1. **Claims and time — the most important open decision.** The spec does not yet define the record a delegate
-   signs. Any timestamp inside a record is chosen by its signer, so a delegate whose delegation has expired could
-   backdate a claim into the old window. Either (a) claims are **ephemeral**: verified on receipt against the
-   verifier's `now`, and unverifiable once the delegation lapses; or (b) claims are **durable**: a time anchor fixes
-   when the record existed, and authority is judged at that anchored time. A durable anchor is a witness
-   countersignature over the record id and the time it was seen — another record checked against pinned keys. A
-   verifier's own "first seen" time is not an option: different verifiers would reach different verdicts, against
-   F1. Recommendation: (a) in version 1; (b) as a later layer for records that must outlive their delegation.
-   Either way, a claim names the record id of the delegation it is made under, so a signature made under one
-   delegation is never accepted under another. Revocation semantics follow from this choice: whether a revocation
-   is retroactive, what `at` means, and whether a verifier may ever forget a revocation it has seen.
+1. **Claims and time — decided: ephemeral in version 1.** A claim a delegate signs is verified on receipt against
+   the verifier's `now`, and cannot be verified once its delegation has lapsed; a claim names the record id of the
+   delegation it is made under. Durable claims (a witness countersignature over the claim's id and when it was seen)
+   are a later layer. Any timestamp inside a record is chosen by its signer and proves nothing on its own.
 2. **Recovery — decided: R1–R7, witness anchors and settlements with a contest window.** The model showed that
    without a trusted time any past majority can end an identity, and that anchoring the first record alone makes a
    thief's takeover of a one-root identity final at once. An independent review then showed that verifiers holding
    different records could fork; settlement and one anchor per epoch close that, and an explicit contest record keeps
    an honest owner from ending their own identity by accident.
-3. **Lifetimes, and the conflict they must resolve.** F4 wants delegations short so that expiry does the revocation
-   work. D3 and U2 mean every renewal is a passkey prompt by a human. A machine that runs for weeks makes the two
-   collide. Options: (a) long machine delegations, which make the revocation set the primary mechanism — then the
-   spec must define how revocations and membership records reach verifiers, and a maximum staleness after which a
-   verifier refuses; (b) batched renewal, where one prompt renews every delegate at once (W0), keeping F4 true at the
-   cost of a periodic prompt. Values per kind of subject (own device, third-party app, machine); attestation lifetime;
-   `skew`.
+3. **Lifetimes — decided: batched renewal.** Delegations to the user's own devices and to apps last at most 30 days
+   (`maxLifetime` = 2,592,000 s); the id page gives machines at most 7 days. One passkey prompt renews every delegate
+   at once (W0 covers up to 8 records), so expiry keeps doing the revocation work (F4) at the cost of a periodic
+   prompt. `skew` is 60 s. Attestations last at most 365 days.
 4. **Machine autonomy:** which scopes a machine may hold without per-action approval, and for how long.
 5. **Boundary parser:** a schema library (valibot) or a hand-written strict parser for this small fixed set of types.
 6. **`clientDataJSON` parsing — decided: the WebAuthn spec's limited (prefix) verification.** Chrome, Safari and
@@ -490,24 +488,17 @@ test fails the build on any direct `indexedDB` or `localStorage` use outside the
    match a template; a strict whole-text parse would reject those. The prefix rule checks the four fields byte for
    byte and accepts any remainder that closes the object.
 
-7. **Freshness — needed before delegations are specified.** An independent review showed that without a fresh view
-   of membership, a stolen retired or first root can sign delegations that a verifier accepts indefinitely, and a
-   network attacker only has to withhold records. A verifier cannot tell "no newer settlement exists" from "none was
-   shown to me" without something time-stamped. Recommendation: **R9 FRESH HEAD** — the witness signs, on request, a
-   head `{ identity, settled, pending, at }`; a delegate presents a head no older than `MAX_STALENESS` together with
-   its delegation (as OCSP stapling does), and the verifier checks the delegation's membership against the head
-   rather than against whatever records it was given. The cost is that every delegate must reach the witness at least
-   once per `MAX_STALENESS`. The value (hours to days) belongs with decision 3.
-   Evidence: `tests/model/R9-fresh-head.test.mjs` shows the attack without a head and its absence with one.
-
-8. **Attestation binding — from review, for decision.** (a) One provider account can be attested to many roots or
-   identities, and a verifier holding one identity's records cannot see that; counting `(provider, account)` once
-   needs the witness to keep one live binding per account and revoke the old one when it is re-bound, published in
-   its log. (b) The record carries nothing a verifier can check for A2, so a dishonest witness could bind an account
-   to a root that never asked; a `request` field naming a root-signed request (from which the OAuth `state` and OIDC
-   `nonce` are derived) would make A2 checkable. (c) Anchors and settlements are checked against the witness key's
-   window at their own `at`, so a retired key that leaks can sign backdated ones; the append-only log is what shows
-   them. Recommendation: (a) and (b) before attestations carry weight in reputation; (c) stays a stated residual.
+7. **Freshness — decided: R9, with `maxStaleness` = 86,400 s (one day).** Without a fresh view of membership, a
+   stolen retired or first root could sign delegations that a verifier accepts indefinitely; a network attacker only
+   had to withhold records (`tests/model/R9-fresh-head.test.mjs` shows the attack and its absence with a head). The
+   cost is that every delegate reaches the witness at least once a day; the residual is a day.
+8. **Attestation binding — decided: one live binding per account, and a checkable request.** The witness keeps one
+   live binding per `(provider, account)` and revokes the previous attestation when the account is bound again,
+   publishing both in its log, so reputation can count an account once. An attestation will name the id of a
+   root-signed request record, from which the OAuth `state` and OIDC `nonce` are derived, so A2 is checkable rather
+   than trusted; that record and the witness protocol are specified with the witness. Anchors and settlements stay
+   checked at their own `at`: a leaked retired witness key could sign backdated ones, and the append-only log is
+   what shows them (residual).
 
 ## 10. What the reputation layer consumes (not core)
 

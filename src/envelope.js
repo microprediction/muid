@@ -19,7 +19,7 @@ export const MAX_PAYLOAD = 49152
 
 const PREFIX = 'muid/v1\n'
 const TYPES = freeze(['root', 'delegation', 'attestation', 'membership', 'freeze', 'contest', 'anchor', 'settlement',
-  'revocation'])
+  'head', 'claim', 'revocation'])
 
 export class EnvelopeError extends Error {
   #refusal
