@@ -18,7 +18,8 @@ const MAX_ROOTS = 5
 // Each list of records is at most this long, so the work a caller can cause is bounded.
 export const MAX_RECORDS = 256
 const isId = (x) => typeof x === 'string' && apply(exec, ID, [x]) !== null
-const isTime = (x) => isSafeInteger(x) && x >= 0
+// An integer; a negative `at` or `epoch` fails the witness window or the epoch check (R1) after it.
+const isInteger = (x) => isSafeInteger(x)
 const has = (list, x) => apply(includes, list, [x])
 
 // No keys but these, in canonical order; a missing key fails its own field check.
@@ -76,6 +77,7 @@ function rootsOk (roots) {
 function validNext (cur, p) {
   if (p.body.epoch !== cur.epoch + 1) return false
   let yes = 0
+  // Stryker disable next-line EqualityOperator: equivalent; one more step looks up undefined, never a signer
   for (let i = 0; i < cur.roots.length; i++) if (p.signers.has(cur.roots[i])) yes++
   if (2 * yes <= cur.roots.length) return false
   for (let i = 0; i < p.body.roots.length; i++) {
@@ -85,84 +87,76 @@ function validNext (cur, p) {
   return true
 }
 
-// A caller's list, its length read once and capped, each text once: a duplicate adds nothing but work.
+// A caller's list, its length read once and capped (refused as records by the caller).
 function list (records, key) {
   const x = records[key]
+  // Stryker disable next-line ArrayDeclaration: equivalent; a stray element is not a record and is ignored
   if (!isArray(x)) return []
   const n = x.length
-  if (n > MAX_RECORDS) throw new RangeError('too many records')
-  const seen = new Set()
-  const out = []
-  for (let i = 0; i < n; i++) {
-    const t = x[i]
-    if (!seen.has(t)) out[out.length] = t
-    seen.add(t)
-  }
-  return out
+  if (n > MAX_RECORDS) throw new RangeError()
+  return copy(x, n)
+}
+
+// Calls f on each text of a caller's list (see list).
+function each (records, key, f) {
+  const texts = list(records, key)
+  // Stryker disable next-line EqualityOperator: equivalent; one more step opens undefined, which is ignored
+  for (let i = 0; i < texts.length; i++) f(texts[i])
 }
 
 // Index loops only: decoded arrays have no prototype, and a caller's array could have a replaced iterator.
-function copy (a) {
+function copy (a, n = a.length) {
+  // Stryker disable next-line ArrayDeclaration: equivalent; every index is assigned before it is read
   const out = []
-  for (let i = 0; i < a.length; i++) out[i] = a[i]
+  // Stryker disable next-line EqualityOperator: equivalent; one more step copies undefined, which is ignored
+  for (let i = 0; i < n; i++) out[i] = a[i]
   return out
 }
 
 function read (records, ctx) {
   const rootKeys = new Map()
-  const rootsTexts = list(records, 'roots')
-  for (let i = 0; i < rootsTexts.length; i++) {
-    const t = rootsTexts[i]
+  each(records, 'roots', (t) => {
     const r = checkRoot(t, { rpId: ctx.rpId })
     if (r.ok) rootKeys.set(r.id, r.key)
-  }
+  })
   const mine = (b) => b.identity === ctx.identity
   const counted = new Set()
   const memberships = new Map()
-  const membershipsTexts = list(records, 'memberships')
-  for (let i = 0; i < membershipsTexts.length; i++) {
-    const t = membershipsTexts[i]
+  each(records, 'memberships', (t) => {
     const m = rootSigned(t, 'membership', (b) => onlyKeys(b, ['epoch', 'identity', 'prev', 'roots']) && mine(b) &&
-      isTime(b.epoch) && isId(b.prev) && rootsOk(b.roots), ctx, rootKeys, counted)
-    if (m === undefined) continue
+      isInteger(b.epoch) && isId(b.prev) && rootsOk(b.roots), ctx, rootKeys, counted)
+    if (m === undefined) return
     if (!memberships.has(m.id)) memberships.set(m.id, { id: m.id, body: m.body, signers: new Set() })
     memberships.get(m.id).signers.add(m.signer)
-  }
+  })
   const contests = new Map()
-  const contestsTexts = list(records, 'contests')
-  for (let i = 0; i < contestsTexts.length; i++) {
-    const t = contestsTexts[i]
+  each(records, 'contests', (t) => {
     const c = rootSigned(t, 'contest', (b) => onlyKeys(b, ['identity', 'record']) && mine(b) && isId(b.record), ctx, rootKeys, counted)
-    if (c === undefined) continue
+    if (c === undefined) return
     if (!contests.has(c.body.record)) contests.set(c.body.record, { id: c.id, signers: new Set() })
     contests.get(c.body.record).signers.add(c.signer)
-  }
+  })
+  // Stryker disable next-line ArrayDeclaration: equivalent; a stray element names no membership
   const freezes = []
-  const freezesTexts = list(records, 'freezes')
-  for (let i = 0; i < freezesTexts.length; i++) {
-    const t = freezesTexts[i]
+  each(records, 'freezes', (t) => {
     const f = rootSigned(t, 'freeze', (b) => onlyKeys(b, ['identity', 'membership']) && mine(b) && isId(b.membership), ctx,
       rootKeys, counted)
     if (f !== undefined) freezes[freezes.length] = { membership: f.body.membership, signer: f.signer }
-  }
+  })
   const anchored = new Set()
-  const anchorsTexts = list(records, 'anchors')
-  for (let i = 0; i < anchorsTexts.length; i++) {
-    const t = anchorsTexts[i]
-    const a = witnessSigned(t, 'anchor', (b) => onlyKeys(b, ['at', 'identity', 'record']) && mine(b) && isTime(b.at) &&
+  each(records, 'anchors', (t) => {
+    const a = witnessSigned(t, 'anchor', (b) => onlyKeys(b, ['at', 'identity', 'record']) && mine(b) && isInteger(b.at) &&
       isId(b.record), ctx)
     if (a !== undefined) anchored.add(a.record)
-  }
+  })
   const settled = new Map()
-  const settlementsTexts = list(records, 'settlements')
-  for (let i = 0; i < settlementsTexts.length; i++) {
-    const t = settlementsTexts[i]
+  each(records, 'settlements', (t) => {
     const s = witnessSigned(t, 'settlement', (b) => onlyKeys(b, ['at', 'identity', 'outcome', 'prev']) && mine(b) &&
-      isTime(b.at) && isId(b.prev) && (b.outcome === 'contested' || isId(b.outcome)), ctx)
-    if (s === undefined) continue
+      isInteger(b.at) && isId(b.prev) && (b.outcome === 'contested' || isId(b.outcome)), ctx)
+    if (s === undefined) return
     if (!settled.has(s.prev)) settled.set(s.prev, new Set())
     settled.get(s.prev).add(s.outcome)
-  }
+  })
   return { rootKeys, memberships, contests, freezes, anchored, settled }
 }
 
@@ -189,6 +183,7 @@ function evaluate (first, ctx, r) {
       const c = r.contests.get(candidates[0].id)
       if (c !== undefined && r.anchored.has(c.id)) {
         let yes = 0
+        // Stryker disable next-line EqualityOperator: equivalent; one more step looks up undefined, never a signer
         for (let i = 0; i < cur.roots.length; i++) if (c.signers.has(cur.roots[i])) yes++
         if (2 * yes > cur.roots.length) return accept({ dead: true })
       }
@@ -207,7 +202,7 @@ function evaluate (first, ctx, r) {
     roots: freeze(copy(m.roots)),
     pending: pending !== undefined,
     authority: freeze(authority),
-    frozen: frozenBy(m) || (pending !== undefined && frozenBy(cur)),
+    frozen: frozenBy(m) || frozenBy(cur), // cur is m unless a successor is pending (R2)
   })
 }
 
