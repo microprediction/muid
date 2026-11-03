@@ -4,7 +4,8 @@ import { envelope, delegation } from '../impl.mjs'
 import { make, authData, KEY as ROOT_KEY, RP_ID, ORIGIN } from '../assertion/helpers.mjs'
 
 export const { checkDelegation } = delegation
-export const REASONS = Object.freeze(['delegation-shape', 'scopes', 'aud', 'subject-key', 'lifetime', 'not-yet', 'expired',
+export const REASONS = Object.freeze(['envelope-encoding', 'envelope-shape', 'payload-size', 'payload-encoding',
+  'payload-shape', 'version', 'type', 'delegation-shape', 'scopes', 'aud', 'subject-key', 'lifetime', 'not-yet', 'expired',
   'assertion-shape', 'covers', 'assertion-encoding', 'client-data', 'challenge', 'origin', 'auth-data-length', 'rp-id',
   'user-presence', 'user-verification', 'auth-data-flags', 'key-encoding', 'key-point', 'sig-encoding', 'sig-invalid',
   'subject-consent'])
@@ -30,12 +31,12 @@ export const ACCEPT_PREFIX = 'muid/v1/accept\n'
 export const consent = (id, { secret = SUBJECT_SECRET, prefix = ACCEPT_PREFIX, asHex = false } = {}) =>
   hex(ed25519.sign(Buffer.concat([Buffer.from(prefix), asHex ? Buffer.from(id) : Buffer.from(id, 'hex')]), secret))
 
-// A delegation through the real seal/wrap/open, with any part overridden.
+// A delegation's envelope text, made with the real seal and wrap, with any part overridden.
 export function build ({ body = BODY, covers, rootSig, subject, sigOverride, rootSecret } = {}) {
   const { payload, id } = envelope.seal('delegation', body)
   const root = rootSig ?? make({ covers: covers ?? [id], ...(rootSecret ? { secret: rootSecret } : {}) })
   const sig = sigOverride ?? { root, subject: subject ?? consent(id) }
-  return envelope.open(envelope.wrap(payload, sig), 'delegation')
+  return envelope.wrap(payload, sig)
 }
 
 export const result = (record, ctx = CTX) => ({ ...checkDelegation(record, ctx) })

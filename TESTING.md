@@ -262,8 +262,8 @@ Interface under test: `checkRootAssertion(sig, { record, rpId, origin, key })` �
 
 ## 4d. Layer 5 — delegations (`src/delegation.js`): D1–D7
 
-Interface under test: `checkDelegation(record, ctx)` → frozen `{ ok: true }` or `{ ok: false, reason }` (D7), where
-`record` comes from the real `open` and `sig.root` from a real passkey-shaped assertion (as in §4b).
+Interface under test: `checkDelegation(text, ctx)` → frozen `{ ok: true }` or `{ ok: false, reason }` (D7), with
+envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shaped assertion (as in §4b).
 
 - **Window (D1):** `now` at `nbf − skew − 1` (`not-yet`), `nbf − skew` (accepted), `exp − 1` (accepted), `exp`
   (`expired`); skew never extends `exp`.
@@ -281,7 +281,7 @@ Interface under test: `checkDelegation(record, ctx)` → frozen `{ ok: true }` o
   assertion prefix instead of the accept prefix; over another delegation's id — each `subject-consent`.
 - **Context:** a context that is not well formed (`now`, `skew`, `maxLifetime` not non-negative safe integers; keys
   not strings) is a programming error.
-- **K2:** arbitrary records never throw.
+- **K2:** arbitrary texts and values never throw; envelope faults give V4's reasons.
 - **Twins:** skew applied to `exp`; `<=` at `exp`; no lifetime cap; scopes prefix-matched or unsorted allowed; no D6;
   D6 over hex text; aud not checked; root assertion checked against a fixed record id.
 

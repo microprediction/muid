@@ -198,9 +198,9 @@ Its envelope's `sig` is `{ root, subject }`: `root` the passkey assertion (W0–
 - **D6 SUBJECT CONSENT:** a delegation is valid only together with an Ed25519 signature by `subject` over
   `UTF-8("muid/v1/accept\n") ‖` the delegation's record id as 32 raw bytes. Without it, a root could attach someone
   else's public key to its identity and have that key's signatures counted as its own.
-- **D7 CHECKS, IN ORDER:** `checkDelegation(record, { rootKey, rpId, origin, now, skew, maxLifetime })`, where
-  `record` is what `open(text, 'delegation')` returned, returns `{ ok: true }` or `{ ok: false, reason }` and never
-  throws for any record. Reasons: `delegation-shape` (body keys other than the eight, or a field of the wrong form,
+- **D7 CHECKS, IN ORDER:** `checkDelegation(text, { rootKey, rpId, origin, now, skew, maxLifetime })` opens the
+  envelope itself — so the id it checks is always the id of the bytes it was given — and returns `{ ok: true }` or
+  `{ ok: false, reason }`, never throwing for any `text`. Reasons: V4's, for the envelope; `delegation-shape` (body keys other than the eight, or a field of the wrong form,
   or `sig` not `{ root, subject }`); `scopes`; `aud` (O1); `subject-key` (K1, via K5's key checks); `lifetime`
   (`exp ≤ nbf` or D2); `not-yet` and `expired` (D1); then W6's reasons for `sig.root` with this record's id; then
   `subject-consent` (any K5 signature reason for `sig.subject`). Whether `root` has authority under `membership`

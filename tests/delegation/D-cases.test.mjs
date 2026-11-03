@@ -52,11 +52,11 @@ test('shape: each key missing, an extra key, wrong forms', () => {
 
 test('sig must be exactly { root, subject }, subject 128 lowercase hex', () => {
   const { payload, id } = envelope.seal('delegation', BODY)
-  const root = build().sig.root
+  const root = JSON.parse(build()).sig.root
   for (const [name, sig] of [['no subject', { root }], ['extra', { root, subject: consent(id), x: 1 }],
     ['subject short', { root, subject: consent(id).slice(2) }], ['subject upper', { root, subject: consent(id).toUpperCase() }],
     ['subject number', { root, subject: 1 }], ['root missing', { subject: consent(id) }]]) {
-    rejects(envelope.open(envelope.wrap(payload, sig), 'delegation'), 'delegation-shape', name)
+    rejects(envelope.wrap(payload, sig), 'delegation-shape', name)
   }
 })
 
@@ -118,10 +118,19 @@ test('a context that is not well formed is a programming error', () => {
   }
 })
 
-test('arbitrary records never throw', () => {
-  for (const r of [undefined, null, 1, 'x', [], {}, { body: null }, { body: BODY }, { id: 'x', body: BODY, sig: null },
-    { ...ok, body: { ...BODY, scopes: null } }, Object.freeze({ ...ok, id: 5 })]) {
+test('arbitrary texts and values never throw; envelope faults carry their V4 reason', () => {
+  for (const r of [undefined, null, 1, 'x', [], {}, ok + ' ', ok.replace(String.raw`\"v\":1`, String.raw`\"v\":2`)]) {
     const out = checkDelegation(r, CTX)
     assert.ok(Object.isFrozen(out) && out.ok === false, JSON.stringify(r))
   }
+  rejects('x', 'envelope-encoding', 'not JSON')
+  const { payload } = envelope.seal('attestation', BODY)
+  rejects(envelope.wrap(payload, { root: 1, subject: 2 }), 'type', 'another record type')
+  rejects(envelope.wrap(envelope.seal('delegation', BODY).payload), 'envelope-shape', 'no sig')
+})
+
+test('the id checked is the id of the bytes given: a payload edited after signing fails the assertion', () => {
+  const edited = ok.replace('\\"read\\"', '\\"reae\\"')
+  assert.notEqual(edited, ok)
+  rejects(edited, 'covers', 'a different payload is a different record')
 })
