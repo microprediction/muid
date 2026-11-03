@@ -9,14 +9,11 @@ SHA-256 hashes are in part memorable.  There is a cheesy video explanation at ht
  
 # Start participating in the prediction network immediately
 
-Cut and paste into a bash script
+Install the library from PyPI:
 
-    /bin/bash -c "$(curl -fsSL https://tinyurl.com/32jjebu9)"
- 
-If it fails you might need Python 3
+    python3 -m pip install --upgrade muid
 
-    ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)"
-    brew install python
+Then use the library directly, as below.
  
 # Using the library directly
 
