@@ -246,6 +246,20 @@ Interface under test: `checkRootAssertion(sig, { record, rpId, origin, key })` �
   allowed; `topOrigin` allowed; the challenge computed over the signed-bytes prefix; covers not required to contain
   the record.
 
+## 4c. Canonical origins (`src/origin.js`): O1
+
+- **Hand cases:** accepted — two labels, many labels, digits and hyphens inside labels, port 1, 444, 65535, a
+  63-character label, a 253-character host. Refused — `http`, uppercase anywhere, a trailing dot or slash, a path,
+  query, fragment or userinfo, port 443, 0, 65536, a leading zero, an empty port, one label, an empty label, a label
+  of 64 characters, a 254-character host, leading or trailing hyphen, `xn--` and any `??--` label, an IPv4 or IPv6
+  host, percent-encoding, whitespace or control characters anywhere, a non-string.
+- **Oracle, one direction:** whatever is accepted, the WHATWG URL parser (Node's) agrees is an origin and serialises
+  to the same string: `new URL(x).origin === x`.
+- **Property:** generated hosts and ports in the grammar are accepted; every single-character mutation of an
+  accepted origin is either refused or still satisfies the oracle.
+- **Twins:** uppercase allowed; port 443 allowed; trailing slash allowed; `xn--` allowed; IPv4 allowed; no length
+  limits.
+
 ## 5. Later layers (outline; each is expanded here before its code is written)
 
 1. **Envelope and record id:** expanded as §3.

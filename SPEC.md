@@ -195,10 +195,15 @@ belongs to the relying party; the core checks only exact membership — no prefi
   delegation's record id (domain `"muid/v1/accept\n"`). Without it, a root could attach someone else's public key to
   its identity and have that key's signatures counted as its own.
 - **D5 AUDIENCE:** `aud` is the origin of the relying party — the service that verifies the delegate's signatures. It
-  is compared by exact string equality, after the origin itself is checked to be in canonical form (`https`,
-  lowercase ASCII host with IDNs in punycode, no trailing slash, no default port, no path, query, fragment or
-  userinfo). For an app, the relying party is the app (I3). For a machine, it is the service the machine calls,
-  chosen by the user on the id page (§8). There is no audience form other than an origin.
+  is compared by exact string equality, after the origin itself is checked to be canonical (O1). For an app, the
+  relying party is the app (I3). For a machine, it is the service the machine calls, chosen by the user on the id
+  page (§8). There is no audience form other than an origin.
+- **O1 CANONICAL ORIGIN:** `isCanonicalOrigin(x)` holds exactly for strings `https://<host>` or
+  `https://<host>:<port>` where `<host>` is 2–127 dot-separated labels, each 1–63 characters of `[a-z0-9-]` not
+  starting or ending with `-` and without `--` in positions 3–4 (so no IDN `xn--` label), the last label not all
+  digits (so no IPv4 address), at most 253 characters; and `<port>` is 1–65535 in decimal without leading zeros, and
+  not 443. No trailing dot, slash, path, query, fragment or userinfo. Internationalised names are refused in this
+  version: validating them needs IDNA rules on which URL parsers in different browsers disagree.
 
 **attestation** — signed by a witness key.
 `{ root, provider, account, nbf, exp }`.
