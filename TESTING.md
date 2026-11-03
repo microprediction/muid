@@ -358,6 +358,12 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   still works; a last head that is not a pinned head is a programming error. Over every pair of a pool of heads, a
   last head only removes trust (F3). Head form: `epoch` a non-negative integer, 1 exactly when the first membership is
   the identity.
+- **Equivocation against the model:** over every history the explorer reaches with an honest witness (two and three
+  roots, epochs to 3, every move by an actor holding every root, and ticks; about 18,000 states), no head is refused
+  after any head signed earlier on the same history (19,256 pairs, with every progression the rule distinguishes
+  reached); stricter rules refuse some of those pairs, so the check has teeth. Heads from diverging histories are
+  refused in part. Every distinct honest pair (654) is accepted by the real verifier, and 300 diverging pairs are
+  refused as `equivocation`.
 - **F3:** adding revocations never turns a refusal into an accept (property).
 - **Programming errors** for configuration, `now`, `scope` and `revoked`; the configuration is copied at
   construction; arbitrary and hostile records never throw.
