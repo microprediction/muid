@@ -1,0 +1,14 @@
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "testRunner": "tap",
+  "tap": {
+    "testFiles": ["tests/encoding/*.test.mjs"]
+  },
+  "mutate": ["src/encode.js"],
+  "coverageAnalysis": "perTest",
+  "thresholds": { "high": 100, "low": 95, "break": 95 },
+  "reporters": ["clear-text", "progress", "json"],
+  "jsonReporter": { "fileName": "reports/mutation/encode.json" },
+  "tempDirName": ".stryker-tmp",
+  "concurrency": 4
+}

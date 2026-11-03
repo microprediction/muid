@@ -1,0 +1,55 @@
+name: test
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+# Read-only token; no job needs to write anything.
+permissions:
+  contents: read
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['22', '24', '26']
+    steps:
+      # Actions are pinned by commit SHA, never by a movable tag.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Install (no install scripts)
+        run: npm ci --ignore-scripts
+      - name: Registry signatures
+        run: npm audit signatures
+      - name: Tests with full coverage of the core
+        run: >-
+          node --test --experimental-test-coverage --test-coverage-include='src/**'
+          --test-coverage-lines=100 --test-coverage-branches=100 --test-coverage-functions=100
+          "tests/**/*.test.mjs"
+
+  mutation:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '26'
+      - name: Install (no install scripts)
+        run: npm ci --ignore-scripts
+      - name: Mutation testing (fails below the break threshold in stryker.config.json)
+        run: npx --no-install stryker run
+        env:
+          FC_RUNS: '60'
