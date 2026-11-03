@@ -61,3 +61,7 @@ jobs:
         run: npx --no-install stryker run stryker.ed25519.config.json
         env:
           FC_RUNS: '60'
+      - name: Mutation testing, P-256
+        run: npx --no-install stryker run stryker.p256.config.json
+        env:
+          FC_RUNS: '60'

@@ -65,6 +65,17 @@ function verifies (sigBytes, message, keyBytes) {
   return false
 }
 
+// A copy made from the internal slots, so a subclass cannot change what is checked while it is being checked.
+// Undefined for anything that is not a live Uint8Array (a detached buffer, a lookalike).
+function snapshot (x) {
+  // Stryker disable next-line ArrayDeclaration: equivalent; a getter takes no arguments
+  if (apply(tagOf, x, []) !== 'Uint8Array') return undefined
+  try {
+    return new Bytes(x)
+  } catch { /* detached */ }
+  return undefined
+}
+
 function scalarInRange (bytes) {
   let s = 0n
   for (let i = bytes.length - 1; i >= 0; i--) s = (s << 8n) | toBigInt(bytes[i])
@@ -72,8 +83,8 @@ function scalarInRange (bytes) {
 }
 
 export function checkEd25519 (sig, message, key) {
-  // Stryker disable next-line ArrayDeclaration: equivalent; a getter takes no arguments
-  if (apply(tagOf, message, []) !== 'Uint8Array') throw new TypeError('message must be a Uint8Array')
+  const msg = snapshot(message)
+  if (msg === undefined) throw new TypeError('message must be a Uint8Array')
   if (!isHex(KEY_HEX, key)) return result('key-encoding')
   const keyBytes = fromHex(key)
   const keyFault = pointFault(keyBytes, 'key')
@@ -83,5 +94,5 @@ export function checkEd25519 (sig, message, key) {
   const rFault = pointFault(apply(subarray, sigBytes, [0, 32]), 'sig-r')
   if (rFault) return result(rFault)
   if (!scalarInRange(apply(subarray, sigBytes, [32]))) return result('sig-s-range')
-  return result(verifies(sigBytes, message, keyBytes) ? undefined : 'sig-invalid')
+  return result(verifies(sigBytes, msg, keyBytes) ? undefined : 'sig-invalid')
 }

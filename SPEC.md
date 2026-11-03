@@ -59,7 +59,9 @@ which root.
 - **K4 STRICT SIGNATURE POINT:** an Ed25519 signature's R must decode canonically, not be small-order, and be
   torsion-free. Without this a signer can add a small-order component to R that noble accepts and WebCrypto
   rejects — two verdicts on one record. Strict rejection makes every engine agree.
-- **K2 NO THROW ESCAPES:** any library call that throws inside a decision is a reject.
+- **K2 NO THROW ESCAPES:** any library call that throws inside a decision is a reject. Byte inputs (`message`, a DER
+  `sig`) are copied from their internal slots on entry, so a `Uint8Array` subclass cannot change what is checked while
+  it is being checked; a detached one is a programming error (`message`) or an encoding refusal (`sig`).
 - **K6 P-256 CHECKS, IN ORDER:** `checkP256(sig, message, key)` returns `{ ok: true }` or `{ ok: false, reason }` and
   never throws for any `sig` and `key` value (a `message` that is not a `Uint8Array` is a programming error). `key` is
   130 lowercase hex characters: the uncompressed point `04 ‖ x ‖ y`. `sig` is the DER bytes. Reasons: `key-encoding`

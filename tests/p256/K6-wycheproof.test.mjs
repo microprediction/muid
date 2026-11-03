@@ -1,7 +1,7 @@
 // Wycheproof ECDSA P-256 / SHA-256 / DER: all 484 verdicts match; valid includes high S (lowS: false, SPEC §2).
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { vectors, result, bytes } from './helpers.mjs'
+import { vectors, result, bytes, parseDer, N } from './helpers.mjs'
 
 const file = vectors()
 const cases = file.testGroups.flatMap((g) => g.tests.map((t) => ({ ...t, key: g.publicKey.uncompressed })))
@@ -22,14 +22,15 @@ test('every verdict matches', () => {
 })
 
 test('every malformed-encoding case is refused as sig-encoding', () => {
-  const enc = cases.filter((c) => c.result === 'invalid' && c.flags.some((f) => /Ber|InvalidEncoding|ModifiedInteger|IntegerOverflow|MissingZero/.test(f)))
+  // ModifiedInteger is not here: some of those cases (e.g. r replaced by n - r) are valid DER with a wrong value.
+  const enc = cases.filter((c) => c.result === 'invalid' && c.flags.some((f) => /Ber|InvalidEncoding|IntegerOverflow|MissingZero/.test(f)))
   assert.ok(enc.length > 50, `found ${enc.length}`)
   const off = enc.map((c) => [c.tcId, result(bytes(c.sig), bytes(c.msg), c.key).reason]).filter(([, r]) => r !== 'sig-encoding')
   assert.deepEqual(off, [])
 })
 
 test('valid cases with high S are accepted', () => {
-  const high = cases.filter((c) => c.result === 'valid' && c.flags.includes('SignatureMalleabilityP256'))
-  assert.ok(high.length > 0)
+  const high = cases.filter((c) => c.result === 'valid' && parseDer(bytes(c.sig)).s > N / 2n)
+  assert.ok(high.length > 10, `found ${high.length}`)
   for (const c of high) assert.equal(result(bytes(c.sig), bytes(c.msg), c.key).ok, true, `tcId ${c.tcId}`)
 })

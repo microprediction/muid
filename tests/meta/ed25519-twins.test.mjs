@@ -37,6 +37,8 @@ const TWINS = [
     ['const SIG_HEX = /^[0-9a-f]{128}$/', 'const SIG_HEX = /^[0-9a-fA-F]{128}$/i']]],
   ['library-throw-escapes', 'a throw from the library leaves checkEd25519', [
     ['  } catch { /* a throw is a reject (K2) */ }', '  } finally { /* none */ }']]],
+  ['no-snapshot', 'a subclass can change the message while it is verified', [
+    ['    return new Bytes(x)\n', '    return x\n']]],
   ['live-builtins', 'built-ins are looked up when called, so patching them later changes results', [
     ['      const c = apply(charCodeAt, text, [2 * i + j])', '      const c = text.charCodeAt(2 * i + j)']]],
   ['key-checks-after-sig', 'the signature is examined before the key', [
@@ -85,7 +87,7 @@ test('Ed25519 broken twins', { timeout: 600_000 }, async (t) => {
     })
 
     const jobs = TWINS.map(([name, why, edits]) => [name, why, generate(name, edits)])
-    assert.equal(jobs.length, 9, 'twin count')
+    assert.equal(jobs.length, 10, 'twin count')
     const results = []
     const queue = [...jobs]
     const workers = Math.max(1, Math.floor(availableParallelism() / 4))
