@@ -42,8 +42,8 @@ const TWINS = [
   ['live-builtins', 'built-ins are looked up when called, so patching them later changes results', [
     ['      const c = apply(charCodeAt, text, [2 * i + j])', '      const c = text.charCodeAt(2 * i + j)']]],
   ['key-checks-after-sig', 'the signature is examined before the key', [
-    ["  if (!isHex(KEY_HEX, key)) return result('key-encoding')\n  const keyBytes = fromHex(key)\n  const keyFault = pointFault(keyBytes, 'key')\n  if (keyFault) return result(keyFault)\n  if (!isHex(SIG_HEX, sig)) return result('sig-encoding')\n",
-      "  if (!isHex(SIG_HEX, sig)) return result('sig-encoding')\n  if (!isHex(KEY_HEX, key)) return result('key-encoding')\n  const keyBytes = fromHex(key)\n  const keyFault = pointFault(keyBytes, 'key')\n  if (keyFault) return result(keyFault)\n"]]],
+    ["  const keyFault = keyReason(key)\n  if (keyFault) return result(keyFault)\n  const keyBytes = fromHex(key)\n  if (!isHex(SIG_HEX, sig)) return result('sig-encoding')\n",
+      "  if (!isHex(SIG_HEX, sig)) return result('sig-encoding')\n  const keyFault = keyReason(key)\n  if (keyFault) return result(keyFault)\n  const keyBytes = fromHex(key)\n"]]],
 ]
 
 function run (implPath) {

@@ -82,13 +82,23 @@ function scalarInRange (bytes) {
   return s < L
 }
 
+// K1 on its own: the first of K5's key reasons, or undefined for a usable key.
+function keyReason (key) {
+  if (!isHex(KEY_HEX, key)) return 'key-encoding'
+  return pointFault(fromHex(key), 'key')
+}
+
+// K5's key checks alone, for keys that are named before anything is signed with them (a delegation's subject).
+export function checkEd25519Key (key) {
+  return result(keyReason(key))
+}
+
 export function checkEd25519 (sig, message, key) {
   const msg = snapshot(message)
   if (msg === undefined) throw new TypeError('message must be a Uint8Array')
-  if (!isHex(KEY_HEX, key)) return result('key-encoding')
-  const keyBytes = fromHex(key)
-  const keyFault = pointFault(keyBytes, 'key')
+  const keyFault = keyReason(key)
   if (keyFault) return result(keyFault)
+  const keyBytes = fromHex(key)
   if (!isHex(SIG_HEX, sig)) return result('sig-encoding')
   const sigBytes = fromHex(sig)
   const rFault = pointFault(apply(subarray, sigBytes, [0, 32]), 'sig-r')

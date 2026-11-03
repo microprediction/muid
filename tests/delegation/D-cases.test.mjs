@@ -55,7 +55,8 @@ test('sig must be exactly { root, subject }, subject 128 lowercase hex', () => {
   const root = JSON.parse(build()).sig.root
   for (const [name, sig] of [['no subject', { root }], ['extra', { root, subject: consent(id), x: 1 }],
     ['subject short', { root, subject: consent(id).slice(2) }], ['subject upper', { root, subject: consent(id).toUpperCase() }],
-    ['subject number', { root, subject: 1 }], ['root missing', { subject: consent(id) }]]) {
+    ['subject number', { root, subject: 1 }], ['subject 129', { root, subject: consent(id) + 'a' }],
+    ['subject with a prefix', { root, subject: 'x' + consent(id) }], ['root missing', { subject: consent(id) }]]) {
     rejects(envelope.wrap(payload, sig), 'delegation-shape', name)
   }
 })
@@ -64,7 +65,8 @@ test('scopes: 1–16 sorted distinct, each matching the grammar', () => {
   const s = (scopes) => build({ body: { ...BODY, scopes } })
   const sixteen = Array.from({ length: 16 }, (_, i) => 's' + String(i).padStart(2, '0'))
   assert.deepEqual(result(s(sixteen)), { ok: true })
-  assert.deepEqual(result(s(['a', 'a.b', 'a:b', 'a_b', 'a-b', 'z' + 'x'.repeat(63)])), { ok: true })
+  assert.deepEqual(result(s(['read'])), { ok: true }, 'one scope')
+  assert.deepEqual(result(s(['a', 'a-b', 'a.b', 'a:b', 'a_b', 'z' + 'x'.repeat(63)])), { ok: true }) // code-unit order
   for (const [name, scopes] of [['empty', []], ['seventeen', [...sixteen, 'zz']], ['unsorted', ['read', 'post']],
     ['duplicate', ['read', 'read']], ['uppercase', ['Read']], ['too long', ['z' + 'x'.repeat(64)]], ['digit first', ['1a']],
     ['empty string', ['']], ['space', ['a b']], ['slash', ['a/b']], ['number', [1]]]) {
@@ -112,9 +114,10 @@ test('subject consent (D6): exactly the accept prefix and the raw id bytes, by t
 })
 
 test('a context that is not well formed is a programming error', () => {
-  for (const ctx of [undefined, null, { ...CTX, now: 1.5 }, { ...CTX, now: -1 }, { ...CTX, skew: '60' },
+  for (const ctx of [undefined, null, 'ctx', { ...CTX, now: 1.5 }, { ...CTX, now: -1 }, { ...CTX, skew: '60' },
     { ...CTX, maxLifetime: 2 ** 53 }, { ...CTX, rootKey: 1 }, { ...CTX, rpId: undefined }, { ...CTX, origin: null }]) {
-    assert.throws(() => checkDelegation(ok, ctx), TypeError, JSON.stringify(ctx))
+    assert.throws(() => checkDelegation(ok, ctx),
+      { name: 'TypeError', message: 'context must hold rootKey, rpId, origin and non-negative now, skew, maxLifetime' }, JSON.stringify(ctx))
   }
 })
 
@@ -133,4 +136,12 @@ test('the id checked is the id of the bytes given: a payload edited after signin
   const edited = ok.replace('\\"read\\"', '\\"reae\\"')
   assert.notEqual(edited, ok)
   rejects(edited, 'covers', 'a different payload is a different record')
+})
+
+test('a foreign error from opening (patched built-ins in the hash library) fails closed, never throws', () => {
+  const original = Uint8Array.prototype.fill
+  Uint8Array.prototype.fill = function () { throw new Error('patched') }
+  let out
+  try { out = { ...checkDelegation(ok, CTX) } } catch (e) { out = { threw: String(e) } } finally { Uint8Array.prototype.fill = original }
+  assert.deepEqual(out, { ok: false, reason: 'envelope-encoding' })
 })
