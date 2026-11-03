@@ -40,6 +40,15 @@ jobs:
 
   mutation:
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+          - stryker.config.json
+          - stryker.envelope.config.json
+          - stryker.ed25519.config.json
+          - stryker.p256.config.json
+          - stryker.assertion.config.json
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -49,23 +58,7 @@ jobs:
           node-version: '26'
       - name: Install (no install scripts)
         run: npm ci --ignore-scripts
-      - name: Mutation testing, encoder (fails below the break threshold in stryker.config.json)
-        run: npx --no-install stryker run
-        env:
-          FC_RUNS: '60'
-      - name: Mutation testing, envelope
-        run: npx --no-install stryker run stryker.envelope.config.json
-        env:
-          FC_RUNS: '60'
-      - name: Mutation testing, Ed25519
-        run: npx --no-install stryker run stryker.ed25519.config.json
-        env:
-          FC_RUNS: '60'
-      - name: Mutation testing, P-256
-        run: npx --no-install stryker run stryker.p256.config.json
-        env:
-          FC_RUNS: '60'
-      - name: Mutation testing, root assertions
-        run: npx --no-install stryker run stryker.assertion.config.json
+      - name: Mutation testing (fails below the break threshold in the config)
+        run: npx --no-install stryker run ${{ matrix.config }}
         env:
           FC_RUNS: '60'

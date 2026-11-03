@@ -295,5 +295,6 @@ meta-test runs the layer's suite once per twin and passes only if every run exit
 2. Semgrep with its rule tests (`semgrep --test`), line budget, duplication check, gitleaks.
 3. `node --test` (vector hashes, vectors, properties, adversarial cases), with coverage.
 4. Broken-twin meta-tests.
-5. Mutation testing on changed core files.
+5. Mutation testing, one parallel job per core module (a guard fails if a module has no config or its config is
+   not in the matrix).
 6. CodeQL.
