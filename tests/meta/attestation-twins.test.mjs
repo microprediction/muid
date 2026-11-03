@@ -20,8 +20,8 @@ const TWINS = [
   ['no-check-digit', 'the ORCID check digit is not checked', [['  return apply(charCodeAt, id, [18]) === (r === 10 ? 88 : 48 + r)', '  return r >= 0']]],
   ['leading-zeros', 'GitHub ids may have leading zeros', [['const GITHUB = /^[1-9][0-9]{0,19}$/', 'const GITHUB = /^[0-9]{1,20}$/']]],
   ['any-provider', 'an unknown provider is checked as GitHub', [["  if (form === undefined) return refuse('provider')", '  if (form === undefined) return refuse(ACCOUNT.github(b.account) ? undefined : \'account\')']]],
-  ['witness-by-trying', 'the named witness is ignored: any pinned key in its window will do', [['    if (w.key === sig.witness && w.nbf <= ctx.now', '    if (w.nbf <= ctx.now']]],
-  ['key-window-ignored', 'a pinned key is accepted outside its own window', [['w.key === sig.witness && w.nbf <= ctx.now && ctx.now < w.exp', 'w.key === sig.witness']]],
+  ['witness-by-trying', 'the named witness is ignored: any pinned key in its window will do', [['    if (w.key === sig.witness && w.nbf <= from', '    if (w.nbf <= from']]],
+  ['key-window-ignored', 'a pinned key is accepted outside its own window', [['w.key === sig.witness && w.nbf <= from && to <= w.exp', 'w.key === sig.witness']]],
   ['no-prefix', 'the witness signature covers the payload without the domain prefix', [['checkEd25519(sig.signature, signedBytes(payload), sig.witness)', 'checkEd25519(sig.signature, new TextEncoder().encode(payload), sig.witness)']]],
 ]
 

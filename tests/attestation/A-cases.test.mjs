@@ -13,7 +13,7 @@ const K2 = hex(ed25519.getPublicKey(W2))
 const NOW = 1_800_000_100
 const KEYS = Object.freeze([{ key: K1, nbf: 1_700_000_000, exp: 1_900_000_000 }, { key: K2, nbf: 1_850_000_000, exp: 1_950_000_000 }])
 const CTX = Object.freeze({ witnessKeys: KEYS, now: NOW, skew: 60, maxLifetime: 31_536_000 })
-const BODY = Object.freeze({ root: '4'.repeat(64), provider: 'github', account: '583231', nbf: 1_800_000_000, exp: 1_800_086_400 })
+const BODY = Object.freeze({ identity: '5'.repeat(64), root: '4'.repeat(64), provider: 'github', account: '583231', nbf: 1_800_000_000, exp: 1_800_086_400 })
 const REASONS = ['envelope-encoding', 'envelope-shape', 'payload-size', 'payload-encoding', 'payload-shape', 'version', 'type',
   'attestation-shape', 'provider', 'account', 'lifetime', 'not-yet', 'expired', 'witness', 'key-encoding', 'key-point',
   'key-small-order', 'key-mixed-order', 'sig-encoding', 'sig-r-point', 'sig-r-small-order', 'sig-r-mixed-order', 'sig-s-range', 'sig-invalid']
@@ -35,6 +35,8 @@ test('the base attestation is accepted, carrying its id and body', () => {
   assert.equal(r.ok, true)
   assert.equal(r.id, envelope.seal('attestation', BODY).id)
   assert.deepEqual(JSON.parse(JSON.stringify(r.body)), BODY)
+  assert.equal(r.witness, K1)
+  assert.deepEqual(Object.keys(r), ['ok', 'id', 'body', 'witness'])
   assert.ok(Object.isFrozen(r))
 })
 
@@ -73,7 +75,7 @@ test('shape: keys, field forms, sig form', () => {
     rejects(make({ body: rest }), 'attestation-shape', `missing ${k}`)
   }
   rejects(make({ body: { ...BODY, extra: 1 } }), 'attestation-shape', 'extra')
-  for (const [k, v] of [['root', 'A'.repeat(64)], ['root', '4'.repeat(63)], ['root', '4'.repeat(65)], ['root', 'x' + '4'.repeat(64)],
+  for (const [k, v] of [['identity', 'A'.repeat(64)], ['identity', 5], ['root', 'A'.repeat(64)], ['root', '4'.repeat(63)], ['root', '4'.repeat(65)], ['root', 'x' + '4'.repeat(64)],
     ['root', ['4'.repeat(64)]], ['provider', 1], ['account', 583231], ['nbf', -1], ['exp', '1']]) {
     rejects(make({ body: { ...BODY, [k]: v } }), 'attestation-shape', `${k} ${v}`)
   }
@@ -99,7 +101,12 @@ test('witness (A1): named, pinned, inside its own window', () => {
   rejects(make({ secret: stranger, witness: hex(ed25519.getPublicKey(stranger)) }), 'witness', 'not pinned')
   rejects(ok, 'witness', 'key not yet valid', { ...CTX, witnessKeys: [{ key: K1, nbf: NOW + 1, exp: NOW + 100 }] })
   rejects(ok, 'witness', 'key expired', { ...CTX, witnessKeys: [{ key: K1, nbf: 0, exp: NOW }] })
-  assert.deepEqual(result(ok, { ...CTX, witnessKeys: [{ key: K1, nbf: NOW, exp: NOW + 1 }] }), { ok: true }, 'window edges')
+  const within = (nbf, exp) => result(ok, { ...CTX, witnessKeys: [{ key: K1, nbf, exp }] })
+  assert.deepEqual(within(BODY.nbf, BODY.exp), { ok: true }, 'key window exactly the record window')
+  assert.deepEqual(within(BODY.nbf + 1, BODY.exp), { ok: false, reason: 'witness' }, 'record starts before the key: backdated')
+  assert.deepEqual(within(BODY.nbf, BODY.exp - 1), { ok: false, reason: 'witness' }, 'record outlives the key')
+  assert.deepEqual(result(ok, { ...CTX, now: BODY.nbf - 10, witnessKeys: [{ key: K1, nbf: BODY.nbf, exp: BODY.exp }] }),
+    { ok: false, reason: 'witness' }, 'now, inside the skew, is before the key')
   rejects(make({ secret: W2, witness: K1 }), 'sig-invalid', 'signed by another pinned key than the one named')
   rejects(make({ secret: W2, witness: K2 }), 'witness', 'the other key is outside its window now')
 })

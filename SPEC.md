@@ -229,8 +229,11 @@ Its envelope's `sig` is `{ root, subject }`: `root` the passkey assertion (W0–
   version: validating them needs IDNA rules on which URL parsers in different browsers disagree.
 
 **attestation** — signed by a witness key.
-`{ root, provider, account, nbf, exp }`.
-- **A1 WITNESS KEY:** the key is in the pinned set and inside its own window at `now`.
+`{ identity, root, provider, account, nbf, exp }`: the account belongs to this root within this identity.
+- **A1 WITNESS KEY:** the key is in the pinned set, and its window holds both `now` and the record's whole window
+  `[nbf, exp]` — so a key cannot vouch for a time before it existed or after it is retired. Deployments pin the
+  attestation witness's keys separately from the membership witness's (§5 R3), so the key facing OAuth providers
+  cannot sign membership.
 - **A2 POSSESSION:** the sign-in that produced it carried a root (or `attest`-scoped delegate) signature over that
   session's OAuth `state`; for OIDC providers the hash of that signature is also the `nonce`, so the provider's id
   token commits to it.
@@ -242,8 +245,8 @@ Its envelope's `sig` is `{ root, subject }`: `root` the passkey assertion (W0–
   lowercase hex) and `signature` is its Ed25519 signature over the record's signed bytes (128 lowercase hex); keys
   are named, never found by trying. `checkAttestation(text, { witnessKeys, now, skew, maxLifetime })`, where
   `witnessKeys` is the pinned list of `{ key, nbf, exp }`, opens the envelope itself and returns
-  `{ ok: true, id, body }` or `{ ok: false, reason }`, never throwing for any `text`: V4's reasons;
-  `attestation-shape` (body keys other than the five, `root` not an id, `nbf`/`exp` not non-negative integers,
+  `{ ok: true, id, body, witness }` or `{ ok: false, reason }`, never throwing for any `text`: V4's reasons;
+  `attestation-shape` (body keys other than the six, `identity` not an id, `root` not an id, `nbf`/`exp` not non-negative integers,
   `provider`/`account` not strings, or `sig` not as above); `provider` (not `github`, `google` or `orcid`);
   `account` (not that provider's form); `lifetime` (`exp ≤ nbf`, or longer than `maxLifetime`); `not-yet`,
   `expired` (D1's window); `witness` (not a pinned key, or `now` outside that key's window — A1); then K5's signature
@@ -485,6 +488,15 @@ test fails the build on any direct `indexedDB` or `localStorage` use outside the
    its delegation (as OCSP stapling does), and the verifier checks the delegation's membership against the head
    rather than against whatever records it was given. The cost is that every delegate must reach the witness at least
    once per `MAX_STALENESS`. The value (hours to days) belongs with decision 3.
+
+8. **Attestation binding — from review, for decision.** (a) One provider account can be attested to many roots or
+   identities, and a verifier holding one identity's records cannot see that; counting `(provider, account)` once
+   needs the witness to keep one live binding per account and revoke the old one when it is re-bound, published in
+   its log. (b) The record carries nothing a verifier can check for A2, so a dishonest witness could bind an account
+   to a root that never asked; a `request` field naming a root-signed request (from which the OAuth `state` and OIDC
+   `nonce` are derived) would make A2 checkable. (c) Anchors and settlements are checked against the witness key's
+   window at their own `at`, so a retired key that leaks can sign backdated ones; the append-only log is what shows
+   them. Recommendation: (a) and (b) before attestations carry weight in reputation; (c) stays a stated residual.
 
 ## 10. What the reputation layer consumes (not core)
 

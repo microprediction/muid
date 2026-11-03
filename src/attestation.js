@@ -14,7 +14,7 @@ const { exec } = RegExp.prototype
 const { charCodeAt } = String.prototype
 const { isRefusal } = EnvelopeError
 
-const BODY_KEYS = freeze(['account', 'exp', 'nbf', 'provider', 'root'])
+const BODY_KEYS = freeze(['account', 'exp', 'identity', 'nbf', 'provider', 'root'])
 const SIG_KEYS = freeze(['signature', 'witness'])
 const HEX64 = /^[0-9a-f]{64}$/
 const HEX128 = /^[0-9a-f]{128}$/
@@ -56,19 +56,41 @@ const ACCOUNT = freeze({
   orcid: orcidOk,
 })
 
-function readContext (ctx) {
-  if (typeof ctx !== 'object' || ctx === null) return undefined
-  const { witnessKeys, now, skew, maxLifetime } = ctx
-  if (!isArray(witnessKeys) || !isTime(now) || !isTime(skew) || !isTime(maxLifetime)) return undefined
+// The pinned witness keys, each field read once; undefined if any entry is malformed.
+export function readWitnessKeys (list) {
+  if (!isArray(list)) return undefined
   // Stryker disable next-line ArrayDeclaration: equivalent; every index is assigned below before it is read
   const keys = []
-  for (let i = 0; i < witnessKeys.length; i++) {
-    const w = witnessKeys[i]
+  for (let i = 0; i < list.length; i++) {
+    const w = list[i]
     if (w === null || w === undefined) return undefined // anything else destructures, and fails the key check
     const { key, nbf, exp } = w
     if (!isHex(HEX64, key) || !isTime(nbf) || !isTime(exp)) return undefined
     keys[i] = { key, nbf, exp }
   }
+  return keys
+}
+
+// A witness signature's shape: { signature, witness } exactly (A4).
+export const isWitnessSig = (sig) => onlyKeys(sig, SIG_KEYS) && isHex(HEX128, sig.signature) && isHex(HEX64, sig.witness)
+
+// For a signature of that shape: undefined if a pinned key whose window holds [from, to] signed the signed bytes of
+// `payload`, else the reason. Keys are named, never found by trying (A4).
+export function witnessReason (sig, payload, keys, from, to) {
+  let pinned = false
+  for (let i = 0; i < keys.length; i++) {
+    const w = keys[i]
+    if (w.key === sig.witness && w.nbf <= from && to <= w.exp) pinned = true
+  }
+  if (!pinned) return 'witness'
+  return checkEd25519(sig.signature, signedBytes(payload), sig.witness).reason
+}
+
+function readContext (ctx) {
+  if (typeof ctx !== 'object' || ctx === null) return undefined
+  const { witnessKeys, now, skew, maxLifetime } = ctx
+  const keys = readWitnessKeys(witnessKeys)
+  if (keys === undefined || !isTime(now) || !isTime(skew) || !isTime(maxLifetime)) return undefined
   return { keys, now, skew, maxLifetime }
 }
 
@@ -83,21 +105,17 @@ export function checkAttestation (text, context) {
     return refuse(isRefusal(e) ? e.reason : 'envelope-encoding')
   }
   const { id, body: b, sig, payload } = record
-  if (!onlyKeys(b, BODY_KEYS) || !isHex(HEX64, b.root) || typeof b.provider !== 'string' ||
-    typeof b.account !== 'string' || !isTime(b.nbf) || !isTime(b.exp) || !onlyKeys(sig, SIG_KEYS) ||
-    !isHex(HEX128, sig.signature) || !isHex(HEX64, sig.witness)) return refuse('attestation-shape')
+  if (!onlyKeys(b, BODY_KEYS) || !isHex(HEX64, b.identity) || !isHex(HEX64, b.root) || typeof b.provider !== 'string' ||
+    typeof b.account !== 'string' || !isTime(b.nbf) || !isTime(b.exp) || !isWitnessSig(sig)) return refuse('attestation-shape')
   const form = ACCOUNT[b.provider]
   if (form === undefined) return refuse('provider')
   if (!form(b.account)) return refuse('account')
   if (b.exp <= b.nbf || b.exp - b.nbf > ctx.maxLifetime) return refuse('lifetime')
   if (ctx.now < b.nbf - ctx.skew) return refuse('not-yet')
   if (ctx.now >= b.exp) return refuse('expired')
-  let pinned = false
-  for (let i = 0; i < ctx.keys.length; i++) {
-    const w = ctx.keys[i]
-    if (w.key === sig.witness && w.nbf <= ctx.now && ctx.now < w.exp) pinned = true
-  }
-  if (!pinned) return refuse('witness')
-  const verdict = checkEd25519(sig.signature, signedBytes(payload), sig.witness)
-  return verdict.ok ? accept({ id, body: b }) : verdict
+  // A1: the key's window holds now and the record's whole window, so a key cannot vouch for a time before it existed
+  // or after it is retired.
+  // Stryker disable next-line EqualityOperator: equivalent; at now === nbf both branches give the same value
+  const reason = witnessReason(sig, payload, ctx.keys, ctx.now < b.nbf ? ctx.now : b.nbf, b.exp)
+  return reason === undefined ? accept({ id, body: b, witness: sig.witness }) : refuse(reason)
 }
