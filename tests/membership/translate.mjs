@@ -39,12 +39,12 @@ function realMembership (genesis, model, payloads) {
   })
 }
 
-const rootSigned = (type, body, letter) => once(`${type} ${JSON.stringify(body)} ${letter}`, () => {
+export const rootSigned = (type, body, letter) => once(`${type} ${JSON.stringify(body)} ${letter}`, () => {
   const { payload, id } = envelope.seal(type, body)
   return envelope.wrap(payload, { root: rootId(letter), assertion: make({ covers: [id], secret: secretOf(letter) }) })
 })
 
-const witnessSigned = (type, body) => once(`${type} ${JSON.stringify(body)}`, () => {
+export const witnessSigned = (type, body) => once(`${type} ${JSON.stringify(body)}`, () => {
   const { payload } = envelope.seal(type, body)
   const signature = hex(ed25519.sign(envelope.signedBytes(payload), WITNESS_SECRET))
   return envelope.wrap(payload, { signature, witness: WITNESS })

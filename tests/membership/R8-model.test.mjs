@@ -51,26 +51,36 @@ function states (epochs, roots, stolen) {
   const thiefStates = reach('a', start, thief, universe, maxEpoch, 1)
   const out = new Map()
   for (const s of thiefStates) {
-    for (const q of reach('a', s, owner, universe, maxEpoch, 1).slice(0, 12)) {
+    // Every owner move that contests or freezes, and the first few others, to keep the run short.
+    const count = (x, k) => x.filter((it) => it.kind === k).length
+    const moves = reach('a', s, owner, universe, maxEpoch, 1)
+    const picked = [...moves.filter((q) => count(q, 'C') > count(s, 'C') || count(q, 'F') > count(s, 'F')), ...moves.slice(0, 8)]
+    for (const q of picked) {
       for (const x of [q, tick('a', tick('a', q))]) out.set(JSON.stringify(x), x)
     }
   }
   return [...out.values()]
 }
 
+const kinds = new Set()
 for (const [name, epochs, roots, stolen] of SCENARIOS) {
   test(`${name}: agrees with the model on every explored state`, { timeout: 600_000 }, () => {
-    const all = states(epochs, roots, stolen)
-    assert.ok(all.length > 20, `explored ${all.length}`)
-    const kinds = new Set()
+    const every = states(epochs, roots, stolen)
+    assert.ok(every.length > 20, `explored ${every.length}`)
+    // Under a small FC_RUNS (mutation testing), every k-th state and every dead or frozen one, deterministically.
+    const stride = RUNS >= 100 ? 1 : Math.ceil(every.length / 40)
+    const all = every.filter((x, i) => i % stride === 0 || evaluate('a', x).dead || evaluate('a', x).frozen)
     for (const items of all) {
       agree('a', items, JSON.stringify(items.filter((i) => i.kind !== 'T')).slice(0, 300))
       const e = evaluate('a', items)
       kinds.add(e.dead ? 'dead' : e.frozen ? 'frozen' : e.pending ? 'pending' : 'settled')
     }
-    assert.ok(kinds.size >= 3, `states seen: ${[...kinds]}`)
   })
 }
+
+test('the scenarios together reach every kind of state (anti-vacuity)', () => {
+  assert.deepEqual([...kinds].sort(), ['dead', 'frozen', 'pending', 'settled'])
+})
 
 test('agrees with the model on sampled partial views', { timeout: 600_000 }, () => {
   const all = SCENARIOS.flatMap(([, epochs, roots, stolen]) => states(epochs, roots, stolen))
