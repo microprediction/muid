@@ -12,8 +12,8 @@ const SUITE_DIR = new URL('../delegation/', import.meta.url).pathname
 const SUITE = readdirSync(SUITE_DIR).filter((f) => f.endsWith('.test.mjs')).map((f) => join(SUITE_DIR, f))
 
 // A twin lives outside the repository, so its imports are made absolute.
-const IMPORTS = ['envelope', 'assertion', 'ed25519', 'origin'].map((m) =>
-  [`from './${m}.js'`, `from '${new URL(`../../src/${m}.js`, import.meta.url).href}'`])
+const absolute = (m) => new URL('../../src/' + m + '.js', import.meta.url).href
+const IMPORTS = ['envelope', 'assertion', 'ed25519', 'origin'].map((m) => ["from './" + m + ".js'", "from '" + absolute(m) + "'"])
 
 // [name, bug class, [find, replace] pairs]
 const TWINS = [
