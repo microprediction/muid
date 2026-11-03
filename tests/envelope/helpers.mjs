@@ -5,7 +5,7 @@ import { envelope } from '../impl.mjs'
 export const env = envelope
 
 // SPEC §4 V2 and V4.
-export const TYPES = Object.freeze(['root', 'delegation', 'attestation', 'membership', 'freeze', 'anchor', 'revocation'])
+export const TYPES = Object.freeze(['root', 'delegation', 'attestation', 'membership', 'freeze', 'contest', 'anchor', 'settlement', 'revocation'])
 export const REASONS = Object.freeze(['envelope-encoding', 'envelope-shape', 'payload-encoding', 'payload-shape', 'version', 'type'])
 export const PREFIX = 'muid/v1\n'
 

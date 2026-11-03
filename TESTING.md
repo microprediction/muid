@@ -194,12 +194,16 @@ be an array; output not frozen.
    accept).
 5. **Attestation** (A1–A3): witness key outside its window; unknown provider; each provider's account format and its
    near misses (GitHub leading zero or login string; ORCID bad check digit).
-6. **Membership, freeze, revocation** (R1–R5): next epoch signed by exactly half (rejected) and by a strict
-   majority (accepted); an added root that did not sign; a freeze by a retired root; a record without an anchor, or
-   with an anchor from an unpinned key; two anchored rivals at `CONTEST_WINDOW − 1` apart (the identity ends) and at
-   `CONTEST_WINDOW` apart (the earlier wins); every permutation of a record set gives the same state (R5, property); a
-   delegation from a root of an older epoch; pruning a revocation only after its target's expiry. The model's
-   scenarios (`tests/model/`) are replayed as tests against `verify`, and so are its counterexample traces.
+6. **Membership, freeze, revocation** (R1–R7): a membership record signed by exactly half of `prev`'s roots
+   (rejected) and by a strict majority (accepted); an added root that did not sign; epoch 2 whose `prev` is not the
+   identity id; an `epoch` that is not `prev`'s plus one; a freeze by a retired root; a record without an anchor, or
+   with an anchor or settlement from an unpinned key or outside its key's window; two anchors for one `prev` (the
+   identity ends: the witness contradicted itself); a contest signed by half (rejected); a contest anchored, then
+   settled `contested`; a pending record's new root signing a delegation (rejected until settlement); a delegation
+   naming a membership that is not the effective one; `covers` holding two membership records with one `prev`; every
+   permutation of a record set gives the same state (R7, property); pruning a revocation only after its target's
+   expiry. The model's scenarios (`tests/model/`) are replayed as tests against `verify`, and so are its
+   counterexample traces, including partial views.
 
 Candidate cases drawn from the published behaviour of Porto, Farcaster and Keybase are added to these sections as they
 are expanded.

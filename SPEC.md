@@ -17,7 +17,7 @@ into frozen plain data. Nothing else reads them.
 | User | hold one or more root passkeys; issue and revoke delegations | — |
 | Delegate (device, app, machine key) | sign within its delegation's audience, scope and window | widen its scope; outlive its expiry; delegate further |
 | App on another origin | ask the id origin for actions; receive results | read keys or stored records of the id origin; choose the audience a delegation names |
-| Witness | attest that a provider account maps to a root, within the witness key's window; timestamp membership records (R3) | attest without the root's proof of possession bound to that sign-in; change membership without the roots' signatures |
+| Witness | attest that a provider account maps to a root, within the witness key's window; anchor and settle membership records (R3, R4) | attest without the root's proof of possession bound to that sign-in; change membership without the roots' signatures |
 | Provider (GitHub, Google, ORCID) | authenticate the account at attestation time | — (trusted for account control only) |
 | Passkey sync provider (Apple, Google) | restore a synced passkey to a device after its own account recovery | — (see threats) |
 | Network attacker | read, drop, replay, reorder, modify any message | forge a signature |
@@ -138,9 +138,9 @@ Research: [`encoding.md`](research/encoding.md).
   it received, then decodes those same bytes. It never re-serialises in order to verify.
 - **Record id** = hex SHA-256 of the signed bytes. It excludes the signature (§2).
 - **V1 VERSION:** `v` must equal 1. Any other value is rejected.
-- **V2 TYPE:** the verifier is told which `type` it expects; a mismatch is rejected. Types form a closed list: `root`,
-  `delegation`, `attestation`, `membership`, `freeze`, `anchor`, `revocation`. Asking for any other type is a
-  programming error, not a reject.
+- **V2 TYPE:** the verifier is told which `type` it expects; a mismatch is rejected. Types form a closed list:
+  `root`, `delegation`, `attestation`, `membership`, `freeze`, `contest`, `anchor`, `settlement`, `revocation`. Asking
+  for any other type is a programming error, not a reject.
 - **V3 ONE ALGORITHM PER TYPE:** the record type fixes the signature algorithm and the signer's role. Nothing in the
   record selects either.
 - **V4 SHAPE BEFORE MEANING:** `open(text, type)` checks, in this order, and refuses with the first that fails:
@@ -161,7 +161,7 @@ signature, and a creation time would be chosen by the signer and prove nothing.
 happens to its roots afterwards.
 
 **delegation** — signed by a root (passkey assertion). Never by an Ed25519 key.
-`{ identity, epoch, root, subject, aud, scopes, nbf, exp }`. `root` is a member of `epoch` (R-rules below);
+`{ identity, membership, root, subject, aud, scopes, nbf, exp }`. `root` is a member of `membership` (R6 below);
 `subject` is an Ed25519 public key; `aud` is one exact origin;
 `scopes` is a non-empty sorted list of distinct scope strings (`^[a-z][a-z0-9_.:-]{0,63}$`). A scope's meaning
 belongs to the relying party; the core checks only exact membership — no prefix, wildcard or hierarchy rule.
@@ -189,50 +189,62 @@ belongs to the relying party; the core checks only exact membership — no prefi
   leading zeros); Google `sub`; ORCID iD (`dddd-dddd-dddd-dddX`, ISO 7064 MOD 11-2 check digit). Never an email,
   handle, login or domain.
 
-**membership** — the identity's root set at one epoch. `{ identity, epoch, roots, prev }`. `roots` is a sorted list
-of 1–5 distinct root ids; `prev` is the record id of the previous epoch's membership. Epoch 1 is implicit: it is the
-single first root, and needs no record. One membership record is carried by several envelopes with the same payload,
-each signed by one root.
-- **R1 CHANGE BY MAJORITY:** epoch `n + 1` is valid only if signed by a strict majority of epoch `n`'s roots and by
+**membership** — the identity's root set at one epoch. `{ identity, prev, epoch, roots }`. `roots` is a sorted list
+of 1–5 distinct root ids. Epoch 1 is implicit: it is the single first root, and needs no record. `prev` is the record
+id of the previous epoch's membership record — for epoch 2, the identity id — and `epoch` is one more than `prev`'s.
+One membership record is carried by several envelopes with the same payload, each signed by one root. Below, "a
+membership" means a membership record id, or the identity id for epoch 1.
+
+Records the witness signs about membership (V3: witness key; checked against that key's window at their own `at`):
+**anchor** `{ record, at }` and **settlement** `{ identity, prev, outcome, at }`. A root-signed **contest**
+`{ identity, prev }` and **freeze** `{ identity, membership }` complete the set.
+
+- **R1 CHANGE BY MAJORITY:** a membership record is valid only if signed by a strict majority of `prev`'s roots and by
   every root it adds. A root is retired by leaving it out.
-- **R2 FREEZE BY ANY:** a `freeze` record `{ identity, epoch }` signed by any one root of that epoch freezes it:
-  delegations under a frozen epoch fail. Only a valid next epoch (R1) moves past a freeze. Freezing only removes
-  trust, so any single root may do it.
-- **R3 ANCHORED, CONTESTABLE:** a membership record counts only together with a witness anchor `{ record, at }`
-  signed by a pinned witness key. The witness anchors every valid membership record that extends the identity's
-  current chain, at the time it first sees it, and notifies the owner. Among valid anchored records for the same
-  epoch, the earliest wins — unless a different one was anchored less than `CONTEST_WINDOW` after it: then the epoch
-  before them is frozen permanently and the identity ends. A rival anchored later than that is ignored. A fork is
-  never resolved by choosing a side while it is contested.
-- **R4 CURRENT EPOCH:** delegations are accepted only under the current epoch — the last on the chain R3 selects — if
-  it is not frozen, and only from that epoch's roots.
-- **R5 ORDER-FREE:** the identity's state is a function of the *set* of membership records, anchors and freezes the
-  verifier holds, never of their order. The only time it uses is the witness's `at`; a time inside a record is chosen
-  by its signer and is never used.
+- **R2 FREEZE BY ANY:** a freeze signed by any one root of the membership it names freezes it: delegations under it
+  fail. Only a settled successor (R4) moves past it. Freezing only removes trust, so any single root may do it.
+- **R3 ONE ANCHOR PER EPOCH:** the witness anchors a valid membership record only if its `prev` is the last settled
+  membership and nothing else with that `prev` is anchored. It anchors each record once and notifies the owner. Every
+  other record with that `prev` — an ordinary rival, or one arriving after settlement — is refused, never anchored.
+- **R4 SETTLEMENT:** `CONTEST_WINDOW` after an anchor, the witness settles `prev`: `outcome` is the anchored record's
+  id, or `contested` (R5). A settlement is final. A verifier follows settlements from the identity; after the last
+  one there is at most one *pending* record — anchored, not yet settled.
+- **R5 CONTEST:** a contest signed by a strict majority of `prev`'s roots, anchored while `prev`'s successor is
+  pending, settles `prev` as `contested`, and the identity ends. Only this explicit record ends an identity; two
+  ordinary records never do, so a second device or a leftover set of signatures cannot end it by accident.
+- **R6 CURRENT AUTHORITY:** the effective membership is the pending record if there is one, else the last settled.
+  A delegation names the membership it is issued under, and is accepted only if that is the effective membership, it
+  is not frozen, and its root is in it — and, while it is pending, also in the last settled membership. New roots
+  gain authority only at settlement.
+- **R7 ORDER-FREE, NEVER FORKED:** the state is a function of the *set* of membership records, anchors, settlements,
+  contests and freezes the verifier holds, never of their order. The only time used is the witness's `at`. Because
+  only one record per `prev` is ever anchored, a verifier holding fewer records can be behind, never on another
+  branch.
 
-Why R3 needs the witness: without a trusted time, a record signed late cannot be told from one signed early. Every
-set of roots that was ever a majority of any epoch — including the first root alone, and roots long retired — could
-then end the identity at any time with one conflicting record.
+Why the witness: without a trusted time, a record signed late cannot be told from one signed early. Every set of
+roots that was ever a majority of any epoch — including the first root alone, and roots long retired — could then
+end or fork the identity at any time with one conflicting record.
 
-What this gives (model-checked: [`model/recovery.mjs`](model/recovery.mjs), pinned in `tests/model/`):
-- **Three roots, a later one stolen:** the other two sign the next epoch without it, at once, and no thief move undoes
-  that. The thief can freeze the old epoch; the new one moves past it.
-- **Two roots, a later one stolen:** the thief can neither take over nor end the identity. Either side can freeze.
-- **A first or retired root stolen:** once its epoch is past the window, it can do nothing.
-- **Every root the owner holds also stolen** (one root, or a majority): the thief can take over. Within the window the
-  owner can end the identity by signing a rival record; after it, the takeover is final.
-- A freeze never makes an inactive identity active.
+What this gives (model-checked in [`model/settled.mjs`](model/settled.mjs), pinned in `tests/model/`, including every
+partial view a network attacker can choose):
+- **Three roots, a later one stolen:** the other two sign the next epoch without it, at once; the stolen root loses
+  authority as soon as that record is anchored, and no thief move undoes it.
+- **Two roots, a later one stolen:** the thief can neither take over nor end the identity.
+- **A first or retired root stolen:** it can do nothing.
+- **Every root the owner holds also stolen** (one root, or a majority): the thief can take over, but its new roots
+  have no authority while pending; the owner can end the identity by contesting within the window; after it, the
+  takeover is final.
+- No view is ever forked; a freeze never makes an inactive identity active.
 
 Residuals:
-- **The witness is trusted for membership.** A witness that backdates an anchor lets an old majority take over; one
-  that refuses to anchor blocks recovery. Anchors are published to an append-only public log, so a backdated anchor
-  is visible; more than one witness is a later step.
-- **Notification carries the window.** An owner who does not learn of a change within `CONTEST_WINDOW` loses the
-  ability to contest it. The window's length is part of open decision 3.
-- **The id page must never sign two different membership records for one epoch:** within the window that ends the
-  identity.
-- A verifier that has not yet seen a newer epoch still accepts the older epoch's roots. That window is bounded by
-  delegation lifetimes and by how membership records reach verifiers (open decision 3).
+- **The witness is trusted for membership.** A witness that backdates, anchors two rivals, or settles differently for
+  different verifiers can fork an identity; one that refuses to anchor blocks recovery. Anchors and settlements are
+  published to an append-only public log, so equivocation is visible; more than one witness is a later step.
+- **Notification carries the window.** An owner who does not learn of a change within `CONTEST_WINDOW` — or whose
+  contest a network attacker delays past it — loses the ability to contest. Where notifications go must itself be
+  bound to a settled membership, so a thief cannot redirect them first. The window's length is part of open decision 3.
+- A verifier that has not yet seen a newer settlement still accepts the older membership's roots. That window is
+  bounded by delegation lifetimes and by how records reach verifiers (open decision 3).
 
 **revocation** — signed by the root, or by the witness for its own attestations, or by a delegate for itself.
 `{ target, at }`. `target` is a record id. A revocation may be pruned once its target's `exp` has passed.
@@ -265,7 +277,7 @@ client_data_json, signature }`; WebAuthn fields base64url):
 - **W0 COVERAGE:** one assertion may cover several records, so one prompt can renew several delegations or sign a
   membership change together with the delegations that go with it. `covers` is a sorted list of 1–8 distinct record
   ids (lowercase hex) that contains this record's own id. A single record is a list of length one; there is no other
-  form.
+  form. No two membership records in one `covers` share a `prev`, and neither do a membership record and a contest.
 - **W1 CLIENT DATA:** `type` is `"webauthn.get"`; `challenge` equals
   base64url(SHA-256(`UTF-8("muid/v1/assert\n")` ‖ the ids in `covers`, each followed by `"\n"`)) exactly — a domain
   distinct from the signed-bytes prefix `"muid/v1\n"`; `origin` equals the configured id origin exactly;
@@ -329,9 +341,11 @@ test fails the build on any direct `indexedDB` or `localStorage` use outside the
    Either way, a claim names the record id of the delegation it is made under, so a signature made under one
    delegation is never accepted under another. Revocation semantics follow from this choice: whether a revocation
    is retroactive, what `at` means, and whether a verifier may ever forget a revocation it has seen.
-2. **Recovery — decided: R1–R5 with witness anchors and a contest window.** The model showed that without a trusted
-   time any past majority can end an identity, and that anchoring the first record alone makes a thief's takeover of
-   a one-root identity final at once. The window keeps both: old roots are harmless, and the owner can contest.
+2. **Recovery — decided: R1–R7, witness anchors and settlements with a contest window.** The model showed that
+   without a trusted time any past majority can end an identity, and that anchoring the first record alone makes a
+   thief's takeover of a one-root identity final at once. An independent review then showed that verifiers holding
+   different records could fork; settlement and one anchor per epoch close that, and an explicit contest record keeps
+   an honest owner from ending their own identity by accident.
 3. **Lifetimes, and the conflict they must resolve.** F4 wants delegations short so that expiry does the revocation
    work. D3 and U2 mean every renewal is a passkey prompt by a human. A machine that runs for weeks makes the two
    collide. Options: (a) long machine delegations, which make the revocation set the primary mechanism — then the
@@ -352,7 +366,7 @@ test fails the build on any direct `indexedDB` or `localStorage` use outside the
 Sybil resistance and reputation live outside the core and must be able to change without reopening it. The core's
 whole contribution is a set of verified facts:
 
-- an identity id, its current epoch and that epoch's roots (R4);
+- an identity id, its effective membership and that membership's roots (R6);
 - each verified attestation: (`provider`, `account`, witness key, `nbf`, `exp`);
 - each verified delegation: (`subject`, `aud`, `scopes`, `nbf`, `exp`);
 - each verified claim and the delegation it was made under.

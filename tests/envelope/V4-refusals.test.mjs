@@ -1,7 +1,7 @@
 // V1, V2, V4: each refusal carries its reason, and with several faults the first in V4 order.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { env, envelopeText, payloadText, refuses } from './helpers.mjs'
+import { env, envelopeText, payloadText, refuses, TYPES } from './helpers.mjs'
 
 const P = payloadText('delegation')
 const ok = envelopeText(P, '{}')
@@ -69,10 +69,11 @@ test('several faults at once: the first in V4 order wins', () => {
 })
 
 test('every V2 type opens as itself and is refused as each other type', () => {
-  for (const t of ['root', 'delegation', 'attestation', 'membership', 'freeze', 'anchor', 'revocation']) {
+  assert.equal(TYPES.length, 9)
+  for (const t of TYPES) {
     const text = envelopeText(payloadText(t), t === 'root' ? undefined : '{}')
     assert.equal(env.open(text, t).type, t)
-    for (const u of ['delegation', 'attestation', 'membership', 'freeze', 'anchor', 'revocation']) {
+    for (const u of TYPES.filter((x) => x !== 'root')) {
       if (u !== t && t !== 'root') refuses(() => env.open(text, u), 'type', `${t} as ${u}`)
     }
   }
