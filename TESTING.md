@@ -326,6 +326,10 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   a negative `at` or a bad outcome ignored; contests and freezes of non-ids ignored; a witness that anchors two
   rivals ends the identity; witness keys outside their window at the record's `at`; assertions over another record
   or by a key that is not the named root; a signer whose root record is missing; unreadable `records`.
+- **Tamper sweep:** a pending epoch over a settled one, frozen by a root of the pending record; a one-character change
+  (two replacements and a deletion) to any one record gives the state with that record or without it, never another,
+  and each kind holds a record whose loss changes the state. Positions are sampled with a fixed seed;
+  `MUID_SWEEP=full` sweeps every position.
 - **Twins:** half counted as a majority; added roots not required to sign; the witness window ignored; a contest
   without a majority; new roots with authority while pending; a freeze lifted at anchoring; settlements ignored; one
   of two anchored rivals chosen; root assertions not verified.
@@ -352,6 +356,8 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   full; another delegation named; time at and one past `maxClaimAge` and `skew`, and outside the delegation's window;
   a signature by another key or over the payload without its prefix; subject keys in the call's revoked list; the
   call read once.
+- **Tamper sweep:** every position of the claim, its delegation, the root record and the head, replaced two ways
+  and deleted: no variant verifies (`tests/integration/tamper.test.mjs`).
 - **Twins:** no staleness bound; heads from the future; `minHeadAt` ignored; claim time, delegation window, delegation,
   signature, scope or request unchecked; subject keys in the call's revoked list ignored; membership, authority, identity,
   revocation (call's or head's), audience or scope unchecked; revocation by id only; the witness key's window checked
