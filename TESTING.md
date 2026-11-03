@@ -17,7 +17,7 @@ when its whole section here passes, including the anti-vacuity checks. Rule labe
   - every vector suite asserts the exact number of cases it ran;
   - every property asserts, from fast-check statistics, that most generated inputs exercised the accept path (or the
     reject path, for a reject property);
-  - every guard has a broken twin (§4) that the suite must fail against;
+  - every guard has a broken twin (§5) that the suite must fail against;
   - a skipped or `todo` test fails CI.
 - **Rejects are specific.** A reject test asserts the reason code, so a case rejected for the wrong reason fails.
 
@@ -112,12 +112,66 @@ The meta-test generates 23 twins from `src/encode.js` (one targeted change each)
 - Semgrep: `JSON.parse` is allowed only in `src/encode.js`. No `async`, `await`, `Date`, `Math.random` or imports
   other than `@noble/*` anywhere in `src/`.
 
-## 3. Later layers (outline; each is expanded here before its code is written)
+## 3. Layer 2 — envelope and record id (`src/envelope.js`): V1–V4
 
-1. **Envelope and record id** (V1–V3): signed-bytes vectors by hand; a record id never changes when only `sig` changes;
-   wrong `v`, wrong `type` and swapped-type replay are rejected with their reason codes; SHA-256 checked against NIST
-   CAVP (65 short and 64 long messages). A twin that re-serialises the payload before verifying cannot be caught by
-   any vector while E2 holds, so a structural test pins that the bytes verified are the bytes received.
+Interface under test:
+- `open(text, type)` → frozen `{ id, type, body, sig, payload }`, or throws `EnvelopeError` with a V4 reason code.
+- `seal(type, body)` → frozen `{ payload, id }`: the payload text a signer signs, and its record id.
+- `wrap(payload, sig)` → envelope text; `sig` is omitted for a root.
+- `signedBytes(payload)` → a new `Uint8Array` of `UTF-8("muid/v1\n") ‖ UTF-8(payload)`.
+
+Signatures are not checked here; layers 3 and 4 check them over `signedBytes(payload)` of the payload `open` returned.
+
+### 3.1 Known answers
+
+- **NIST CAVP SHA-256** (`tests/vectors/cavp-sha256/`, pinned): all 65 short and 64 long messages through the
+  `@noble/hashes` function the layer uses, with the count asserted. This checks the dependency, not our code.
+- **Hand vectors:** for three payloads (empty body; a body with non-ASCII text and an escaped control character; a
+  body near the size limit) the signed bytes and record id are written as literals, computed outside the project with
+  `printf … | shasum -a 256`.
+- **Oracle:** for generated bodies, `seal(...).id` equals `node:crypto` SHA-256 of the signed bytes (a second,
+  independent SHA-256).
+
+### 3.2 Refusals (every one asserts its reason)
+
+| Input | Reason |
+|---|---|
+| not a string; whitespace; keys out of order; a duplicate key; trailing newline | `envelope-encoding` |
+| extra key; missing `payload`; `payload` not a string; `sig` an array, string or number; a root with `sig`; a non-root without `sig` | `envelope-shape` |
+| `payload` that is not canonical JCS, not an object, or contains `null` | `payload-encoding` |
+| payload with an extra key, a missing key, `body` an array or string | `payload-shape` |
+| `v` of 0, 2, `"1"`, `true` | `version` |
+| `type` differing from the expected type; differing only in case; with trailing space | `type` |
+| several faults at once | the first in V4 order |
+| `open(text, "unknown")`, `seal("unknown", {})` | `TypeError` (programming error, not a refusal) |
+
+### 3.3 Properties
+
+- **Q1 id excludes the signature:** changing only `sig` never changes `id`.
+- **Q2 round trip:** `open(wrap(seal(t, b).payload, sig), t)` returns `b` (deep-equal), the same `id`, and the same
+  `payload` text.
+- **Q3 id commits to every payload byte:** any single-byte change to `payload` either is refused or changes `id`.
+- **Q4 refusal is total:** any string, and any envelope built around a mutated payload, either opens or throws
+  `EnvelopeError` — never another error.
+- **Q5 frozen output** with null prototypes (E8 carried through).
+
+### 3.4 Structural
+
+- The `payload` returned is the received payload text: equal to the substring of `text` that the envelope's `payload`
+  decodes to, and `signedBytes` of it equals the prefix followed by that text's UTF-8. A twin that re-serialises the
+  body before hashing cannot be caught by any vector while E2 holds; a guard test fails if `src/envelope.js` calls
+  `encode` anywhere other than inside `seal`.
+- `signedBytes` returns a new array on every call; mutating one never changes another or a later `id`.
+
+### 3.5 Broken twins
+
+No version check; no type check; a root accepted with `sig`; an extra envelope key accepted; id over the payload
+without the prefix; id over the whole envelope (so it covers `sig`); the prefix without its newline; `body` allowed to
+be an array; output not frozen.
+
+## 4. Later layers (outline; each is expanded here before its code is written)
+
+1. **Envelope and record id:** expanded as §3.
 2. **Keys and Ed25519** (K1, K2, K4): RFC 8032 §7.1 (5); Wycheproof `ed25519_test.json` (210: 117 valid, 64 invalid,
    29 acceptable — all 29 expected **rejects**); ed25519-speccheck `cases.json` (12, all rejects); ACVP EdDSA SigVer (5).
    Measured: noble with `zip215: false` and Node's WebCrypto both accept all 21 mixed-order acceptable cases, so the
@@ -150,14 +204,14 @@ The meta-test generates 23 twins from `src/encode.js` (one targeted change each)
 Candidate cases drawn from the published behaviour of Porto, Farcaster and Keybase are added to these sections as they
 are expanded.
 
-## 4. How broken twins run
+## 5. How broken twins run
 
 `tests/twins/<layer>/<n>-<name>.js` exports the same interface as the real module. Every test and test helper reaches
 the implementation only through `tests/impl.mjs`, which loads the real module or the twin named by an environment
 variable; a guard test fails if any test file imports `src/` directly, since that import would bypass the twin. A
 meta-test runs the layer's suite once per twin and passes only if every run exits non-zero. A twin that the suite cannot kill is a missing test, and the layer is not mergeable.
 
-## 5. CI order
+## 6. CI order
 
 1. `npm ci --ignore-scripts`, registry signature check, lockfile and pin checks.
 2. Semgrep with its rule tests (`semgrep --test`), line budget, duplication check, gitleaks.

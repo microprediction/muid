@@ -1,4 +1,4 @@
-// TESTING.md §4: tests reach the implementation only through tests/impl.mjs, so a broken twin swapped in there
+// TESTING.md §5: tests reach the implementation only through tests/impl.mjs, so a broken twin swapped in there
 // replaces it everywhere. A direct import of src/ would silently bypass the twin.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'

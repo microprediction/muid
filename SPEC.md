@@ -132,14 +132,22 @@ Research: [`encoding.md`](research/encoding.md).
 {"payload":"<JCS text of {v, type, body}>","sig":<signature object>}
 ```
 
-- The envelope is itself canonical (E2).
+- The envelope is itself canonical (E2). Its keys are exactly `payload` and `sig`, except for a `root`, whose envelope
+  is `{"payload": …}` alone (§5: a root is unsigned).
 - **Signed bytes** = `UTF-8("muid/v1\n") ‖ UTF-8(payload)`. The verifier checks the signature over the payload bytes
   it received, then decodes those same bytes. It never re-serialises in order to verify.
 - **Record id** = hex SHA-256 of the signed bytes. It excludes the signature (§2).
 - **V1 VERSION:** `v` must equal 1. Any other value is rejected.
-- **V2 TYPE:** the verifier is told which `type` it expects; a mismatch is rejected.
+- **V2 TYPE:** the verifier is told which `type` it expects; a mismatch is rejected. Types form a closed list: `root`,
+  `delegation`, `attestation`, `membership`, `freeze`, `anchor`, `revocation`. Asking for any other type is a
+  programming error, not a reject.
 - **V3 ONE ALGORITHM PER TYPE:** the record type fixes the signature algorithm and the signer's role. Nothing in the
   record selects either.
+- **V4 SHAPE BEFORE MEANING:** `open(text, type)` checks, in this order, and refuses with the first that fails:
+  `envelope-encoding` (the text is not a canonical encoding), `envelope-shape` (keys other than above, `payload` not a
+  string, `sig` not an object), `payload-encoding`, `payload-shape` (keys other than `v`, `type`, `body`, or `body`
+  not an object), `version`, `type`. It returns `{ id, type, body, sig, payload }`, frozen, where `payload` is the
+  received text itself. The signature's contents are checked by the record type's own rules, not here.
 
 ## 5. Record types
 
