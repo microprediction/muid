@@ -49,7 +49,11 @@ jobs:
           node-version: '26'
       - name: Install (no install scripts)
         run: npm ci --ignore-scripts
-      - name: Mutation testing (fails below the break threshold in stryker.config.json)
+      - name: Mutation testing, encoder (fails below the break threshold in stryker.config.json)
         run: npx --no-install stryker run
+        env:
+          FC_RUNS: '60'
+      - name: Mutation testing, envelope
+        run: npx --no-install stryker run stryker.envelope.config.json
         env:
           FC_RUNS: '60'

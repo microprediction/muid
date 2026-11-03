@@ -4,11 +4,12 @@ import assert from 'node:assert/strict'
 import fc from 'fast-check'
 import { env, envelopeText, oracleId, deepFrozen, TYPES } from './helpers.mjs'
 import { record as inDomainObject } from '../encoding/arbitraries.mjs'
+import { encoding } from '../impl.mjs'
 
 const SEED = Number(process.env.FC_SEED ?? 20261103)
 const RUNS = Number(process.env.FC_RUNS ?? 300)
 const signed = fc.constantFrom(...TYPES.filter((t) => t !== 'root'))
-const sig = inDomainObject.map((o) => JSON.stringify(o))
+const sig = inDomainObject.map((o) => encoding.encode(o)) // canonical sig text
 
 test('Q1: changing only sig never changes the id', () => {
   fc.assert(fc.property(signed, inDomainObject, sig, sig, (type, body, s1, s2) => {

@@ -159,8 +159,8 @@ Signatures are not checked here; layers 3 and 4 check them over `signedBytes(pay
 
 - The `payload` returned is the received payload text: equal to the substring of `text` that the envelope's `payload`
   decodes to, and `signedBytes` of it equals the prefix followed by that text's UTF-8. A twin that re-serialises the
-  body before hashing cannot be caught by any vector while E2 holds; a guard test fails if `src/envelope.js` calls
-  `encode` anywhere other than inside `seal`.
+  body before hashing cannot be caught by any vector while E2 holds; a guard test fails if `src/envelope.js` uses
+  `encode` anywhere other than its import and the bodies of `seal` and `wrap`.
 - `signedBytes` returns a new array on every call; mutating one never changes another or a later `id`.
 
 ### 3.5 Broken twins

@@ -20,6 +20,8 @@ const CASES = [
   ['a top-level array', '[1]', 'envelope-encoding'],
   ['an extra key', `{"payload":${JSON.stringify(P)},"sig":{},"x":1}`, 'envelope-shape'],
   ['payload missing', '{"sig":{}}', 'envelope-shape'],
+  ['two keys, the second misnamed', `{"payload":${JSON.stringify(P)},"sih":{}}`, 'envelope-shape'],
+  ['two keys, the first misnamed', `{"pay":${JSON.stringify(P)},"sig":{}}`, 'envelope-shape'],
   ['payload a number', '{"payload":1,"sig":{}}', 'envelope-shape'],
   ['payload an object', `{"payload":${P},"sig":{}}`, 'envelope-shape'],
   ['sig an array', envelopeText(P, '[]'), 'envelope-shape'],
@@ -35,6 +37,9 @@ const CASES = [
   ['payload without body', envelopeText('{"type":"delegation","v":1}', '{}'), 'payload-shape'],
   ['payload without v', envelopeText('{"body":{},"type":"delegation"}', '{}'), 'payload-shape'],
   ['payload without type', envelopeText('{"body":{},"v":1}', '{}'), 'payload-shape'],
+  ['payload with v misnamed', envelopeText('{"body":{},"type":"delegation","w":1}', '{}'), 'payload-shape'],
+  ['payload with body misnamed', envelopeText('{"bod":{},"type":"delegation","v":1}', '{}'), 'payload-shape'],
+  ['payload with type misnamed', envelopeText('{"body":{},"typf":"delegation","v":1}', '{}'), 'payload-shape'],
   ['body an array', envelopeText(payloadText('delegation', '[]'), '{}'), 'payload-shape'],
   ['body a string', envelopeText(payloadText('delegation', '"x"'), '{}'), 'payload-shape'],
   ['v 0', envelopeText(payloadText('delegation', '{}', '0'), '{}'), 'version'],
@@ -50,6 +55,17 @@ const CASES = [
 for (const [name, text, reason] of CASES) {
   test(`${name} → ${reason}`, () => refuses(() => env.open(text, 'delegation'), reason, name))
 }
+
+test('a root envelope with its one key misnamed is refused for its shape', () => {
+  refuses(() => env.open(`{"pay":${JSON.stringify(payloadText('root'))}}`, 'root'), 'envelope-shape', 'root key misnamed')
+})
+
+test('a root opens without a sig key at all', () => {
+  const r = env.open(envelopeText(payloadText('root')), 'root')
+  assert.equal(Object.hasOwn(r, 'sig'), false)
+  assert.deepEqual(Object.keys(r), ['id', 'type', 'body', 'payload'])
+  assert.deepEqual(Object.keys(env.open(ok, 'delegation')), ['id', 'type', 'body', 'sig', 'payload'])
+})
 
 test('a root with sig is refused for its shape', () => {
   refuses(() => env.open(envelopeText(payloadText('root'), '{}'), 'root'), 'envelope-shape', 'root with sig')
@@ -81,7 +97,7 @@ test('every V2 type opens as itself and is refused as each other type', () => {
 
 test('asking for a type outside the closed list is a programming error, not a refusal', () => {
   for (const t of ['unknown', '', 'Root', undefined, 1]) {
-    assert.throws(() => env.open(ok, t), TypeError, String(t))
-    assert.throws(() => env.seal(t, {}), TypeError, String(t))
+    assert.throws(() => env.open(ok, t), { name: 'TypeError', message: 'unknown record type' }, String(t))
+    assert.throws(() => env.seal(t, {}), { name: 'TypeError', message: 'unknown record type' }, String(t))
   }
 })
