@@ -2,6 +2,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { root, envelope } from '../impl.mjs'
+import { createHash, generateKeyPairSync } from 'node:crypto'
 import { KEY, RP_ID } from '../assertion/helpers.mjs'
 
 const { checkRoot, identityOf } = root
@@ -63,7 +64,36 @@ test('results are frozen; arbitrary values never throw; a bad context is a progr
 })
 
 test('identityOf refuses anything but a 64-hex id', () => {
-  for (const x of [undefined, 1, ROOT_ID.toUpperCase(), ROOT_ID.slice(1), ROOT_ID + '0', 'g'.repeat(64)]) {
+  for (const x of [undefined, 1, [ROOT_ID], { toString: () => ROOT_ID }, ROOT_ID.toUpperCase(), ROOT_ID.slice(1), ROOT_ID + '0', 'g'.repeat(64)]) {
     assert.throws(() => identityOf(x), { name: 'TypeError', message: 'root id must be 64 lowercase hex' })
   }
+})
+
+test('a foreign error from opening (patched built-ins in the hash library) fails closed, never throws', () => {
+  const t = text({ pub: KEY, rp_id: RP_ID })
+  const original = Uint8Array.prototype.fill
+  Uint8Array.prototype.fill = function () { throw new Error('patched') }
+  let out
+  try { out = { ...checkRoot(t, CTX) } } catch (e) { out = { threw: String(e) } } finally { Uint8Array.prototype.fill = original }
+  assert.deepEqual(out, { ok: false, reason: 'envelope-encoding' })
+})
+
+test('oracle: for generated keys, the root id and identity id match node:crypto SHA-256 over the specified bytes', () => {
+  for (let n = 0; n < 40; n++) {
+    const jwk = generateKeyPairSync('ec', { namedCurve: 'P-256' }).publicKey.export({ format: 'jwk' })
+    const pub = '04' + Buffer.from(jwk.x, 'base64url').toString('hex') + Buffer.from(jwk.y, 'base64url').toString('hex')
+    const want = createHash('sha256').update(Buffer.concat([Buffer.from('muid-root\n' + RP_ID + '\n'), Buffer.from(pub, 'hex')])).digest('hex')
+    const r = result(text({ pub, rp_id: RP_ID }))
+    assert.deepEqual(r, { ok: true, id: want, key: pub })
+    assert.equal(root.rootIdOf(RP_ID, pub), want)
+    const ident = createHash('sha256').update(Buffer.concat([Buffer.from('muid-identity\n'), Buffer.from(want, 'hex')])).digest('hex')
+    assert.equal(identityOf(want), ident)
+  }
+})
+
+test('a context read once: a getter cannot change rpId between reads', () => {
+  let reads = 0
+  const ctx = { get rpId () { return reads++ === 0 ? RP_ID : 'other.example' } }
+  assert.deepEqual(result(text({ pub: KEY, rp_id: RP_ID }), ctx), { ok: true, id: ROOT_ID, key: KEY })
+  assert.equal(reads, 1)
 })

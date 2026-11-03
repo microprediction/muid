@@ -71,12 +71,23 @@ function verifies (sig, message, key) {
   return false
 }
 
+// K6's key checks: the first key reason, or undefined for a usable key.
+function keyReason (key) {
+  if (typeof key !== 'string' || apply(exec, KEY_HEX, [key]) === null) return 'key-encoding'
+  return isPoint(fromHex(key)) ? undefined : 'key-point'
+}
+
+// K6's key checks alone, for a key named before anything is signed with it (a root's pub).
+export function checkP256Key (key) {
+  return result(keyReason(key))
+}
+
 export function checkP256 (sig, message, key) {
   const msg = snapshot(message)
   if (msg === undefined) throw new TypeError('message must be a Uint8Array')
-  if (typeof key !== 'string' || apply(exec, KEY_HEX, [key]) === null) return result('key-encoding')
+  const keyFault = keyReason(key)
+  if (keyFault) return result(keyFault)
   const keyBytes = fromHex(key)
-  if (!isPoint(keyBytes)) return result('key-point')
   const sigBytes = snapshot(sig) // undefined fails isDer
   if (!isDer(sigBytes)) return result('sig-encoding')
   return result(verifies(sigBytes, msg, keyBytes) ? undefined : 'sig-invalid')

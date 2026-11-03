@@ -27,7 +27,7 @@ const TWINS = [
   ['compressed-keys', 'compressed and hybrid keys are accepted', [
     ['const KEY_HEX = /^04[0-9a-f]{128}$/', 'const KEY_HEX = /^(?:0[23][0-9a-f]{64}|0[467][0-9a-f]{128})$/']]],
   ['no-point-check', 'a key off the curve reaches verify, so the reason is wrong', [
-    ["  if (!isPoint(keyBytes)) return result('key-point')\n", '']]],
+    ["  return isPoint(fromHex(key)) ? undefined : 'key-point'", '  return undefined']]],
   ['library-throw-escapes', 'a throw from the library leaves checkP256', [
     ['  } catch { /* a throw is a reject (K2) */ }', '  } finally { /* none */ }']]],
   ['no-snapshot', 'a subclass can change the bytes while they are verified', [
