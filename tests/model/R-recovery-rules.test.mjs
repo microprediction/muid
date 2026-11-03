@@ -49,6 +49,6 @@ test('R5: the state does not depend on the order of the items', () => {
     const expected = evaluate('a', items, rule)
     fc.assert(fc.property(fc.shuffledSubarray(items, { minLength: items.length }), (shuffled) => {
       assert.deepEqual(evaluate('a', shuffled, rule), expected)
-    }), { seed: 20261103, numRuns: 200 })
+    }), { seed: Number(process.env.FC_SEED ?? 20261103), numRuns: Number(process.env.FC_RUNS ?? 200) })
   }
 })

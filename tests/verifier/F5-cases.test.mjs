@@ -167,7 +167,7 @@ test('F3: adding revocations never turns a refusal into an accept', () => {
     const narrow = call({}, { revoked: a, scope })
     const wider = call({}, { revoked: [...a, ...b], scope })
     if (!narrow.ok) assert.equal(wider.ok, false)
-  }), { seed: 20261103, numRuns: 100 })
+  }), { seed: Number(process.env.FC_SEED ?? 20261103), numRuns: Number(process.env.FC_RUNS ?? 100) })
 })
 
 test('programming errors: configuration, now, scope, revoked', () => {
