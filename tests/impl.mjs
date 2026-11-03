@@ -29,3 +29,4 @@ export const delegation = await load('MUID_DELEGATION_IMPL', '../src/delegation.
 export const root = await load('MUID_ROOT_IMPL', '../src/root.js')
 export const bytes = await load('MUID_BYTES_IMPL', '../src/bytes.js')
 export const attestation = await load('MUID_ATTESTATION_IMPL', '../src/attestation.js')
+export const membership = await load('MUID_MEMBERSHIP_IMPL', '../src/membership.js')

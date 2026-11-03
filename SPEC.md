@@ -256,8 +256,10 @@ One membership record is carried by several envelopes with the same payload, eac
 membership" means a membership record id, or the identity id for epoch 1.
 
 Records the witness signs about membership (V3: witness key; checked against that key's window at their own `at`):
-**anchor** `{ record, at }` and **settlement** `{ identity, prev, outcome, at }`. A root-signed **contest**
-`{ identity, record }` and **freeze** `{ identity, membership }` complete the set.
+**anchor** `{ identity, record, at }` and **settlement** `{ identity, prev, outcome, at }`, each with A4's
+`sig = { signature, witness }`. A root-signed **contest** `{ identity, record }` and **freeze**
+`{ identity, membership }` complete the set. A membership, contest or freeze record may be signed by several roots,
+one envelope each, so its `sig` names the signer: `{ root, assertion }`, where `assertion` is W0–W6's object.
 
 - **R1 CHANGE BY MAJORITY:** a membership record is valid only if signed by a strict majority of `prev`'s roots and by
   every root it adds. A root is retired by leaving it out.
@@ -283,6 +285,17 @@ Records the witness signs about membership (V3: witness key; checked against tha
   contests and freezes the verifier holds, never of their order. The only time used is the witness's `at`. Because
   only one record per `prev` is ever anchored, a verifier holding fewer records can be behind, never on another
   branch.
+
+- **R8 STATE, AS A FUNCTION:** `membershipState(records, ctx)`, with `records` grouped by type (`roots`,
+  `memberships`, `contests`, `freezes`, `anchors`, `settlements`, each a list of envelope texts) and
+  `ctx = { identity, rpId, origin, witnessKeys }`, verifies each record on its own — a record that does not verify
+  carries no authority and is ignored — and returns `{ ok: true, dead: true }`, or
+  `{ ok: true, dead: false, membership, epoch, roots, pending, authority, frozen }`, or `{ ok: false, reason }`
+  with `unknown-identity` when no root record given is the identity's first root. A signature counts only if its
+  root's key comes from a root record given (`checkRoot`) and its assertion covers that record's id. It never
+  throws for any `records`; a malformed `ctx` is a programming error. `model/settled.mjs` is its specification in
+  executable form: every state the model's explorer reaches, and every partial view of it, is translated into
+  signed records and must give the model's answer.
 
 Why the witness: without a trusted time, a record signed late cannot be told from one signed early. Every set of
 roots that was ever a majority of any epoch — including the first root alone, and roots long retired — could then
@@ -467,7 +480,7 @@ test fails the build on any direct `indexedDB` or `localStorage` use outside the
 7. **Freshness — needed before delegations are specified.** An independent review showed that without a fresh view
    of membership, a stolen retired or first root can sign delegations that a verifier accepts indefinitely, and a
    network attacker only has to withhold records. A verifier cannot tell "no newer settlement exists" from "none was
-   shown to me" without something time-stamped. Recommendation: **R8 FRESH HEAD** — the witness signs, on request, a
+   shown to me" without something time-stamped. Recommendation: **R9 FRESH HEAD** — the witness signs, on request, a
    head `{ identity, settled, pending, at }`; a delegate presents a head no older than `MAX_STALENESS` together with
    its delegation (as OCSP stapling does), and the verifier checks the delegation's membership against the head
    rather than against whatever records it was given. The cost is that every delegate must reach the witness at least
