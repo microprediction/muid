@@ -54,7 +54,11 @@ test('ORCID accounts: dddd-dddd-dddd-dddX with the ISO 7064 MOD 11-2 check digit
   // Example iDs published by ORCID.
   for (const account of ['0000-0002-1825-0097', '0000-0001-5109-3700', '0000-0002-1694-233X']) assert.deepEqual(result(o(account)), { ok: true }, account)
   for (const account of ['0000-0002-1825-0098', '0000-0001-5109-3701', '0000-0002-1694-2330', '0000-0002-1694-233x',
-    '0000000218250097', 'https://orcid.org/0000-0002-1825-0097', '0000-0002-1825-009', '0000-0002-1825-00977', 'abcd-0002-1825-0097']) {
+    '0000000218250097', 'https://orcid.org/0000-0002-1825-0097', '0000-0002-1825-009', '0000-0002-1825-00977', 'abcd-0002-1825-0097',
+    'x0000-0002-1825-0097', '00000-002-1825-0097', '0000-00021-825-0097', '0000-0002-18250-097', '0000-0002-1825-00a7',
+    '0000 0002 1825 0097', '0000-0002-1825-009X',
+    // Characters just outside 0–9, with the check character that the arithmetic alone would accept.
+    '0000-0002-1825-00/5', '0000-0002-1825-00:5']) {
     rejects(o(account), 'account', account)
   }
 })
@@ -69,12 +73,14 @@ test('shape: keys, field forms, sig form', () => {
     rejects(make({ body: rest }), 'attestation-shape', `missing ${k}`)
   }
   rejects(make({ body: { ...BODY, extra: 1 } }), 'attestation-shape', 'extra')
-  for (const [k, v] of [['root', 'A'.repeat(64)], ['root', '4'.repeat(63)], ['provider', 1], ['account', 583231], ['nbf', -1], ['exp', '1']]) {
+  for (const [k, v] of [['root', 'A'.repeat(64)], ['root', '4'.repeat(63)], ['root', '4'.repeat(65)], ['root', 'x' + '4'.repeat(64)],
+    ['root', ['4'.repeat(64)]], ['provider', 1], ['account', 583231], ['nbf', -1], ['exp', '1']]) {
     rejects(make({ body: { ...BODY, [k]: v } }), 'attestation-shape', `${k} ${v}`)
   }
   const { payload } = envelope.seal('attestation', BODY)
   for (const sig of [{ signature: 'ab', witness: K1 }, { signature: '0'.repeat(128) }, { signature: '0'.repeat(128), witness: K1, x: 1 },
-    { signature: '0'.repeat(128), witness: K1.toUpperCase() }, { signature: '0'.repeat(128).toUpperCase(), witness: K1 }]) {
+    { signature: '0'.repeat(128), witness: K1.toUpperCase() }, { signature: '0'.repeat(129), witness: K1 },
+    { signature: 'x' + '0'.repeat(128), witness: K1 }, { signature: '0'.repeat(128), witness: K1 + 'a' }, { signature: '0'.repeat(128), witness: 'x' + K1 }, { signature: 'a'.repeat(128).toUpperCase(), witness: K1 }]) {
     rejects(envelope.wrap(payload, sig), 'attestation-shape', JSON.stringify(sig).slice(0, 40))
   }
 })
@@ -109,7 +115,8 @@ test('signature: over the signed bytes; any change is refused', () => {
 
 test('context: well formed and read once; totality', () => {
   for (const ctx of [undefined, null, { ...CTX, now: -1 }, { ...CTX, skew: 1.5 }, { ...CTX, maxLifetime: '1' }, { ...CTX, witnessKeys: null },
-    { ...CTX, witnessKeys: [{ key: 'ab', nbf: 0, exp: 1 }] }, { ...CTX, witnessKeys: [{ key: K1, nbf: 0 }] }]) {
+    { ...CTX, witnessKeys: [{ key: 'ab', nbf: 0, exp: 1 }] }, { ...CTX, witnessKeys: [{ key: K1, nbf: 0 }] },
+    { ...CTX, witnessKeys: [null] }, { ...CTX, witnessKeys: [undefined] }, { ...CTX, witnessKeys: [K1] }]) {
     assert.throws(() => checkAttestation(ok, ctx), { name: 'TypeError', message: 'context must hold witnessKeys and non-negative now, skew, maxLifetime' })
   }
   let reads = 0
@@ -118,4 +125,12 @@ test('context: well formed and read once; totality', () => {
   assert.equal(reads, 1)
   for (const t of [undefined, 1, 'x', ok + ' ']) assert.equal(checkAttestation(t, CTX).ok, false)
   rejects(envelope.wrap(envelope.seal('delegation', BODY).payload, {}), 'type', 'a delegation')
+})
+
+test('a foreign error from opening (patched built-ins in the hash library) fails closed, never throws', () => {
+  const original = Uint8Array.prototype.fill
+  Uint8Array.prototype.fill = function () { throw new Error('patched') }
+  let out
+  try { out = { ...checkAttestation(ok, CTX) } } catch (e) { out = { threw: String(e) } } finally { Uint8Array.prototype.fill = original }
+  assert.deepEqual(out, { ok: false, reason: 'envelope-encoding' })
 })
