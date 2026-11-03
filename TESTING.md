@@ -416,5 +416,7 @@ Three kinds of job run in parallel, so wall time is the slowest single job, not 
 3. **Mutation testing:** one job per core module.
 
 Guards fail the build if a test file is in no job, a module has no mutation config, or a config is not in the
-matrix. Still to add when their tools are approved: Semgrep with its rule tests, a duplication check, gitleaks,
+matrix, and if a dependency is not pinned (exact versions, a lockfile that agrees, the public registry over https
+with sha512 integrity, no install scripts, nothing at runtime but the two noble packages); the pin guard runs against
+eighteen edited copies of the real files and must name each fault. Still to add when their tools are approved: Semgrep with its rule tests, a duplication check, gitleaks,
 CodeQL.

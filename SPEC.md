@@ -591,12 +591,11 @@ never afterwards. Details and thresholds: `TESTING.md`; sources: [`assurance.md`
 | Coverage of the core | any uncovered line, branch or function |
 | Core bans (a guard test) | in core files: `async`/`await`, clock and randomness reads, `JSON.parse` outside the decoder, imports other than noble and the core itself |
 | Line budget, skipped tests, vector pinning, CI coverage of every test file and module | as named |
-| Supply chain | install scripts (`npm ci --ignore-scripts`); unverified registry signatures |
+| Supply chain | install scripts (`npm ci --ignore-scripts`); unverified registry signatures; a dependency not pinned exactly, a lockfile entry from another registry or without sha512 integrity, an install script, or anything at runtime but the two noble packages |
 | CI hardening | an action not pinned by commit SHA; a workflow with write permissions it does not need; any `pull_request_target` |
 
 **Planned gates** (they count once they run): Semgrep with rule tests; duplication (jscpd); CodeQL
-(`security-extended`); gitleaks; a SimpleWebAuthn differential for root assertions; guards for exact pins and the
-release-age cooldown.
+(`security-extended`); gitleaks; a SimpleWebAuthn differential for root assertions; a release-age cooldown.
 
 **Scheduled, not gating**
 
