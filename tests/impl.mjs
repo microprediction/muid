@@ -22,3 +22,4 @@ async function load (variable, path) {
 export const encoding = await load('MUID_ENCODING_IMPL', '../src/encode.js')
 export const envelope = await load('MUID_ENVELOPE_IMPL', '../src/envelope.js')
 export const ed25519 = await load('MUID_ED25519_IMPL', '../src/ed25519.js')
+export const p256 = await load('MUID_P256_IMPL', '../src/p256.js')

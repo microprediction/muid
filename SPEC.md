@@ -60,6 +60,11 @@ which root.
   torsion-free. Without this a signer can add a small-order component to R that noble accepts and WebCrypto
   rejects — two verdicts on one record. Strict rejection makes every engine agree.
 - **K2 NO THROW ESCAPES:** any library call that throws inside a decision is a reject.
+- **K6 P-256 CHECKS, IN ORDER:** `checkP256(sig, message, key)` returns `{ ok: true }` or `{ ok: false, reason }` and
+  never throws for any `sig` and `key` value (a `message` that is not a `Uint8Array` is a programming error). `key` is
+  130 lowercase hex characters: the uncompressed point `04 ‖ x ‖ y`. `sig` is the DER bytes. Reasons: `key-encoding`
+  (not that hex, or not `04`-prefixed), `key-point` (not on the curve, or the point at infinity), `sig-encoding` (not
+  strict DER, or r or s outside [1, n−1]), `sig-invalid` (verified with `lowS: false`, `prehash: true`).
 - **K5 ED25519 CHECKS, IN ORDER:** `checkEd25519(sig, message, key)` returns `{ ok: true }` or `{ ok: false, reason }`
   and never throws for any `sig` and `key` value (a `message` that is not a `Uint8Array` is a programming error).
   `key` is 64 lowercase hex characters, `sig` 128. The first failure is the reason: `key-encoding` (not that hex),

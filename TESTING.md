@@ -203,6 +203,21 @@ uppercase hex accepted; a throw from the library escaping; built-ins looked up l
 Calling the library without `zip215: false` is not a twin: our canonical, prime-order checks run first, so no input
 reaches it on which the two modes differ.
 
+## 4a. Layer 3b — P-256 signatures (`src/p256.js`): K2, K6
+
+Interface under test: `checkP256(sig, message, key)` → frozen `{ ok: true }` or `{ ok: false, reason }` (K6).
+
+- **Wycheproof `ecdsa_secp256r1_sha256_test.json`** (484, count asserted): every verdict matches, with
+  `sig-encoding` for each BER or malformed-DER case and the 174 valid cases accepted — including those with high S.
+- **Differential, one direction:** whatever we accept, Node's ECDSA (OpenSSL) also accepts.
+- **Honest signatures:** Node-signed messages are accepted; so are the same signatures with S replaced by n − S
+  (passkeys emit both, §2); one changed byte of signature, message or key is rejected.
+- **Keys:** compressed (`02`/`03`), hybrid (`06`/`07`), a wrong length, uppercase hex: `key-encoding`; a point off the
+  curve, x or y ≥ p: `key-point`.
+- **K2:** arbitrary values as `sig` and `key` never throw; built-ins captured at load; built-ins the library uses can
+  only make it fail closed.
+- **Twins:** `lowS: true` (the library default); `prehash: false`; compressed keys accepted; a throw escaping.
+
 ## 5. Later layers (outline; each is expanded here before its code is written)
 
 1. **Envelope and record id:** expanded as §3.
