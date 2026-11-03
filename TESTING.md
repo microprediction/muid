@@ -76,7 +76,25 @@ reason code on refusal.
 
 Generators cover deep and wide nesting, every string class in §2.2, and integers concentrated near ±2^53 and 0.
 
+### 2.3a Hostile inputs (from adversarial review)
+
+- **H1 resource bounds:** 1e8-character strings (including NUL, whose escaped form exceeds the engine's string limit),
+  arrays and objects one element past their width bound, sparse length 2^32 − 1, a dense 2e6-element array: each
+  refused for `size` on entry, quickly, and never with a foreign error.
+- **H2 Proxies:** traps that throw Errors or non-Errors, revoked proxies, missing descriptors, invariant-breaking
+  `ownKeys`, a nested proxy mutating its parent, lengths that change between reads or are not non-negative safe
+  integers; and a counting proxy that proves every trap runs at most once per object and property (E6).
+- **H3 internal slots:** each detected kind refused when given a plain or null prototype; the residual kinds pinned
+  to their documented behaviour.
+- **H4 patched built-ins:** 30 built-ins patched after loading (RegExp exec/test, isWellFormed, sort, Number checks,
+  JSON, reflection, freeze, iteration, call/apply, the slot checks); results unchanged (E7). Results are captured
+  inside the patched window and asserted after restoring, because the assertion library uses the same built-ins.
+- **E8:** decoded containers have null prototypes; Object.prototype and Array.prototype pollution does not reach them.
+
 ### 2.4 Broken twins (each must make the suite fail)
+
+The meta-test generates 23 twins from `src/encode.js` (one targeted change each) plus one standalone
+`JSON.stringify` twin; the list below is the original set, and the meta-test file is the authoritative one.
 
 1. `JSON.stringify` with sorted keys and no domain checks.
 2. Accepts floats.

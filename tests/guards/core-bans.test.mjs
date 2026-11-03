@@ -42,7 +42,8 @@ const BANS = [
   ['async function or arrow', /\basync\b/],
   ['await', /\bawait\b/],
   ['promise chaining', /\.then\s*\(|\bPromise\b/],
-  ['wall clock', /\bDate\b|\bperformance\s*\.\s*now\b/],
+  // Reading the clock is banned; a reference such as Date.prototype.getTime (a brand check) is not a read.
+  ['wall clock', /\bDate\s*\.\s*now\b|\bnew\s+Date\b|(?<![.\w])Date\s*\(|\bperformance\s*\.\s*now\b/],
   ['non-cryptographic randomness', /\bMath\s*\.\s*random\b/],
   ['browser storage', /\b(?:indexedDB|localStorage|sessionStorage)\b/],
   ['network', /\b(?:fetch|XMLHttpRequest|WebSocket)\b/],
@@ -105,6 +106,9 @@ test('every ban fires on an example and ignores comments and strings', () => {
     assert.ok(re.test(codeOnly(EXAMPLES[label])), `${label} fires`)
     assert.ok(!re.test(codeOnly(`// ${EXAMPLES[label]}\n/* ${EXAMPLES[label]} */\nconst s = '${EXAMPLES[label].replace(/'/g, '')}'`)), `${label} ignores comments and strings`)
   }
+  const clock = BANS.find(([label]) => label === 'wall clock')[1]
+  for (const read of ['new Date()', 'Date(0)', 'performance.now()']) assert.ok(clock.test(read), read)
+  for (const reference of ['Date.prototype.getTime', 'x.Date(1)', 'const isDate = 1']) assert.ok(!clock.test(reference), reference)
   assert.ok(ALLOWED_IMPORT.test('./encode.js') && ALLOWED_IMPORT.test('@noble/curves/ed25519.js'))
   for (const bad of ['node:fs', 'canonicalize', '../tests/x.js', '@noble/curves', 'https://x.example/a.js', './Encode.js']) {
     assert.ok(!ALLOWED_IMPORT.test(bad), bad)

@@ -25,6 +25,13 @@ test('a trap that throws a non-Error value is refused as exotic', () => {
   refuses(() => encode({ a: p }), 'exotic', 'ownKeys throws 42')
 })
 
+test('a trap that throws null, undefined or a function is refused as exotic', () => {
+  for (const thrown of [null, undefined, () => 1, 'text']) {
+    const p = new Proxy({}, { ownKeys () { throw thrown } })
+    refuses(() => encode({ a: p }), 'exotic', `throws ${typeof thrown} ${String(thrown)}`)
+  }
+})
+
 test('a getPrototypeOf trap that throws is refused as exotic', () => {
   const p = new Proxy({}, { getPrototypeOf () { throw new Error('no') } })
   refuses(() => encode({ a: p }), 'exotic', 'getPrototypeOf throws')
@@ -62,6 +69,13 @@ test('an array proxy whose length changes between reads cannot loop: length is r
   assert.ok(r.ms < 1000, `took ${Math.round(r.ms)} ms`)
   assert.ok(reads <= 1, `length read ${reads} times`)
   if (r.error) assert.ok(r.error instanceof EncodingError, String(r.error))
+})
+
+test('an array proxy whose length is not a non-negative safe integer is refused as exotic', () => {
+  for (const length of [-1, 1.5, NaN, '3', 2 ** 53, undefined]) {
+    const p = new Proxy([], { get: (t, k) => (k === 'length' ? length : Reflect.get(t, k)) })
+    refuses(() => encode({ a: p }), 'exotic', `length ${String(length)}`)
+  }
 })
 
 test('every trap runs at most once per object and per property (read once)', () => {

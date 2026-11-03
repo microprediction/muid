@@ -2,25 +2,72 @@
 //
 // E1 INJECTIVE         distinct values encode to distinct bytes.
 // E2 CANONICAL INPUT   decode(t) succeeds only if encode(decode(t)) === t, byte for byte.
-// E3 TOTAL OR REFUSED  a value outside the domain throws EncodingError; nothing is dropped or converted.
-// E4 BOUNDED           at most MAX_BYTES of UTF-8 and MAX_DEPTH levels; encoding stops as soon as either is exceeded.
+// E3 TOTAL OR REFUSED  a value outside the domain throws EncodingError; nothing is dropped or converted, and nothing
+//                      but an EncodingError ever leaves encode or decode.
+// E4 BOUNDED           at most MAX_BYTES of UTF-8 and MAX_DEPTH levels; work stops as soon as either is exceeded,
+//                      and no container or string is enumerated or copied past what the limit allows.
 // E5 ONE REASON        a refusal carries exactly one reason, found in the order SPEC §3 defines.
+// E6 READ ONCE         every property descriptor, prototype, key list and array length is read exactly once.
+// E7 OWN INTRINSICS    only built-ins captured when this module loaded are used; later patching changes nothing.
+// E8 NULL PROTOTYPES   decoded objects and arrays have null prototypes and are deeply frozen.
 //
 // Domain: plain objects (keys ^[a-z][a-z0-9_]{0,31}$), dense plain arrays, well-formed strings, safe integers (no -0),
-// true, false. No null, no floats. The top level is a plain object.
+// true, false. No null, no floats. The top level is a plain object. "Plain" means a prototype of Object.prototype or
+// null (Array.prototype or null for arrays) and no internal slots. A Proxy cannot be detected in a browser; E3, E4
+// and E6 make one harmless, and it can choose only what is encoded, as any caller can.
+
+// E7: captured at load.
+// Object.defineProperty and Object.setPrototypeOf throw on failure; their Reflect versions return false silently.
+const { apply, ownKeys, getPrototypeOf } = Reflect
+const { getOwnPropertyDescriptor, hasOwn, is, freeze, create, defineProperty, setPrototypeOf } = Object
+const { isArray } = Array
+const { isFinite, isInteger, isSafeInteger } = Number
+const { isView } = ArrayBuffer
+const stringify = JSON.stringify
+const parse = JSON.parse
+const ObjectPrototype = Object.prototype
+const ArrayPrototype = Array.prototype
+const sort = Array.prototype.sort
+const charCodeAt = String.prototype.charCodeAt
+const isWellFormed = String.prototype.isWellFormed
+const exec = RegExp.prototype.exec
+const SetCtor = Set
+const setHas = Set.prototype.has
+const setAdd = Set.prototype.add
+const setDelete = Set.prototype.delete
+// Every function applied with NO_ARGS ignores its arguments.
+// Stryker disable next-line ArrayDeclaration: equivalent; see the line above.
+const NO_ARGS = freeze([])
+
+// Internal slots (E3). Object.prototype.toString reports the slot of a Number, String or Boolean wrapper, Date, RegExp,
+// Error or arguments object whatever its prototype, and isView finds typed arrays and DataView; both are cheap and
+// never throw for an ordinary object. Symbol and BigInt wrappers, Map, Set, WeakMap, WeakSet, WeakRef, ArrayBuffer,
+// SharedArrayBuffer and Promise can only be told from {} by brand checks that throw — about a thousand times slower on
+// every plain object — so one of those given a plain prototype by code in the page encodes as its own properties
+// (SPEC §3, residual; pinned by tests/encoding/H3-exotic-objects.test.mjs).
+const toString = Object.prototype.toString
 
 export const MAX_BYTES = 65536
 export const MAX_DEPTH = 16
 
 const KEY = /^[a-z][a-z0-9_]{0,31}$/
 
+// A refusal is recognised by an unforgeable private brand, never by instanceof or a property. The class and its
+// prototype are frozen, so neither the brand test nor the name can be replaced.
 export class EncodingError extends Error {
+  #refusal
+  static isRefusal (e) {
+    return typeof e === 'object' && e !== null && #refusal in e
+  }
+
   constructor (reason) {
     super(`encoding refused: ${reason}`) // the message never carries the data being refused
-    this.name = 'EncodingError'
-    this.reason = reason
+    defineProperty(this, 'reason', { __proto__: null, value: reason, enumerable: true }) // read-only
   }
 }
+defineProperty(EncodingError.prototype, 'name', { __proto__: null, value: 'EncodingError' })
+freeze(EncodingError)
+freeze(EncodingError.prototype)
 
 function fail (reason) {
   throw new EncodingError(reason)
@@ -31,57 +78,59 @@ function fail (reason) {
 function utf8Length (s) {
   let n = 0
   for (let i = 0; i < s.length; i++) {
-    const c = s.charCodeAt(i)
+    const c = apply(charCodeAt, s, [i])
     if (c < 0x80) n += 1
     else if (c < 0x800) n += 2
     else if (c >= 0xd800 && c <= 0xdbff) {
-      const d = s.charCodeAt(i + 1)
+      const d = apply(charCodeAt, s, [i + 1])
       if (d >= 0xdc00 && d <= 0xdfff) { n += 4; i++ } else n += 3
     } else n += 3
   }
   return n
 }
 
-function isPlainObject (v) {
-  if (v === null || typeof v !== 'object' || Array.isArray(v)) return false
-  const proto = Object.getPrototypeOf(v)
-  return proto === Object.prototype || proto === null
+function hasInternalSlot (v) {
+  return isView(v) || apply(toString, v, NO_ARGS) !== '[object Object]'
 }
 
-// Reads one own data property. Accessors are refused without being invoked: a descriptor is a data descriptor
-// exactly when it has its own `value`.
-function dataValue (container, key) {
-  const d = Object.getOwnPropertyDescriptor(container, key)
-  if (!Object.hasOwn(d, 'value')) fail('accessor')
+// The value of a property, from its one descriptor read. Accessors are refused without being invoked: a descriptor
+// is a data descriptor exactly when it has its own `value`.
+// A key listed by ownKeys yet without a descriptor (only a Proxy can do this) makes hasOwn throw: refused as exotic.
+function dataValue (d) {
+  if (!hasOwn(d, 'value')) fail('accessor')
   if (!d.enumerable) fail('non-enumerable')
   return d.value
 }
 
 class Writer {
   constructor () {
-    this.parts = []
+    this.out = ''
     this.bytes = 0
-    this.path = new Set()
+    this.path = new SetCtor()
   }
 
   emit (s) {
     this.bytes += utf8Length(s)
     if (this.bytes > MAX_BYTES) fail('size')
-    this.parts.push(s)
+    this.out += s
   }
 
   value (x, depth) {
     switch (typeof x) {
       case 'string':
-        if (!x.isWellFormed()) fail('surrogate')
-        this.emit(JSON.stringify(x))
+        if (!apply(isWellFormed, x, NO_ARGS)) fail('surrogate')
+        // A string encodes in at least its length plus two quotes, and a value is always followed by at least one
+        // byte (a comma or a closing bracket), so this refuses nothing that fits — and copies nothing that cannot.
+        // Stryker disable next-line ArithmeticOperator: a weaker bound only defers the refusal to emit().
+        if (this.bytes + x.length + 3 > MAX_BYTES) fail('size')
+        this.emit(stringify(x))
         return
       case 'number':
-        if (!Number.isFinite(x)) fail('non-finite')
-        if (Object.is(x, -0)) fail('negative-zero')
-        if (!Number.isInteger(x)) fail('float')
-        if (!Number.isSafeInteger(x)) fail('unsafe-integer')
-        this.emit(String(x))
+        if (!isFinite(x)) fail('non-finite')
+        if (is(x, -0)) fail('negative-zero')
+        if (!isInteger(x)) fail('float')
+        if (!isSafeInteger(x)) fail('unsafe-integer')
+        this.emit('' + x)
         return
       case 'boolean':
         this.emit(x ? 'true' : 'false')
@@ -91,45 +140,66 @@ class Writer {
         return
       case 'object':
         if (x === null) fail('null')
-        this.container(x, depth + 1)
+        this.container(x, depth + 1, false)
         return
       default: // bigint, symbol, function
         fail('type')
     }
   }
 
-  container (v, depth) {
-    if (this.path.has(v)) fail('cycle')
+  // E5 order on entry: cycle, depth, plainness, width, shape; then members.
+  container (v, depth, top) {
+    if (apply(setHas, this.path, [v])) fail('cycle')
     if (depth > MAX_DEPTH) fail('depth')
-    this.path.add(v)
-    if (Array.isArray(v)) this.array(v, depth)
+    apply(setAdd, this.path, [v])
+    const array = isArray(v)
+    const proto = getPrototypeOf(v)
+    const plain = proto === null || proto === (array ? ArrayPrototype : ObjectPrototype)
+    if (array && top) fail('top-level')
+    if (!plain || (!array && hasInternalSlot(v))) fail(top ? 'top-level' : 'non-plain')
+    if (array) this.array(v, depth)
     else this.object(v, depth)
-    this.path.delete(v)
+    apply(setDelete, this.path, [v])
   }
 
   array (a, depth) {
-    if (Object.getPrototypeOf(a) !== Array.prototype) fail('non-plain')
+    const length = a.length
+    if (!isSafeInteger(length) || length < 0) fail('exotic')
+    // At least one byte per element, the commas between them and the brackets (2L + 1 for L ≥ 1, 2 for L = 0),
+    // then at least one byte after the array.
+    // Stryker disable next-line ArithmeticOperator: a weaker bound only defers the refusal to emit().
+    if (this.bytes + 2 * length + 2 > MAX_BYTES) fail('size')
     // Own keys must be exactly the indices 0..length-1 plus "length": no holes, no extra or symbol properties.
-    if (Reflect.ownKeys(a).length !== a.length + 1) fail('array-shape')
-    for (let i = 0; i < a.length; i++) if (!Object.hasOwn(a, i)) fail('array-shape')
+    if (ownKeys(a).length !== length + 1) fail('array-shape')
+    // Stryker disable next-line ArrayDeclaration: every index of the array is assigned below before it is read.
+    const descriptors = []
+    for (let i = 0; i < length; i++) {
+      const d = getOwnPropertyDescriptor(a, i)
+      if (d === undefined) fail('array-shape')
+      descriptors[i] = d
+    }
     this.emit('[')
-    for (let i = 0; i < a.length; i++) {
+    for (let i = 0; i < length; i++) {
       if (i > 0) this.emit(',')
-      this.value(dataValue(a, i), depth)
+      this.value(dataValue(descriptors[i]), depth)
     }
     this.emit(']')
   }
 
   object (o, depth) {
-    if (!isPlainObject(o)) fail('non-plain')
-    if (Object.getOwnPropertySymbols(o).length > 0) fail('symbol-key')
-    // Every own string key, enumerable or not, in UTF-16 code-unit order (RFC 8785 §3.2.3).
-    const keys = Object.getOwnPropertyNames(o).sort()
+    const keys = ownKeys(o) // every own key, enumerable or not, strings and symbols, in one read
+    // At least `"a":0` per member, the commas between them and the braces. The bound is never attained for more than
+    // 26 keys, which cannot all be one letter, so > and >= (or ±1) cannot be told apart by any value.
+    // Stryker disable next-line EqualityOperator,ArithmeticOperator: equivalent; see the line above.
+    if (6 * keys.length + 1 > MAX_BYTES) fail('size')
+    // Stryker disable next-line EqualityOperator: reading one past the end yields undefined, which is not a symbol.
+    for (let i = 0; i < keys.length; i++) if (typeof keys[i] === 'symbol') fail('symbol-key')
+    apply(sort, keys, NO_ARGS) // UTF-16 code-unit order (RFC 8785 §3.2.3)
     this.emit('{')
     for (let i = 0; i < keys.length; i++) {
       const k = keys[i]
-      if (!KEY.test(k)) fail('key')
-      const x = dataValue(o, k)
+      if (apply(exec, KEY, [k]) === null) fail('key')
+      const x = dataValue(getOwnPropertyDescriptor(o, k))
       if (i > 0) this.emit(',')
       this.emit('"' + k + '":') // the key grammar is ASCII with nothing to escape
       this.value(x, depth)
@@ -139,19 +209,28 @@ class Writer {
 }
 
 export function encode (value) {
-  if (!isPlainObject(value)) fail('top-level')
-  const w = new Writer()
-  w.container(value, 1)
-  return w.parts.join('')
+  try {
+    if (typeof value !== 'object' || value === null) fail('top-level')
+    const w = new Writer()
+    w.container(value, 1, true)
+    return w.out
+  } catch (e) {
+    if (EncodingError.isRefusal(e)) throw e
+    throw new EncodingError('exotic') // a trap or an exotic object threw something of its own
+  }
 }
 
-// Only applied to values encode() has accepted, which contain no null.
-function deepFreeze (v) {
-  if (typeof v === 'object') {
-    for (const x of Object.values(v)) deepFreeze(x)
-    Object.freeze(v)
+// A deeply frozen copy with null prototypes, built only from own data properties of JSON.parse output (E8).
+function nullPrototypeCopy (v) {
+  if (typeof v !== 'object') return v
+  const copy = isArray(v) ? setPrototypeOf([], null) : create(null)
+  const keys = ownKeys(v)
+  for (let i = 0; i < keys.length; i++) {
+    const k = keys[i]
+    if (k === 'length' && isArray(v)) continue // an array's length is not an element; it follows from them
+    defineProperty(copy, k, { __proto__: null, value: nullPrototypeCopy(v[k]), enumerable: true })
   }
-  return v
+  return freeze(copy)
 }
 
 export function decode (text) {
@@ -162,10 +241,10 @@ export function decode (text) {
   if (text.length > MAX_BYTES || utf8Length(text) > MAX_BYTES) fail('size')
   let value
   try {
-    value = JSON.parse(text)
+    value = parse(text)
   } catch {
     fail('syntax')
   }
   if (encode(value) !== text) fail('non-canonical')
-  return deepFreeze(value)
+  return nullPrototypeCopy(value)
 }

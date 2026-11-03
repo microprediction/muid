@@ -16,7 +16,7 @@ function containers (v, out = []) {
 
 test('every decoded object and array has a null prototype', () => {
   const all = containers(decode(TEXT))
-  assert.equal(all.length, 6)
+  assert.equal(all.length, 5) // the root, a, c, c[0] and c[1]
   for (const c of all) assert.equal(Object.getPrototypeOf(c), null)
   assert.ok(Array.isArray(decode(TEXT).c), 'arrays are still arrays')
 })

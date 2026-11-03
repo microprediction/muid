@@ -16,27 +16,27 @@ const SUITE = readdirSync(SUITE_DIR).filter((f) => f.endsWith('.test.mjs')).map(
 // [name, bug class, [find, replace] pairs]
 const TWINS = [
   ['floats-accepted', 'a non-integer is encoded instead of refused', [
-    ["        if (!Number.isInteger(x)) fail('float')\n        if (!Number.isSafeInteger(x)) fail('unsafe-integer')\n",
-      "        if (Math.abs(x) > Number.MAX_SAFE_INTEGER) fail('unsafe-integer')\n"]]],
+    ["        if (!isInteger(x)) fail('float')\n        if (!isSafeInteger(x)) fail('unsafe-integer')\n",
+      "        if (x > 9007199254740991 || x < -9007199254740991) fail('unsafe-integer')\n"]]],
   ['negative-zero-rewritten', '-0 silently becomes 0', [
-    ["if (Object.is(x, -0)) fail('negative-zero')", 'if (Object.is(x, -0)) x = 0']]],
+    ["if (is(x, -0)) fail('negative-zero')", 'if (is(x, -0)) x = 0']]],
   ['no-reencode-check', 'decode trusts JSON.parse: duplicate keys, whitespace and escapes pass', [
     ["if (encode(value) !== text) fail('non-canonical')", 'encode(value)']]],
   ['no-surrogate-check', 'lone surrogates are encoded', [
-    ["        if (!x.isWellFormed()) fail('surrogate')\n", '']]],
+    ["        if (!apply(isWellFormed, x, NO_ARGS)) fail('surrogate')\n", '']]],
   ['no-depth-limit', 'nesting is unbounded', [
     ["    if (depth > MAX_DEPTH) fail('depth')\n", '']]],
-  ['shallow-freeze', 'only the top level of a decoded value is frozen', [
-    ['    for (const x of Object.values(v)) deepFreeze(x)\n', '']]],
-  ['count-only-array-check', 'an array hole hidden by an extra property passes', [
-    ["    for (let i = 0; i < a.length; i++) if (!Object.hasOwn(a, i)) fail('array-shape')\n", '']]],
+  ['shallow-null-prototype', 'only the top level of a decoded value is copied, frozen and prototype-free', [
+    ['value: nullPrototypeCopy(v[k])', 'value: v[k]']]],
+  ['count-only-array-check', 'an array hole hidden by an extra property passes the shape check', [
+    ["      if (d === undefined) fail('array-shape')\n", '']]],
   ['utf16-size', 'size counted in UTF-16 code units instead of UTF-8 bytes', [
     ['this.bytes += utf8Length(s)', 'this.bytes += s.length'],
     [' || utf8Length(text) > MAX_BYTES', '']]],
   ['getter-invoked', 'an accessor is read instead of refused', [
-    ["if (!Object.hasOwn(d, 'value')) fail('accessor')", "if (!Object.hasOwn(d, 'value')) return container[key]"]]],
+    ["if (!hasOwn(d, 'value')) fail('accessor')", "if (!hasOwn(d, 'value')) return d.get ? d.get() : undefined"]]],
   ['unsorted-keys', 'keys emitted in insertion order', [
-    ['Object.getOwnPropertyNames(o).sort()', 'Object.getOwnPropertyNames(o)']]],
+    ['    apply(sort, keys, NO_ARGS)', '    keys']]],
   ['no-output-limit', 'output size is not checked while encoding', [
     ["    if (this.bytes > MAX_BYTES) fail('size')\n", '']]],
   ['underscore-keys', 'a key may start with an underscore (admits __proto__)', [
@@ -44,7 +44,28 @@ const TWINS = [
   ['non-enumerable-skipped', 'a non-enumerable property is treated as absent', [
     ["  if (!d.enumerable) fail('non-enumerable')\n  return d.value", '  return d.enumerable ? d.value : undefined']]],
   ['null-accepted', 'null is encoded', [
-    ["        if (x === null) fail('null')\n        this.container(x, depth + 1)", "        if (x === null) { this.emit('null'); return }\n        this.container(x, depth + 1)"]]],
+    ["        if (x === null) fail('null')\n        this.container(x, depth + 1, false)",
+      "        if (x === null) { this.emit('null'); return }\n        this.container(x, depth + 1, false)"]]],
+  // Hardening found by adversarial review: each must be shown to be necessary.
+  ['no-array-width-check', 'a wide array is enumerated before any size check', [
+    ["    if (this.bytes + 2 * length + 2 > MAX_BYTES) fail('size')", '    if (false) fail(\'size\')']]],
+  ['no-object-width-check', 'a wide object is enumerated and sorted before any size check', [
+    ["    if (6 * keys.length + 1 > MAX_BYTES) fail('size')", '    if (false) fail(\'size\')']]],
+  ['no-string-precheck', 'a huge string is copied and escaped before the size check', [
+    ["        if (this.bytes + x.length + 3 > MAX_BYTES) fail('size')\n", '']]],
+  ['foreign-throws-escape', 'a throw from a trap or exotic object leaves encode as itself', [
+    ["    throw new EncodingError('exotic')", '    throw e']]],
+  ['no-slot-check', 'an object with internal slots and a plain prototype is encoded as {}', [
+    ['(!array && hasInternalSlot(v))', 'false']]],
+  ['live-builtins', 'built-ins are looked up when called, so patching them later changes results', [
+    ['const stringify = JSON.stringify', 'const stringify = (x) => JSON.stringify(x)'],
+    ['apply(exec, KEY, [k]) === null', '!KEY.test(k)']]],
+  ['inherited-output', 'decoded objects and arrays inherit from the shared prototypes', [
+    ['const copy = isArray(v) ? setPrototypeOf([], null) : create(null)', 'const copy = isArray(v) ? [] : {}']]],
+  ['length-read-in-loop', 'an array length is read again on every iteration', [
+    ['    for (let i = 0; i < length; i++) {\n      const d', '    for (let i = 0; i < a.length; i++) {\n      const d']]],
+  ['descriptor-read-twice', 'a property descriptor is read twice', [
+    ['const x = dataValue(getOwnPropertyDescriptor(o, k))', 'getOwnPropertyDescriptor(o, k); const x = dataValue(getOwnPropertyDescriptor(o, k))']]],
 ]
 
 function run (implPath) {
@@ -94,7 +115,7 @@ test('broken twins', { timeout: 600_000 }, async (t) => {
         new URL('../twins/encoding/stringify.js', import.meta.url).pathname],
       ...TWINS.map(([name, why, edits]) => [name, why, generate(name, edits)]),
     ]
-    assert.equal(jobs.length, 15, 'twin count')
+    assert.equal(jobs.length, 24, 'twin count')
 
     // Each suite run already runs its files in parallel, so run only a few suites at a time.
     const results = []

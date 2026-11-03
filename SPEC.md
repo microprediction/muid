@@ -86,15 +86,36 @@ duplicate keys, whitespace, alternative escapes and key-order variants.
 **E4 BOUNDED:** `MAX_BYTES` = 65,536 bytes of UTF-8 and `MAX_DEPTH` = 16 (the top-level object is depth 1). Input
 longer than `MAX_BYTES` is refused before it is parsed. Encoding stops as soon as its output would exceed
 `MAX_BYTES`, so work is bounded by the limit even when one object is reachable by many paths. Nesting deeper than
-`MAX_DEPTH` is refused before recursion can exhaust the stack.
+`MAX_DEPTH` is refused before recursion can exhaust the stack. Nothing is enumerated or copied past what the limit
+allows. Every value is followed by at least one byte, so: an array of length L is refused on entry when the bytes
+already written + 2L + 2 exceed the limit; a string, before it is copied, when the bytes already written + its length
++ 3 do; an object with k keys, when 6k + 1 does. Each bound is a true minimum, so none refuses anything that fits; the
+array and string bounds are attained exactly, and tests pin a value that fits to the last byte.
 **E5 ONE REASON:** a refusal carries exactly one reason code, and it is the same for every implementation. The top
-level must be a plain object. Each container is checked on entry — cycle, then depth, then shape (prototype, symbol
-keys, array holes and extra properties). An object's members are then visited in canonical key order, each key
-checked (grammar, then data-property descriptor) before its value; array elements in index order. The first
-violation found is the reason. Numbers are checked in the order non-finite, `-0`, non-integer, unsafe integer. Reason
-codes: `top-level`, `key`, `symbol-key`, `accessor`, `non-enumerable`, `non-plain`, `array-shape`, `cycle`, `depth`,
-`size`, `null`, `undefined`, `non-finite`, `negative-zero`, `float`, `unsafe-integer`, `type`, `surrogate`, `syntax`,
-`non-canonical`.
+level must be a plain object. Each container is checked on entry — cycle, then depth, then plainness (prototype and
+internal slots), then width (E4), then shape (symbol keys, array holes and extra properties). An object's members are
+then visited in canonical key order, each key checked (grammar, then data-property descriptor) before its value;
+array elements in index order. The first violation found is the reason. Numbers are checked in the order non-finite,
+`-0`, non-integer, unsafe integer. Reason codes: `top-level`, `key`, `symbol-key`, `accessor`, `non-enumerable`,
+`non-plain`, `array-shape`, `cycle`, `depth`, `size`, `null`, `undefined`, `non-finite`, `negative-zero`, `float`,
+`unsafe-integer`, `type`, `surrogate`, `syntax`, `non-canonical`, `exotic`. `exotic` covers anything an object throws
+of its own while being read (a Proxy trap, a revoked Proxy) and a key listed without a descriptor; nothing other
+than an `EncodingError` ever leaves `encode` or `decode`.
+**E6 READ ONCE:** every prototype, key list, array length and property descriptor is read exactly once per encode, and
+the value encoded is the value read. A Proxy cannot be detected in a browser; with E4 and E6 it cannot loop, read
+twice or escape with a foreign error, and it can choose only what is encoded, as any caller can by building the
+object. The bytes are what get signed.
+**E7 OWN INTRINSICS:** the encoder uses only built-ins captured when its module loaded, called through a captured
+`Reflect.apply`, and no iteration protocol; code that patches a built-in afterwards changes no result.
+**E8 NULL PROTOTYPES:** `decode` returns objects and arrays with null prototypes, deeply frozen, so prototype pollution
+elsewhere in the page cannot make an absent field read as present. Arrays with a null prototype are in the domain.
+
+**Residual (accepted):** an object with internal slots that only an exception-throwing brand check could detect —
+Symbol and BigInt wrappers, Map, Set, WeakMap, WeakSet, WeakRef, ArrayBuffer, SharedArrayBuffer, Promise — encodes as
+its own properties if code in the page has given it a plain prototype. Checking for them would slow every plain object
+about a thousandfold; producing one requires deliberate re-prototyping by trusted code, and neither `decode` nor a
+Proxy can produce one. Number, String and Boolean wrappers, Date, RegExp, Error, arguments objects, typed arrays and
+DataView are detected.
 
 Research: [`encoding.md`](research/encoding.md).
 

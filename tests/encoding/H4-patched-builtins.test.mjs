@@ -86,12 +86,14 @@ const CASES = [
     () => encode({ b: [1], a: 'x' }), (r) => assert.equal(r.value, '{"a":"x","b":[1]}')],
   ['Reflect.apply', Reflect, 'apply', () => undefined,
     () => encode({ b: [1], a: 'x' }), (r) => assert.equal(r.value, '{"a":"x","b":[1]}')],
-  ['Map.prototype.has (a brand check)', Map.prototype, 'has', () => { throw new TypeError('x') },
-    () => encode({ a: Object.setPrototypeOf(new Map(), Object.prototype) }), (r) => refusedWith(r, 'non-plain')],
+  ['Object.prototype.toString (the slot check)', Object.prototype, 'toString', () => '[object Object]',
+    () => encode({ a: Object.setPrototypeOf(new Date(0), Object.prototype) }), (r) => refusedWith(r, 'non-plain')],
+  ['ArrayBuffer.isView (the slot check)', ArrayBuffer, 'isView', () => false,
+    () => encode({ a: Object.setPrototypeOf(new Uint8Array(0), Object.prototype) }), (r) => refusedWith(r, 'non-plain')],
 ]
 
 test('patched built-in case count', () => {
-  assert.equal(CASES.length, 29)
+  assert.equal(CASES.length, 30)
 })
 
 for (const [label, target, name, patch, run, check] of CASES) {

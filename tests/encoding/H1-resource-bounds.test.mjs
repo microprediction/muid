@@ -30,13 +30,21 @@ test('the string pre-check counts the bytes already written', () => {
   refuses(() => encode({ a: 'x'.repeat(30000), b: 'y'.repeat(35522) }), 'size', 'one over')
 })
 
-// An array of length L encodes in at least 2L + 1 bytes; an object with k keys in at least 6k + 1. A container that
-// cannot fit is refused on entry, before its members are looked at (E5 order: cycle, depth, width, shape).
-test('array width: refused on entry exactly when 2L + 1 > MAX_BYTES', () => {
-  const fits = new Array(32767).fill(0); fits[0] = null
-  const wide = new Array(32768).fill(0); wide[0] = null
-  refuses(() => encode({ a: fits }), 'null', 'L = 32767 passes the width check, then meets null')
-  refuses(() => encode({ a: wide }), 'size', 'L = 32768 is refused on entry')
+// An array of length L needs at least 2L + 1 bytes and is followed by at least one more; an object with k keys needs
+// at least 6k + 1. A container that cannot fit is refused on entry, before its members are looked at (E5 order:
+// cycle, depth, plainness, width, shape).
+test('array width: refused on entry exactly when bytes written + 2L + 2 > MAX_BYTES', () => {
+  // Under {"a": … the bytes already written are 5, so the array passes the width check exactly when L <= 32764.
+  const fits = new Array(32764).fill(0); fits[0] = null
+  const wide = new Array(32765).fill(0); wide[0] = null
+  refuses(() => encode({ a: fits }), 'null', 'L = 32764 passes the width check, then meets null')
+  refuses(() => encode({ a: wide }), 'size', 'L = 32765 is refused on entry')
+})
+
+test('array width bound is exact: an array that fits to the last byte is accepted', () => {
+  // {"ab":[0,…]} is 6 + (2L + 1) + 1 bytes: L = 32764 gives exactly 65536, and the bound equals the limit.
+  assert.equal(encode({ ab: new Array(32764).fill(0) }).length, 65536)
+  refuses(() => encode({ ab: new Array(32765).fill(0) }), 'size', 'one element over')
 })
 
 test('array boundary inside an object: {"a":[0,…]} is 2L + 7 bytes', () => {

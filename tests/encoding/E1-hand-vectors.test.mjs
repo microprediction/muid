@@ -36,6 +36,8 @@ const CASES = [
   ['ASCII key order: a < a0 < a_ < aa', { a_: 1, a0: 2, a: 3, aa: 4 }, '{"a":3,"a0":2,"a_":1,"aa":4}'],
   ['key "constructor" is an ordinary key', { constructor: 1 }, '{"constructor":1}'],
   ['key "valueof" is an ordinary key', { valueof: 2 }, '{"valueof":2}'],
+  ['key "length" in an object is an ordinary key', { length: 1 }, '{"length":1}'],
+  ['key "length" holding an array', { a: { length: [3, 4] } }, '{"a":{"length":[3,4]}}'],
   ['32-character key', { [K32]: 1 }, '{"' + K32 + '":1}'],
   ['digits and underscore in a key', { a1_b2: 1 }, '{"a1_b2":1}'],
   ['nested arrays', { a: [1, [2, [3]]] }, '{"a":[1,[2,[3]]]}'],
@@ -46,7 +48,7 @@ const CASES = [
 ]
 
 test('hand-written vector count', () => {
-  assert.equal(CASES.length, 35)
+  assert.equal(CASES.length, 37)
 })
 
 for (const [label, value, expected, encodeOnly] of CASES) {
