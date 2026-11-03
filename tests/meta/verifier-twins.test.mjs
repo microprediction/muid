@@ -21,15 +21,21 @@ const TWINS = [
   ['min-head-at-ignored', 'a head older than one already seen is accepted', [[' || h.at < minHeadAt', '']]],
   ['head-revocations-ignored', 'revocations carried by the head are not applied', [["    if (has(h.revoked, d.id) || has(h.revoked, b.subject)) return refuse('revoked')\n", '']]],
   ['revoke-by-id-only', 'revoking a subject key does not revoke its delegations', [[' || has(h.revoked, b.subject)', '']]],
-  ['equivocation-unchecked', 'a head inconsistent with the last one accepted is accepted', [["    if (last && forked(last, h)) return refuse('equivocation')\n", '']]],
-  ['pending-successor-unchecked', 'a rival or vanished pending successor is accepted', [[' || (pending !== undefined && h.memberships[1] !== pending)', '']]],
-  ['epoch-only', 'another settled membership at the same epoch is accepted', [['return h.memberships[0] !== settled || ', 'return ']]],
-  ['next-epoch-unchecked', 'the next epoch may settle another than the pending successor', [[' || (h.epoch === l.epoch + 1 && pending !== undefined && h.memberships[0] !== pending)', '']]],
+  ['equivocation-unchecked', 'a head inconsistent with the last one accepted is accepted', [["    if (last && forked(last, h)) return refuse(h.at === last.at && !forked(h, last) ? 'stale' : 'equivocation')\n", '']]],
+  ['same-second-as-evidence', 'two honest heads of one second, shown in reverse, are called equivocation', [["h.at === last.at && !forked(h, last) ? 'stale' : 'equivocation'", "'equivocation'"]]],
+  ['epoch-may-fall', 'a lower settled epoch is accepted', [['if (h.epoch < l.epoch || h.epoch', 'if (h.epoch']]],
+  ['top-epoch-unchecked', 'a pending successor may vanish', [[' || h.epoch + hm.length < l.epoch + lm.length', '']]],
+  ['ids-unbound', 'ids are not tied to epochs: another settled or pending membership is accepted', [['if ((l.epoch + i === h.epoch + j) !== (lm[i] === hm[j])) return true', 'if (false) return true']]],
+  ['ids-same-epoch-only', 'one membership at two epochs is accepted', [['(l.epoch + i === h.epoch + j) !== (lm[i] === hm[j])', 'l.epoch + i === h.epoch + j && lm[i] !== hm[j]']]],
+  ['authority-unchecked-same-epoch', 'authority may change while the memberships stand', [['  if (h.epoch === l.epoch) return within(h.authority, l.authority) || (hm.length === lm.length && within(l.authority, h.authority))\n', '  if (h.epoch === l.epoch) return false\n']]],
+  ['authority-may-grow', 'authority may grow while the memberships stand or a successor turns pending', [['within(h.authority, l.authority) || (hm.length === lm.length && within(l.authority, h.authority))', 'hm.length === lm.length && within(l.authority, h.authority)']]],
+  ['authority-may-shrink-at-settlement', 'authority may shrink when the pending successor settles', [['hm.length === 1 && within(l.authority, h.authority)', 'hm.length === 1 && false']]],
+  ['epoch-zero', 'a head of epoch 0 is accepted', [['!(isTime(b.epoch) && b.epoch > 0)', '!isTime(b.epoch)']]],
   ['older-than-last-accepted', 'a head older than the last one accepted is accepted', [[' || (last && h.at < last.at)', '']]],
   ['last-identity-unchecked', 'a last head of another identity is compared as if it were this one\'s', [["    if (last && last.identity !== h.identity) return refuse('identity')\n", '']]],
   ['last-head-at-now', 'the last head must still be in its key\'s window now, so key rotation breaks callers', [['headBody(lastHead, cfg, undefined)', 'headBody(lastHead, cfg, now)']]],
   ['last-head-unverified', 'a last head that is not a pinned head is ignored', [[' || (lastHead !== undefined && last === undefined)', '']]],
-  ['epoch-form-unchecked', 'a head whose epoch disagrees with its memberships is accepted', [[' || !isTime(b.epoch) ||\n    (b.epoch === 1) !== (b.memberships[0] === b.identity)', '']]],
+  ['epoch-form-unchecked', 'a head whose epoch disagrees with its memberships is accepted', [[' ||\n    (b.epoch === 1) !== (b.memberships[0] === b.identity)', '']]],
   ['until-inclusive', 'a store that drops the claim id at until lets it replay once', [['until: b.at + cfg.maxClaimAge + 1 })', 'until: b.at + cfg.maxClaimAge })']]],
   ['claim-time-unchecked', 'a claim of any age is accepted', [['b.at < c.now - cfg.maxClaimAge || b.at > c.now + cfg.skew || ', '']]],
   ['claim-delegation-unchecked', 'a claim may name any delegation', [["    if (b.delegation !== d.id) return refuse('claim-delegation')\n", '']]],
@@ -91,7 +97,7 @@ test('verifier broken twins', { timeout: 600_000 }, async (t) => {
     })
 
     const jobs = TWINS.map(([name, why, edits]) => [name, why, generate(name, edits)])
-    assert.equal(jobs.length, 31, 'twin count')
+    assert.equal(jobs.length, 37, 'twin count')
     const results = []
     const queue = [...jobs]
     const workers = Math.max(1, Math.floor(availableParallelism() / 4))

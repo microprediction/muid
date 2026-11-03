@@ -70,7 +70,7 @@ function headBody (text, cfg, now) {
   let i = 0
   for (const k in b) if (k !== HEAD_KEYS[i++]) return undefined
   if (!isId(b.identity) || !ids(b.memberships, 1, 2, false) || !ids(b.authority, 1, 5, true) ||
-    !ids(b.revoked, 0, MAX_REVOKED, true) || !isTime(b.at) || !isTime(b.epoch) ||
+    !ids(b.revoked, 0, MAX_REVOKED, true) || !isTime(b.at) || !(isTime(b.epoch) && b.epoch > 0) ||
     (b.epoch === 1) !== (b.memberships[0] === b.identity)) return undefined
   // The key's window must hold both the head's time and now, whichever comes first.
   // Stryker disable next-line EqualityOperator: equivalent; at now === at both branches give the same value
@@ -96,15 +96,19 @@ function readCall (call, claim, cfg) {
   return { now, scope, request, revoked: list, minHeadAt, last }
 }
 
-// Decision 10: a head the witness cannot honestly have signed at or after the relying party's last head `l`. A settled
-// epoch never falls; while it stands its settled membership and any pending successor never change; and a pending
-// successor is the only membership the next epoch can settle (one anchor per prev, R3).
+const within = (a, b) => { for (let i = 0; i < a.length; i++) if (!has(b, a[i])) return true; return false } // a ⊄ b
+
+// Decision 10: `h` cannot honestly follow `l`. Epochs never fall; one id, one epoch (R1, R3); authority (R6) follows
+// the memberships: unchanged, shrinking as a successor turns pending, growing as it settles alone. Index reads only.
 function forked (l, h) {
-  const settled = l.memberships[0] // index reads: decoded arrays have no prototype, so no iterator
-  const pending = l.memberships[1]
-  if (h.epoch === l.epoch) return h.memberships[0] !== settled || (pending !== undefined && h.memberships[1] !== pending)
-  // Stryker disable next-line EqualityOperator: equivalent; equal epochs have returned above
-  return h.epoch < l.epoch || (h.epoch === l.epoch + 1 && pending !== undefined && h.memberships[0] !== pending)
+  const lm = l.memberships
+  const hm = h.memberships
+  if (h.epoch < l.epoch || h.epoch + hm.length < l.epoch + lm.length) return true
+  for (let i = 0; i < lm.length; i++) for (let j = 0; j < hm.length; j++) {
+    if ((l.epoch + i === h.epoch + j) !== (lm[i] === hm[j])) return true
+  }
+  if (h.epoch === l.epoch) return within(h.authority, l.authority) || (hm.length === lm.length && within(l.authority, h.authority))
+  return h.epoch === l.epoch + 1 && lm.length === 2 && hm.length === 1 && within(l.authority, h.authority)
 }
 
 // The fields of `records`, each read once; undefined if they cannot be read.
@@ -128,7 +132,8 @@ export function verifier (config) {
       return refuse('stale')
     }
     if (last && last.identity !== h.identity) return refuse('identity')
-    if (last && forked(last, h)) return refuse('equivocation')
+    // Heads of one `at` may have been signed in either order: only a pair inconsistent both ways is evidence.
+    if (last && forked(last, h)) return refuse(h.at === last.at && !forked(h, last) ? 'stale' : 'equivocation')
     const r = checkRoot(given.root, { rpId: cfg.rpId })
     if (!r.ok) return refuse('root-record')
     const d = checkDelegation(given.delegation, { rootKey: r.key, rpId: cfg.rpId, origin: cfg.origin, now,

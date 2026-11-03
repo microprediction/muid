@@ -75,6 +75,7 @@ test('head: wrong type, wrong form, unpinned or out-of-window witness', () => {
     ['epoch a string', headText({ epoch: '1' })],
     ['epoch 1 with another membership', headText({ memberships: ['5'.repeat(64)] })],
     ['epoch 2 with the identity as its membership', headText({ epoch: 2 })],
+    ['epoch 0 with another membership', headText({ epoch: 0, memberships: ['5'.repeat(64)] })],
     ['identity not an id', headText({ identity: 'x' })],
     ['identity of 65 characters', headText({ identity: IDENTITY + '0' })],
     ['identity with a prefix', headText({ identity: 'x' + IDENTITY })],

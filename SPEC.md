@@ -278,8 +278,8 @@ one envelope each, so its `sig` names the signer: `{ root, assertion }`, where `
   every root it adds. A root is retired by leaving it out.
 - **R2 FREEZE BY ANY:** a freeze signed by any one root of the membership it names freezes it: delegations under it
   fail, and so do delegations under a pending successor of it. A freeze of the pending record itself, by any of its
-  roots (new ones included), freezes the identity until settlement. Only a settled successor (R4) moves past a freeze
-  of the settled membership. Freezing only removes trust, so any single root may do it.
+  roots (new ones included), freezes the identity; once that record settles, the freeze holds on it as the settled
+  membership. Only a settled successor (R4) moves past a freeze of the settled membership. Freezing only removes trust, so any single root may do it.
 - **R3 ONE ANCHOR PER EPOCH:** the witness applies R1 exactly as verifiers do (an `epoch` one more than `prev`'s
   included) and anchors a valid membership record only if its `prev` is the last settled
   membership and nothing else with that `prev` is anchored. It anchors each record once and notifies the owner. Every
@@ -411,9 +411,9 @@ is the text of the newest head the relying party has accepted for the identity, 
 - **F5 CHECKS, IN ORDER:** `head` (the head does not open as a `head`, is not of its form, or is not signed as A4
   requires by a pinned key whose window holds both its `at` and `now`); `stale` (`at` is more than `maxStaleness`
   before `now`, more than `skew` after it, or before `minHeadAt` or `lastHead`'s `at`); `identity` (`lastHead` is
-  for another identity); `equivocation` (against `lastHead`: a lower `epoch`, or the same `epoch` with another settled
-  membership, or without or with another pending successor than `lastHead` has, or the next `epoch` settling another
-  membership than `lastHead`'s pending successor); `root-record` (any `checkRoot`
+  for another identity); `equivocation` (the head cannot honestly follow `lastHead`, decision 10; when both have the
+  same `at` and `lastHead` could honestly follow the head, `stale` instead, since a witness may sign two heads in one
+  second); `root-record` (any `checkRoot`
   refusal); then D7's
   reasons for `delegation`, given
   the root record's key; `identity` (the head's identity is not the delegation's); `membership` (the delegation's
@@ -574,10 +574,17 @@ test fails the build on any direct `indexedDB` or `localStorage` use outside the
 10. **Witness equivocation — decided: the relying party's memory.** A verifier that remembers nothing cannot tell
    that the witness signed different heads for different relying parties
    ([`witness.md`](research/witness.md)). The head carries its settled epoch, and the call may pass the last head
-   the relying party accepted for the identity (F5's `lastHead`, generalising `minHeadAt`). A settled epoch never
-   falls, while it stands neither its membership nor a pending successor changes, and a pending successor is the only
-   membership the next epoch can settle (one anchor per `prev`, R3; a contest ends the identity), so a head that breaks this is refused as `equivocation` and the two signed heads are
-   evidence. This catches a split only within what one relying party sees; a public log closes the rest. Bounding backdated anchors needs time from outside the witness: a public log with at least one outside
+   the relying party accepted for the identity (F5's `lastHead`, generalising `minHeadAt`). A head `h` cannot honestly
+   follow a head `l` when `h`'s settled epoch, or the highest epoch it names (a pending successor's), is lower than
+   `l`'s; when one id stands at different epochs in the two, or two ids at one epoch (each membership is of one epoch,
+   and one anchor per `prev` gives each epoch one membership, R1, R3); or when authority (R6), which the memberships
+   fix, does not follow them: unchanged while they stand, shrinking (to the shared roots) when a successor turns
+   pending, growing when it settles with none pending after it. Such a pair is refused as `equivocation`, and the two
+   signed heads are evidence; checked over every history of the model, an honest witness never produces one. Limits:
+   it catches a split only within what one relying party sees, and a witness that jumps two epochs ahead between
+   that party's heads escapes it (committing to keep the fork going for that party); a public log closes the rest.
+   A witness key is retired by its window, never removed from `witnessKeys` while a relying party may hold a last
+   head it signed (that head would become a programming error). Bounding backdated anchors needs time from outside the witness: a public log with at least one outside
    cosigner, the contest window starting at the cosigned time of the first checkpoint that includes the anchor.
 
 ## 10. What the reputation layer consumes (not core)

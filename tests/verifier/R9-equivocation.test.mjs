@@ -28,6 +28,8 @@ const I = rootModule.identityOf(ROOT)
 const P = '1'.repeat(64) // a pending successor of the identity's first membership
 const Q = '2'.repeat(64) // a rival of P
 const R = '3'.repeat(64) // a successor of P
+const X = 'f'.repeat(64) // another root, sorted after ROOT
+const WIDE = [ROOT, X].sort()
 
 function delegation (membership) {
   const { payload, id } = envelope.seal('delegation', { identity: I, membership, root: ROOT, subject: key(APP), aud: AUD,
@@ -37,8 +39,8 @@ function delegation (membership) {
 }
 const DEL = { [I]: delegation(I), [P]: delegation(P), [Q]: delegation(Q), [R]: delegation(R) }
 
-function head (epoch, memberships, at, { secret = at < NOW - 20 ? OLD : NEW, identity = I } = {}) {
-  const { payload } = envelope.seal('head', { identity, epoch, memberships, authority: [ROOT], revoked: [], at })
+function head (epoch, memberships, at, { secret = at < NOW - 20 ? OLD : NEW, identity = I, authority = [ROOT] } = {}) {
+  const { payload } = envelope.seal('head', { identity, epoch, memberships, authority, revoked: [], at })
   return envelope.wrap(payload, { signature: hex(ed25519.sign(envelope.signedBytes(payload), secret)), witness: key(secret) })
 }
 
@@ -61,6 +63,12 @@ test('an honest witness\'s later heads are accepted after any earlier one', () =
     ['two epochs later', head(3, [R], NOW - 10), head(1, [I], NOW - 50), R],
     ['one epoch on, the last head having seen nothing pending', head(2, [P], NOW - 10), head(1, [I], NOW - 50), P],
     ['two epochs on from a pending successor', head(3, [R], NOW - 10), head(1, [I, P], NOW - 50), R],
+    ['a successor becomes pending: authority shrinks to the shared roots', head(1, [I, P], NOW - 10, { authority: [ROOT] }),
+      head(1, [I], NOW - 50, { authority: WIDE }), I],
+    ['it settles: authority grows to the successor\'s roots', head(2, [P], NOW - 10, { authority: WIDE }), head(1, [I, P], NOW - 50), P],
+    ['it settles and the next is pending: authority is the new shared roots', head(2, [P, R], NOW - 10),
+      head(1, [I, P], NOW - 50, { authority: WIDE }), P],
+    ['the same head again, at the same time', head(1, [I, P], NOW - 10), head(1, [I, P], NOW - 10), I],
   ]
   for (const [name, presented, last, membership] of cases) {
     assert.deepEqual(verify(presented, last, membership), { ok: true }, name)
@@ -74,10 +82,26 @@ test('equivocation: a lower settled epoch, another settled membership, or anothe
     ['the pending successor gone', head(1, [I], NOW - 10), head(1, [I, P], NOW - 50), I],
     ['a rival pending successor', head(1, [I, Q], NOW - 10), head(1, [I, P], NOW - 50), I],
     ['the next epoch settles another than the pending successor', head(2, [Q], NOW - 10), head(1, [I, P], NOW - 50), Q],
+    ['a settled membership again at a later epoch', head(3, [P], NOW - 10), head(2, [P], NOW - 50), P],
+    ['the pending successor settled two epochs on', head(3, [P], NOW - 10), head(1, [I, P], NOW - 50), P],
+    ['a membership pending at another epoch than it settled', head(2, [Q, P], NOW - 10), head(2, [P], NOW - 50), Q],
+    ['the same memberships, another authority', head(1, [I], NOW - 10, { authority: WIDE }), head(1, [I], NOW - 50), I],
+    ['a successor becomes pending and authority grows', head(1, [I, P], NOW - 10, { authority: WIDE }), head(1, [I], NOW - 50), I],
+    ['it settles and authority shrinks', head(2, [P], NOW - 10), head(1, [I, P], NOW - 50, { authority: WIDE }), P],
+    ['the settled epoch falls with a pending successor', head(1, [I, P], NOW - 10), head(2, [P], NOW - 50), P],
+    ['at the same time, inconsistent in either order', head(1, [I, Q], NOW - 10), head(1, [I, P], NOW - 10), I],
   ]
   for (const [name, presented, last, membership] of cases) {
     assert.deepEqual(verify(presented, last, membership), refused('equivocation'), name)
   }
+})
+
+test('stale, not equivocation: at the same time, a head the witness could have signed before the last one', () => {
+  // A change and its anchor can fall in the same second, so an honest witness signs both heads with one `at`.
+  assert.deepEqual(verify(head(1, [I], NOW - 10), head(1, [I, P], NOW - 10), I), refused('stale'), 'before the successor was pending')
+  assert.deepEqual(verify(head(1, [I, P], NOW - 10), head(2, [P], NOW - 10), P), refused('stale'), 'before it settled')
+  assert.deepEqual(verify(head(1, [I], NOW - 10, { authority: WIDE }), head(1, [I, P], NOW - 10), I), refused('stale'),
+    'before authority shrank to the shared roots')
 })
 
 test('stale: a head older than the last one accepted, even a consistent one', () => {
