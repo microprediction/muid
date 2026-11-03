@@ -15,6 +15,8 @@ const { includes } = Array.prototype
 
 const ID = /^[0-9a-f]{64}$/
 const MAX_ROOTS = 5
+// Each list of records is at most this long, so the work a caller can cause is bounded.
+export const MAX_RECORDS = 256
 const isId = (x) => typeof x === 'string' && apply(exec, ID, [x]) !== null
 const isTime = (x) => isSafeInteger(x) && x >= 0
 const has = (list, x) => apply(includes, list, [x])
@@ -41,14 +43,17 @@ function readContext (ctx) {
   return { identity, rpId, origin, keys }
 }
 
-// A root-signed record of `type` whose body passes `bodyOk`: { id, body, signer }, or undefined.
-function rootSigned (text, type, bodyOk, ctx, rootKeys) {
+// A root-signed record of `type` whose body passes `bodyOk`: { id, body, signer }, or undefined. A signer already
+// counted for that record (in `counted`, as id + signer) is not verified again.
+function rootSigned (text, type, bodyOk, ctx, rootKeys, counted) {
   const r = opened(text, type)
   if (r === undefined || !bodyOk(r.body) || !onlyKeys(r.sig, ['assertion', 'root'])) return undefined
   const key = rootKeys.get(r.sig.root)
-  if (key === undefined) return undefined
+  if (key === undefined || counted.has(r.id + r.sig.root)) return undefined
   const a = checkRootAssertion(r.sig.assertion, { record: r.id, rpId: ctx.rpId, origin: ctx.origin, key })
-  return a.ok ? { id: r.id, body: r.body, signer: r.sig.root } : undefined
+  if (!a.ok) return undefined
+  counted.add(r.id + r.sig.root)
+  return { id: r.id, body: r.body, signer: r.sig.root }
 }
 
 // A witness-signed record of `type`, its key in window at the record's own `at`: its body, or undefined.
@@ -80,9 +85,20 @@ function validNext (cur, p) {
   return true
 }
 
+// A caller's list, its length read once and capped, each text once: a duplicate adds nothing but work.
 function list (records, key) {
   const x = records[key]
-  return isArray(x) ? x : []
+  if (!isArray(x)) return []
+  const n = x.length
+  if (n > MAX_RECORDS) throw new RangeError('too many records')
+  const seen = new Set()
+  const out = []
+  for (let i = 0; i < n; i++) {
+    const t = x[i]
+    if (!seen.has(t)) out[out.length] = t
+    seen.add(t)
+  }
+  return out
 }
 
 // Index loops only: decoded arrays have no prototype, and a caller's array could have a replaced iterator.
@@ -94,41 +110,43 @@ function copy (a) {
 
 function read (records, ctx) {
   const rootKeys = new Map()
-  const rootsTexts = copy(list(records, 'roots'))
+  const rootsTexts = list(records, 'roots')
   for (let i = 0; i < rootsTexts.length; i++) {
     const t = rootsTexts[i]
     const r = checkRoot(t, { rpId: ctx.rpId })
     if (r.ok) rootKeys.set(r.id, r.key)
   }
   const mine = (b) => b.identity === ctx.identity
+  const counted = new Set()
   const memberships = new Map()
-  const membershipsTexts = copy(list(records, 'memberships'))
+  const membershipsTexts = list(records, 'memberships')
   for (let i = 0; i < membershipsTexts.length; i++) {
     const t = membershipsTexts[i]
     const m = rootSigned(t, 'membership', (b) => onlyKeys(b, ['epoch', 'identity', 'prev', 'roots']) && mine(b) &&
-      isTime(b.epoch) && isId(b.prev) && rootsOk(b.roots), ctx, rootKeys)
+      isTime(b.epoch) && isId(b.prev) && rootsOk(b.roots), ctx, rootKeys, counted)
     if (m === undefined) continue
     if (!memberships.has(m.id)) memberships.set(m.id, { id: m.id, body: m.body, signers: new Set() })
     memberships.get(m.id).signers.add(m.signer)
   }
   const contests = new Map()
-  const contestsTexts = copy(list(records, 'contests'))
+  const contestsTexts = list(records, 'contests')
   for (let i = 0; i < contestsTexts.length; i++) {
     const t = contestsTexts[i]
-    const c = rootSigned(t, 'contest', (b) => onlyKeys(b, ['identity', 'record']) && mine(b) && isId(b.record), ctx, rootKeys)
+    const c = rootSigned(t, 'contest', (b) => onlyKeys(b, ['identity', 'record']) && mine(b) && isId(b.record), ctx, rootKeys, counted)
     if (c === undefined) continue
     if (!contests.has(c.body.record)) contests.set(c.body.record, { id: c.id, signers: new Set() })
     contests.get(c.body.record).signers.add(c.signer)
   }
   const freezes = []
-  const freezesTexts = copy(list(records, 'freezes'))
+  const freezesTexts = list(records, 'freezes')
   for (let i = 0; i < freezesTexts.length; i++) {
     const t = freezesTexts[i]
-    const f = rootSigned(t, 'freeze', (b) => onlyKeys(b, ['identity', 'membership']) && mine(b) && isId(b.membership), ctx, rootKeys)
+    const f = rootSigned(t, 'freeze', (b) => onlyKeys(b, ['identity', 'membership']) && mine(b) && isId(b.membership), ctx,
+      rootKeys, counted)
     if (f !== undefined) freezes[freezes.length] = { membership: f.body.membership, signer: f.signer }
   }
   const anchored = new Set()
-  const anchorsTexts = copy(list(records, 'anchors'))
+  const anchorsTexts = list(records, 'anchors')
   for (let i = 0; i < anchorsTexts.length; i++) {
     const t = anchorsTexts[i]
     const a = witnessSigned(t, 'anchor', (b) => onlyKeys(b, ['at', 'identity', 'record']) && mine(b) && isTime(b.at) &&
@@ -136,7 +154,7 @@ function read (records, ctx) {
     if (a !== undefined) anchored.add(a.record)
   }
   const settled = new Map()
-  const settlementsTexts = copy(list(records, 'settlements'))
+  const settlementsTexts = list(records, 'settlements')
   for (let i = 0; i < settlementsTexts.length; i++) {
     const t = settlementsTexts[i]
     const s = witnessSigned(t, 'settlement', (b) => onlyKeys(b, ['at', 'identity', 'outcome', 'prev']) && mine(b) &&

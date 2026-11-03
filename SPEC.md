@@ -272,7 +272,8 @@ one envelope each, so its `sig` names the signer: `{ root, assertion }`, where `
 - **R2 FREEZE BY ANY:** a freeze signed by any one root of the membership it names freezes it: delegations under it
   fail, and so do delegations under a pending successor of it. Only a settled successor (R4) moves past it. Freezing
   only removes trust, so any single root may do it.
-- **R3 ONE ANCHOR PER EPOCH:** the witness anchors a valid membership record only if its `prev` is the last settled
+- **R3 ONE ANCHOR PER EPOCH:** the witness applies R1 exactly as verifiers do (an `epoch` one more than `prev`'s
+  included) and anchors a valid membership record only if its `prev` is the last settled
   membership and nothing else with that `prev` is anchored. It anchors each record once and notifies the owner. Every
   other record with that `prev` — an ordinary rival, or one arriving after settlement — is refused, never anchored.
 - **R4 SETTLEMENT:** `CONTEST_WINDOW` after an anchor, the witness settles `prev`: `outcome` is the anchored record's
@@ -297,7 +298,9 @@ one envelope each, so its `sig` names the signer: `{ root, assertion }`, where `
   `ctx = { identity, rpId, origin, witnessKeys }`, verifies each record on its own — a record that does not verify
   carries no authority and is ignored — and returns `{ ok: true, dead: true }`, or
   `{ ok: true, dead: false, membership, epoch, roots, pending, authority, frozen }`, or `{ ok: false, reason }`
-  with `unknown-identity` when no root record given is the identity's first root. A signature counts only if its
+  with `unknown-identity` when no root record given is the identity's first root, or `records` when a list is
+  longer than `MAX_RECORDS` (256) or cannot be read. Each text counts once, and a signer already counted for a
+  record is not verified again, so the work a caller can cause is bounded. A signature counts only if its
   root's key comes from a root record given (`checkRoot`) and its assertion covers that record's id. It never
   throws for any `records`; a malformed `ctx` is a programming error. `model/settled.mjs` is its specification in
   executable form: every state the model's explorer reaches, and every partial view of it, is translated into
@@ -376,7 +379,10 @@ client_data_json, signature }`; WebAuthn fields base64url):
 - **W0 COVERAGE:** one assertion may cover several records, so one prompt can renew several delegations or sign a
   membership change together with the delegations that go with it. `covers` is a sorted list of 1–8 distinct record
   ids (lowercase hex) that contains this record's own id. A single record is a list of length one; there is no other
-  form. No two membership records in one `covers` share a `prev`, and neither do a membership record and a contest.
+  form. The id page never puts two membership records with one `prev`, or a membership record and a contest, in one
+  `covers`, and the witness refuses to anchor a record or contest that a counted signature shares that way with a
+  rival or a contest it holds — so one prompt cannot both propose a change and end the identity. The verifier does
+  not check this: discarding such signatures would let anyone who shows it the rival roll a settled change back.
 - **W1 CLIENT DATA:** `type` is `"webauthn.get"`; `challenge` equals
   base64url(SHA-256(`UTF-8("muid/v1/assert\n")` ‖ the ids in `covers`, each followed by `"\n"`)) exactly — a domain
   distinct from the signed-bytes prefix `"muid/v1\n"`; `origin` equals the configured id origin exactly;

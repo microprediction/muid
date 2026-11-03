@@ -25,7 +25,7 @@ const TWINS = [
   ['freeze-lifted-at-anchor', 'a freeze on the settled membership stops applying once a successor is anchored', [['frozenBy(m) || (pending !== undefined && frozenBy(cur))', 'frozenBy(m)']]],
   ['settlements-ignored', 'settlements are not followed', [['    const outcomes = r.settled.get(cur.id)', '    const outcomes = undefined']]],
   ['rival-chosen', 'of two anchored rivals the first is taken', [['    if (candidates.length > 1) return accept({ dead: true })\n', '']]],
-  ['assertion-unchecked', 'root signatures are not verified', [['  return a.ok ? { id: r.id, body: r.body, signer: r.sig.root } : undefined', '  return { id: r.id, body: r.body, signer: r.sig.root }']]],
+  ['assertion-unchecked', 'root signatures are not verified', [['  if (!a.ok) return undefined\n  counted.add', '  counted.add']]],
 ]
 
 function run (implPath) {

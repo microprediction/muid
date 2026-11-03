@@ -67,3 +67,17 @@ test('a records object that throws when read is refused, never thrown', () => {
   const proxy = new Proxy({}, { get () { throw new Error('trap') } })
   assert.deepEqual({ ...membershipState(proxy, ctx) }, { ok: false, reason: 'records' })
 })
+
+test('cost is bounded: duplicates are verified once, and each list is capped', () => {
+  const copies = Array.from({ length: 200 }, () => records.memberships[0])
+  const t0 = performance.now()
+  same({ memberships: [...records.memberships, ...copies] }, '200 duplicate envelopes change nothing')
+  assert.ok(performance.now() - t0 < 500, `took ${Math.round(performance.now() - t0)} ms`)
+  const tooMany = Array.from({ length: membership.MAX_RECORDS + 1 }, (_, i) => 'x' + i)
+  assert.deepEqual({ ...membershipState({ ...records, anchors: tooMany }, ctx) }, { ok: false, reason: 'records' })
+  assert.equal(membershipState({ ...records, anchors: tooMany.slice(1) }, ctx).epoch, 2, 'at the cap: accepted')
+  const huge = new Proxy([], { get: (t, k) => (k === 'length' ? 1e9 : Reflect.get(t, k)) })
+  const t1 = performance.now()
+  assert.deepEqual({ ...membershipState({ ...records, contests: huge }, ctx) }, { ok: false, reason: 'records' })
+  assert.ok(performance.now() - t1 < 100, 'refused without walking it')
+})
