@@ -25,6 +25,8 @@ const TWINS = [
   ['freeze-lifted-at-anchor', 'a freeze on the settled membership stops applying once a successor is anchored', [['frozenBy(m) || frozenBy(cur)', 'frozenBy(m)']]],
   ['settlements-ignored', 'settlements are not followed', [['    const outcomes = r.settled.get(cur.id)', '    const outcomes = undefined']]],
   ['rival-chosen', 'of two anchored rivals the first is taken', [['    if (candidates.length > 1) return accept({ dead: true })\n', '']]],
+  ['revoked-cap-after-loop', 'a long revocation list is read in full before the cap applies', [['    if (list.length > MAX_REVOKED) return undefined\n  }\n', '  }\n  if (list.length > MAX_REVOKED) return undefined\n']]],
+  ['head-epoch-pending', 'a head carries the pending epoch as if it were settled', [['epoch: state.pending ? state.epoch - 1 : state.epoch', 'epoch: state.epoch']]],
   ['assertion-unchecked', 'root signatures are not verified', [['  if (!a.ok) return undefined\n  counted.add', '  counted.add']]],
 ]
 
@@ -69,7 +71,7 @@ test('membership broken twins', { timeout: 600_000 }, async (t) => {
     })
 
     const jobs = TWINS.map(([name, why, edits]) => [name, why, generate(name, edits)])
-    assert.equal(jobs.length, 9, 'twin count')
+    assert.equal(jobs.length, 11, 'twin count')
     const results = []
     const queue = [...jobs]
     const workers = Math.max(1, Math.floor(availableParallelism() / 4))

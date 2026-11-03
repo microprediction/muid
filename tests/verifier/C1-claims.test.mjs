@@ -26,7 +26,7 @@ const body = { identity: IDENTITY, membership: IDENTITY, root: ROOT, subject: he
 const del = envelope.seal('delegation', body)
 const delegation = envelope.wrap(del.payload, { root: make({ covers: [del.id] }),
   subject: hex(ed25519.sign(Buffer.concat([Buffer.from('muid/v1/accept\n'), Buffer.from(del.id, 'hex')]), APP)) })
-const h = envelope.seal('head', { identity: IDENTITY, memberships: [IDENTITY], authority: [ROOT], revoked: [], at: NOW - 100 })
+const h = envelope.seal('head', { identity: IDENTITY, epoch: 1, memberships: [IDENTITY], authority: [ROOT], revoked: [], at: NOW - 100 })
 const head = envelope.wrap(h.payload, { signature: hex(ed25519.sign(envelope.signedBytes(h.payload), W)), witness: WITNESS })
 
 function claim (over = {}, { secret = APP, sig } = {}) {
@@ -49,7 +49,7 @@ test('a claim under a valid delegation is accepted, with its id, body and the de
   assert.equal(r.id, C.id)
   assert.equal(r.body.data.text, 'hello')
   assert.equal(r.delegation.id, del.id)
-  assert.equal(r.until, NOW - 5 + 300, 'keep the claim id until at + maxClaimAge')
+  assert.equal(r.until, NOW - 5 + 301, 'until is the first time the claim is refused: at + maxClaimAge + 1')
   assert.deepEqual(Object.keys(r), ['ok', 'id', 'body', 'delegation', 'until'])
   assert.ok(Object.isFrozen(r))
 })
@@ -104,6 +104,12 @@ test("the delegation is verified in full, with the claim's scope", () => {
 
 test('claim-delegation: a claim names the delegation it is made under', () => {
   assert.deepEqual(call({ claim: claim({ delegation: 'f'.repeat(64) }).text }), refused('claim-delegation'))
+})
+
+test('until: the claim verifies before it and is refused from it on, so a store that drops the id at until is enough', () => {
+  const { until } = v.verifyClaim({ claim: C.text, delegation, root, head }, CALL)
+  assert.deepEqual(call({}, { now: until - 1 }), { ok: true })
+  assert.deepEqual(call({}, { now: until }), refused('claim-time'))
 })
 
 test('claim-time: no older than maxClaimAge, no later than skew', () => {

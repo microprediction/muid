@@ -222,13 +222,14 @@ export function membershipState (records, context) {
   return refuse('unknown-identity')
 }
 
-// R9: the body of the head a witness signs for a state at time `at`: the settled membership then the pending one, the
-// roots with authority, and the revocations it holds for the identity (record ids or subject keys). None for a dead or
-// frozen identity, a refusal, or a state in which no root has authority.
+// R9: the body of the head a witness signs for a state at time `at`: the settled epoch, the settled membership then the
+// pending one, the roots with authority, and the revocations it holds for the identity (record ids or subject keys).
+// None for a dead or frozen identity, a refusal, a state in which no root has authority, or revocations that are not
+// at most 64 ids.
 export function headOf (state, at, revoked = []) {
   if (!state.ok || state.dead || state.frozen || state.authority.length === 0 || !isInteger(at) || at < 0 ||
     !isArray(revoked)) return undefined
-  // Distinct ids, sorted by insertion (no built-in sort to patch), at most 64.
+  // Distinct ids, sorted by insertion (no built-in sort to patch), at most 64: reading stops at the 65th.
   const list = []
   for (let i = 0; i < revoked.length; i++) {
     const x = revoked[i]
@@ -236,9 +237,10 @@ export function headOf (state, at, revoked = []) {
     let j = list.length
     while (list[j - 1] > x) j-- // list[-1] is undefined, which is never greater
     if (list[j - 1] !== x) apply(splice, list, [j, 0, x])
+    if (list.length > MAX_REVOKED) return undefined
   }
-  if (list.length > MAX_REVOKED) return undefined
   const memberships = state.pending ? [state.settled, state.membership] : [state.settled]
-  return freeze({ identity: state.identity, memberships: freeze(memberships), authority: state.authority,
-    revoked: freeze(list), at })
+  // The settled epoch: a pending successor's is one more (R1).
+  return freeze({ identity: state.identity, epoch: state.pending ? state.epoch - 1 : state.epoch,
+    memberships: freeze(memberships), authority: state.authority, revoked: freeze(list), at })
 }

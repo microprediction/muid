@@ -309,25 +309,35 @@ one envelope each, so its `sig` names the signer: `{ root, assertion }`, where `
   is the last settled membership, `membership` the effective one), or `{ ok: false, reason }`
   with `unknown-identity` when no root record given is the identity's first root, or `records` when a list is
   longer than `MAX_RECORDS` (256) or cannot be read; a list that is not an array is empty. A signer already counted
-  for a record is not verified again, and `MAX_RECORDS` bounds each list, so the work a caller can cause is bounded. A
+  for a record is not verified again, and `MAX_RECORDS` bounds each list, so the work a caller can cause is bounded.
+  Records that carry no authority still count toward the cap, so the witness admits to an identity's set only a
+  membership signature by a root of the admitted membership it names as `prev` (a root it adds, only once a majority
+  of those have signed the same record), and a freeze or contest signed by a root of the settled or pending
+  membership; anything else is dropped on receipt. History is replayed from the
+  first root, so the cap also bounds an identity's lifetime to about 85 settled changes (decision 9). A
   signature counts only if its
   root's key comes from a root record given (`checkRoot`) and its assertion covers that record's id. It never
   throws for any `records`; a malformed `ctx` is a programming error. `model/settled.mjs` is its specification in
   executable form: every state the model's explorer reaches, and every partial view of it, is translated into
   signed records and must give the model's answer.
 
-- **R9 FRESH HEAD:** a **head** `{ identity, memberships, authority, revoked, at }` is signed by the membership
-  witness (A4's `sig`): `membershipState` of every record the witness holds for the identity, at time `at`.
-  `memberships` is the last settled membership id, followed by its pending successor's if there is one; `authority`
+- **R9 FRESH HEAD:** a **head** `{ identity, epoch, memberships, authority, revoked, at }` is signed by the
+  membership witness (A4's `sig`): `membershipState` of every record the witness holds for the identity, at time
+  `at`. `epoch` is the settled membership's epoch; `memberships` is the last settled membership id, followed by its
+  pending successor's if there is one, and its first entry is the identity id exactly when `epoch` is 1; `authority`
   is the sorted root ids with authority (R6); `revoked` is up to 64 sorted ids — delegation record ids or subject keys
   — revoked and not yet expired, so a revocation reaches verifiers as fast as a membership change, and revoking a
   subject key also revokes its renewals. The witness admits a revocation only when it is signed by a root with
-  authority, or by the delegate for itself. `headOf(state, at, revoked)` builds the body from R8's result. The witness
+  authority, or by the delegate for itself, and carries a delegate's revocation of itself as its subject key, so no
+  delegate can add more than one entry. `headOf(state, at, revoked)` builds the body from R8's result; it gives none
+  for an entry that is not an id or for more than 64 distinct ones, reading no further than the 65th. A head that
+  cannot carry every live revocation is not signed (fail closed); the owner then replaces roots or lets delegations
+  expire. The witness
   signs no head for an identity that is dead or frozen or in which no root has authority, and a verifier accepts none
   older than `maxStaleness`, so a stolen retired root is refused whatever records it is shown.
 - **Head lag (residual):** a delegate chooses which head to present, so an anchored change, a freeze or a revocation
   reaches a verifier only once every older head has aged past `maxStaleness` — a day — unless the verifier passes
-  `minHeadAt`, the newest head time it has seen for the identity. A relying party that needs faster effect for a scope
+  `minHeadAt` or `lastHead` (F5), the newest head it has seen for the identity. A relying party that needs faster effect for a scope
   sets a smaller `maxStaleness`. Settlement retires the old membership's name: the id page renews delegations under
   the pending name before the window closes.
 
@@ -378,9 +388,9 @@ Research: [`delegation.md`](research/delegation.md), [`oidc-witness.md`](researc
 
 ```
 const v = verifier({ rpId, origin, audience, witnessKeys, skew, maxLifetime, maxStaleness, maxClaimAge })
-v.verifyDelegation({ delegation, root, head }, { now, scope, revoked, minHeadAt })  // per call
+v.verifyDelegation({ delegation, root, head }, { now, scope, revoked, minHeadAt, lastHead })  // per call
   -> { ok: true, id, body } | { ok: false, reason }
-v.verifyClaim({ claim, delegation, root, head }, { now, scope, request, revoked, minHeadAt })
+v.verifyClaim({ claim, delegation, root, head }, { now, scope, request, revoked, minHeadAt, lastHead })
   -> { ok: true, id, body, delegation: { id, body }, until } | { ok: false, reason }
 ```
 
@@ -390,7 +400,8 @@ pinned keys; `skew`, `maxLifetime` (D2), `maxStaleness` (R9) and `maxClaimAge` (
 deployments) are the values of decisions 1, 3 and 7. Per call,
 `delegation`, `root` and `head` are envelope texts: the delegation, the root record it names, and a head for its
 identity. `scope` is the one scope the request needs; `revoked` lists further revoked record ids or subject keys the
-relying party holds; `minHeadAt` (optional) refuses heads older than one it has already seen.
+relying party holds; `minHeadAt` (optional) refuses heads older than one it has already seen; `lastHead` (optional)
+is the text of the newest head the relying party has accepted for the identity, which it keeps (decision 10).
 
 - **F1 SYNCHRONOUS AND PURE:** no `await`, no clock, no storage, no network inside a decision.
 - **F2 DENY BY DEFAULT:** every branch that is not an explicit accept is a reject. An unknown field is a reject.
@@ -399,14 +410,20 @@ relying party holds; `minHeadAt` (optional) refuses heads older than one it has 
 - **F4 EXPIRY FIRST:** short-lived records do the revocation work; the revoked set is a backstop.
 - **F5 CHECKS, IN ORDER:** `head` (the head does not open as a `head`, is not of its form, or is not signed as A4
   requires by a pinned key whose window holds both its `at` and `now`); `stale` (`at` is more than `maxStaleness`
-  before `now`, more than `skew` after it, or before `minHeadAt`); `root-record` (any `checkRoot` refusal); then D7's
+  before `now`, more than `skew` after it, or before `minHeadAt` or `lastHead`'s `at`); `identity` (`lastHead` is
+  for another identity); `equivocation` (against `lastHead`: a lower `epoch`, or the same `epoch` with another settled
+  membership, or without or with another pending successor than `lastHead` has, or the next `epoch` settling another
+  membership than `lastHead`'s pending successor); `root-record` (any `checkRoot`
+  refusal); then D7's
   reasons for `delegation`, given
   the root record's key; `identity` (the head's identity is not the delegation's); `membership` (the delegation's
   membership is not among the head's `memberships`); `authority` (its root is not among the head's `authority`);
   `revoked` (its id or its subject key is in the head's `revoked` or the call's); `audience` (its `aud` is
   not `audience`); `scope` (`scope` is not among its
   `scopes`). Records that cannot be read are `head`. It never throws for any `delegation`, `root` or `head`; a
-  malformed configuration, `now`, `scope`, or
+  malformed configuration, `now`, `scope` or `minHeadAt` (when given, a non-negative integer), a `lastHead` that is
+  not a head of its form signed by a pinned key whose window holds its own `at` (it may have been signed by a key
+  since retired), or
   a `revoked` that is not an array of ids, is a programming error (ignoring a malformed entry would fail open on
   revocation).
 
@@ -422,8 +439,10 @@ relying party holds; `minHeadAt` (optional) refuses heads older than one it has 
   `claim-delegation` (the claim names another delegation); `claim-time` (`at` more than `maxClaimAge` before `now`,
   more than `skew` after it, or outside the delegation's window); then K5's signature reasons under the subject key.
   A claim is verifiable only while its delegation and head are. Replay within the window is the relying party's to
-  refuse: the result carries the claim id and `until` (`at + maxClaimAge`), the time to keep that id, in a store
-  shared by every instance serving the audience. `data` is decoded data: frozen, with null prototypes.
+  refuse: the result carries the claim id and `until` (`at + maxClaimAge + 1`, the first time the claim is refused),
+  so a store shared by every instance serving the audience keeps the id while `now < until`. A call whose `request`
+  is not a string is a programming error. Every claim costs the full F5 check before its own signature; a relying
+  party under load can rate-limit by delegation id. `data` is decoded data: frozen, with null prototypes.
 
 The verifier needs no membership records: the head carries their result. The witness makes the head (R9); a delegate
 fetches a fresh one and presents it with its requests, as OCSP stapling does.
@@ -549,6 +568,17 @@ test fails the build on any direct `indexedDB` or `localStorage` use outside the
    than trusted; that record and the witness protocol are specified with the witness. Anchors and settlements stay
    checked at their own `at`: a leaked retired witness key could sign backdated ones, and the append-only log is
    what shows them (residual).
+9. **Long histories:** R8 replays from the first root, and `MAX_RECORDS` bounds each list, so an identity can make
+   about 85 settled changes over its life. A checkpoint (a witness-signed settled membership from which R8 starts)
+   would lift the bound at the cost of trusting the witness for history before it.
+10. **Witness equivocation — decided: the relying party's memory.** A verifier that remembers nothing cannot tell
+   that the witness signed different heads for different relying parties
+   ([`witness.md`](research/witness.md)). The head carries its settled epoch, and the call may pass the last head
+   the relying party accepted for the identity (F5's `lastHead`, generalising `minHeadAt`). A settled epoch never
+   falls, while it stands neither its membership nor a pending successor changes, and a pending successor is the only
+   membership the next epoch can settle (one anchor per `prev`, R3; a contest ends the identity), so a head that breaks this is refused as `equivocation` and the two signed heads are
+   evidence. This catches a split only within what one relying party sees; a public log closes the rest. Bounding backdated anchors needs time from outside the witness: a public log with at least one outside
+   cosigner, the contest window starting at the cosigned time of the first checkpoint that includes the anchor.
 
 ## 10. What the reputation layer consumes (not core)
 

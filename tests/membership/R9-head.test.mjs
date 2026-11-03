@@ -1,4 +1,5 @@
-// R9: headOf turns a membership state into a head's body — settled then pending memberships, the authority, the time —
+// R9: headOf turns a membership state into a head's body — the settled epoch, settled then pending memberships, the
+// authority, the time —
 // and gives none for a dead or frozen identity.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -17,19 +18,19 @@ const plain = (x) => JSON.parse(JSON.stringify(x))
 
 test('epoch 1: one membership (the identity id), the first root', () => {
   const s = membershipState({ roots }, ctx)
-  assert.deepEqual(plain(headOf(s, 77)), { identity: I, memberships: [I], authority: [rootId('a')], revoked: [], at: 77 })
+  assert.deepEqual(plain(headOf(s, 77)), { identity: I, epoch: 1, memberships: [I], authority: [rootId('a')], revoked: [], at: 77 })
 })
 
 test('pending: settled then pending, and only the shared roots', () => {
   const s = membershipState({ roots, memberships: sign(e2, 'a', 'b'), anchors: [witnessSigned('anchor', { identity: I, record: id2, at: BASE })] }, ctx)
   assert.equal(s.pending, true)
-  assert.deepEqual(plain(headOf(s, 5)), { identity: I, memberships: [I, id2], authority: [rootId('a')], revoked: [], at: 5 })
+  assert.deepEqual(plain(headOf(s, 5)), { identity: I, epoch: 1, memberships: [I, id2], authority: [rootId('a')], revoked: [], at: 5 })
 })
 
 test('settled: one membership and its roots', () => {
   const s = membershipState({ roots, memberships: sign(e2, 'a', 'b'), anchors: [witnessSigned('anchor', { identity: I, record: id2, at: BASE })],
     settlements: [witnessSigned('settlement', { identity: I, prev: I, outcome: id2, at: BASE + 1 })] }, ctx)
-  assert.deepEqual(plain(headOf(s, 5)), { identity: I, memberships: [id2], authority: ids('a', 'b'), revoked: [], at: 5 })
+  assert.deepEqual(plain(headOf(s, 5)), { identity: I, epoch: 2, memberships: [id2], authority: ids('a', 'b'), revoked: [], at: 5 })
 })
 
 test('no head for a dead or frozen identity, or for a refusal', () => {
@@ -47,6 +48,12 @@ test('no head for a dead or frozen identity, or for a refusal', () => {
   assert.equal(headOf(s1, 3, 'x'), undefined, 'revoked not a list')
   assert.equal(headOf(s1, 3, Array.from({ length: 65 }, (_, i) => i.toString(16).padStart(64, '0'))), undefined, 'more than 64')
   assert.equal(headOf(s1, 3, Array.from({ length: 64 }, (_, i) => i.toString(16).padStart(64, '0'))).revoked.length, 64, '64 fit')
+  // Bounded work: the list is read no further than its 65th distinct entry, however long it is.
+  const long = Array.from({ length: 2_000 }, (_, i) => (2_000 - i).toString(16).padStart(64, '0'))
+  let reads = 0
+  const counted = new Proxy(long, { get (t, k) { if (typeof k === 'string' && /^[0-9]+$/.test(k)) reads++; return Reflect.get(t, k) } })
+  assert.equal(headOf(s1, 3, counted), undefined, '2,000 distinct, descending')
+  assert.equal(reads, 65, 'reading stops at the 65th distinct entry')
   const original = Array.prototype.sort
   Array.prototype.sort = function () { return this }
   let patched

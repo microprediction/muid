@@ -31,7 +31,7 @@ function delegationText (over = {}, { secret, covers } = {}) {
 }
 
 function headText (over = {}, { secret = W, witness = WITNESS, type = 'head' } = {}) {
-  const body = { identity: IDENTITY, memberships: [IDENTITY], authority: [ROOT], revoked: [], at: NOW - 100, ...over }
+  const body = { identity: IDENTITY, epoch: 1, memberships: [IDENTITY], authority: [ROOT], revoked: [], at: NOW - 100, ...over }
   for (const k of Object.keys(body)) if (body[k] === '__drop__') delete body[k]
   const { payload } = envelope.seal(type, body)
   return envelope.wrap(payload, { signature: hex(ed25519.sign(envelope.signedBytes(payload), secret)), witness })
@@ -69,6 +69,12 @@ test('head: wrong type, wrong form, unpinned or out-of-window witness', () => {
     ['authority unsorted', headText({ authority: ['f'.repeat(64), ROOT] })],
     ['authority duplicated', headText({ authority: [ROOT, ROOT] })],
     ['at not an integer', headText({ at: String(NOW) })],
+    ['no epoch', headText({ epoch: '__drop__' })],
+    ['epoch 0', headText({ epoch: 0 })],
+    ['epoch negative', headText({ epoch: -1 })],
+    ['epoch a string', headText({ epoch: '1' })],
+    ['epoch 1 with another membership', headText({ memberships: ['5'.repeat(64)] })],
+    ['epoch 2 with the identity as its membership', headText({ epoch: 2 })],
     ['identity not an id', headText({ identity: 'x' })],
     ['identity of 65 characters', headText({ identity: IDENTITY + '0' })],
     ['identity with a prefix', headText({ identity: 'x' + IDENTITY })],
@@ -111,8 +117,8 @@ test('the delegation\'s own reasons pass through', () => {
 })
 
 test('identity, membership and authority are judged by the head', () => {
-  assert.deepEqual(call({ head: headText({ identity: '9'.repeat(64) }) }), refused('identity'))
-  assert.deepEqual(call({ head: headText({ memberships: ['5'.repeat(64)] }) }), refused('membership'))
+  assert.deepEqual(call({ head: headText({ identity: '9'.repeat(64), memberships: ['9'.repeat(64)] }) }), refused('identity'))
+  assert.deepEqual(call({ head: headText({ epoch: 2, memberships: ['5'.repeat(64)] }) }), refused('membership'))
   assert.deepEqual(call({ head: headText({ authority: ['0'.repeat(64)] }) }), refused('authority'))
   const pending = '6'.repeat(64)
   const underPending = delegationText({ membership: pending })

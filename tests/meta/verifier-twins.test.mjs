@@ -21,6 +21,16 @@ const TWINS = [
   ['min-head-at-ignored', 'a head older than one already seen is accepted', [[' || h.at < minHeadAt', '']]],
   ['head-revocations-ignored', 'revocations carried by the head are not applied', [["    if (has(h.revoked, d.id) || has(h.revoked, b.subject)) return refuse('revoked')\n", '']]],
   ['revoke-by-id-only', 'revoking a subject key does not revoke its delegations', [[' || has(h.revoked, b.subject)', '']]],
+  ['equivocation-unchecked', 'a head inconsistent with the last one accepted is accepted', [["    if (last && forked(last, h)) return refuse('equivocation')\n", '']]],
+  ['pending-successor-unchecked', 'a rival or vanished pending successor is accepted', [[' || (pending !== undefined && h.memberships[1] !== pending)', '']]],
+  ['epoch-only', 'another settled membership at the same epoch is accepted', [['return h.memberships[0] !== settled || ', 'return ']]],
+  ['next-epoch-unchecked', 'the next epoch may settle another than the pending successor', [[' || (h.epoch === l.epoch + 1 && pending !== undefined && h.memberships[0] !== pending)', '']]],
+  ['older-than-last-accepted', 'a head older than the last one accepted is accepted', [[' || (last && h.at < last.at)', '']]],
+  ['last-identity-unchecked', 'a last head of another identity is compared as if it were this one\'s', [["    if (last && last.identity !== h.identity) return refuse('identity')\n", '']]],
+  ['last-head-at-now', 'the last head must still be in its key\'s window now, so key rotation breaks callers', [['headBody(lastHead, cfg, undefined)', 'headBody(lastHead, cfg, now)']]],
+  ['last-head-unverified', 'a last head that is not a pinned head is ignored', [[' || (lastHead !== undefined && last === undefined)', '']]],
+  ['epoch-form-unchecked', 'a head whose epoch disagrees with its memberships is accepted', [[' || !isTime(b.epoch) ||\n    (b.epoch === 1) !== (b.memberships[0] === b.identity)', '']]],
+  ['until-inclusive', 'a store that drops the claim id at until lets it replay once', [['until: b.at + cfg.maxClaimAge + 1 })', 'until: b.at + cfg.maxClaimAge })']]],
   ['claim-time-unchecked', 'a claim of any age is accepted', [['b.at < c.now - cfg.maxClaimAge || b.at > c.now + cfg.skew || ', '']]],
   ['claim-delegation-unchecked', 'a claim may name any delegation', [["    if (b.delegation !== d.id) return refuse('claim-delegation')\n", '']]],
   ['claim-unsigned', 'the claim\'s signature is not checked', [['    if (!s.ok) return s\n', '']]],
@@ -81,7 +91,7 @@ test('verifier broken twins', { timeout: 600_000 }, async (t) => {
     })
 
     const jobs = TWINS.map(([name, why, edits]) => [name, why, generate(name, edits)])
-    assert.equal(jobs.length, 21, 'twin count')
+    assert.equal(jobs.length, 31, 'twin count')
     const results = []
     const queue = [...jobs]
     const workers = Math.max(1, Math.floor(availableParallelism() / 4))

@@ -334,7 +334,8 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   `MUID_SWEEP=full` sweeps every position.
 - **Twins:** half counted as a majority; added roots not required to sign; the witness window ignored; a contest
   without a majority; new roots with authority while pending; a freeze lifted at anchoring; settlements ignored; one
-  of two anchored rivals chosen; root assertions not verified.
+  of two anchored rivals chosen; root assertions not verified; the revocation cap applied only after the whole list is
+  read; a pending epoch in the head as if settled.
 
 ## 4g. Layer 8 — the verifier (`src/verifier.js`): F1–F5, R9
 
@@ -349,6 +350,14 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
 - **Revocation and lag (R9):** the head's revocations by delegation id and by subject key; `minHeadAt`; a witness key
   whose window holds the head's `at` but not `now`, or ends exactly at `now`; malformed revocation entries are a
   programming error.
+- **Equivocation (decision 10):** with `lastHead`, an honest witness's later heads are accepted (the same state, a
+  successor pending, it settling, the next pending, two epochs on); a lower settled epoch, another settled membership
+  at the same epoch, a pending successor gone or replaced, the next epoch settling another than the pending successor are
+  `equivocation`; an older head, even a consistent one, is
+  `stale`; a last head of another identity is `identity`, never a throw; a last head signed by a key since retired
+  still works; a last head that is not a pinned head is a programming error. Over every pair of a pool of heads, a
+  last head only removes trust (F3). Head form: `epoch` a non-negative integer, 1 exactly when the first membership is
+  the identity.
 - **F3:** adding revocations never turns a refusal into an accept (property).
 - **Programming errors** for configuration, `now`, `scope` and `revoked`; the configuration is copied at
   construction; arbitrary and hostile records never throw.
@@ -357,13 +366,17 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   exactly 128 hex or not alone) is `claim-shape`; a claim for another scope or request; the delegation verified in
   full; another delegation named; time at and one past `maxClaimAge` and `skew`, and outside the delegation's window;
   a signature by another key or over the payload without its prefix; subject keys in the call's revoked list; the
-  call read once.
+  call read once; `until` is the first time the claim is refused (accepted one second before it).
+- **Bounded head building:** `headOf` given 2,000 distinct descending revocations reads exactly 65 entries.
 - **Tamper sweep:** every position of the claim, its delegation, the root record and the head, replaced two ways
   and deleted: no variant verifies (`tests/integration/tamper.test.mjs`).
 - **Twins:** no staleness bound; heads from the future; `minHeadAt` ignored; claim time, delegation window, delegation,
   signature, scope or request unchecked; subject keys in the call's revoked list ignored; membership, authority, identity,
   revocation (call's or head's), audience or scope unchecked; revocation by id only; the witness key's window checked
-  at the head's time only; the head's signature unchecked.
+  at the head's time only; the head's signature unchecked; `until` one second early; equivocation unchecked, or by settled epoch only, or without the pending successor, or not
+  into the next epoch; a
+  head older than the last accepted; the last head's identity unchecked, checked at `now`, or not verified; the
+  head's epoch unchecked.
 
 ## 5. Later layers (outline; each is expanded here before its code is written)
 

@@ -1,0 +1,121 @@
+// R9 and decision 10: a relying party that passes the last head it accepted for the identity (`lastHead`) refuses a
+// head the witness could not honestly have signed after it: an older one (stale), one whose settled epoch is lower,
+// or equal with another settled membership or another pending successor, or one more with another settled membership
+// than the pending successor (equivocation).
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { ed25519 } from '@noble/curves/ed25519.js'
+import { verifier as verifierModule, envelope, root as rootModule } from '../impl.mjs'
+import { make, KEY, RP_ID, ORIGIN } from '../assertion/helpers.mjs'
+
+const { verifier } = verifierModule
+const hex = (b) => Buffer.from(b).toString('hex')
+const NOW = 1_800_000_100
+const OLD = Uint8Array.from({ length: 32 }, (_, i) => 11 + i)
+const NEW = Uint8Array.from({ length: 32 }, (_, i) => 51 + i)
+const key = (s) => hex(ed25519.getPublicKey(s))
+const APP = Uint8Array.from({ length: 32 }, (_, i) => 60 + i)
+const AUD = 'https://app.example'
+// The witness rotated keys: the old one's window ended 20 s ago, the new one's began 30 s ago.
+const CONFIG = Object.freeze({ rpId: RP_ID, origin: ORIGIN, audience: AUD,
+  witnessKeys: [{ key: key(OLD), nbf: 0, exp: NOW - 20 }, { key: key(NEW), nbf: NOW - 30, exp: 1_900_000_000 }],
+  skew: 60, maxLifetime: 2_592_000, maxStaleness: 86_400, maxClaimAge: 300 })
+const v = verifier(CONFIG)
+
+const rootText = envelope.wrap(envelope.seal('root', { pub: KEY, rp_id: RP_ID }).payload)
+const ROOT = rootModule.checkRoot(rootText, { rpId: RP_ID }).id
+const I = rootModule.identityOf(ROOT)
+const P = '1'.repeat(64) // a pending successor of the identity's first membership
+const Q = '2'.repeat(64) // a rival of P
+const R = '3'.repeat(64) // a successor of P
+
+function delegation (membership) {
+  const { payload, id } = envelope.seal('delegation', { identity: I, membership, root: ROOT, subject: key(APP), aud: AUD,
+    scopes: ['post'], nbf: NOW - 10, exp: NOW + 86_000 })
+  const subject = hex(ed25519.sign(Buffer.concat([Buffer.from('muid/v1/accept\n'), Buffer.from(id, 'hex')]), APP))
+  return envelope.wrap(payload, { root: make({ covers: [id] }), subject })
+}
+const DEL = { [I]: delegation(I), [P]: delegation(P), [Q]: delegation(Q), [R]: delegation(R) }
+
+function head (epoch, memberships, at, { secret = at < NOW - 20 ? OLD : NEW, identity = I } = {}) {
+  const { payload } = envelope.seal('head', { identity, epoch, memberships, authority: [ROOT], revoked: [], at })
+  return envelope.wrap(payload, { signature: hex(ed25519.sign(envelope.signedBytes(payload), secret)), witness: key(secret) })
+}
+
+// The head presented, under a delegation whose membership it carries, with or without the relying party's last head.
+function verify (presented, lastHead, membership) {
+  const call = { now: NOW, scope: 'post', revoked: [], ...(lastHead === undefined ? {} : { lastHead }) }
+  const r = v.verifyDelegation({ delegation: DEL[membership], root: rootText, head: presented }, call)
+  return r.ok ? { ok: true } : { ...r }
+}
+const refused = (reason) => ({ ok: false, reason })
+
+test('an honest witness\'s later heads are accepted after any earlier one', () => {
+  const cases = [
+    ['the same head again', head(1, [I], NOW - 10), head(1, [I], NOW - 10), I],
+    ['a later head of the same state', head(1, [I], NOW - 10), head(1, [I], NOW - 50), I],
+    ['a successor becomes pending', head(1, [I, P], NOW - 10), head(1, [I], NOW - 50), I],
+    ['the pending successor stays pending', head(1, [I, P], NOW - 10), head(1, [I, P], NOW - 50), P],
+    ['the pending successor settles', head(2, [P], NOW - 10), head(1, [I, P], NOW - 50), P],
+    ['it settles and the next is pending', head(2, [P, R], NOW - 10), head(1, [I, P], NOW - 50), R],
+    ['two epochs later', head(3, [R], NOW - 10), head(1, [I], NOW - 50), R],
+    ['one epoch on, the last head having seen nothing pending', head(2, [P], NOW - 10), head(1, [I], NOW - 50), P],
+    ['two epochs on from a pending successor', head(3, [R], NOW - 10), head(1, [I, P], NOW - 50), R],
+  ]
+  for (const [name, presented, last, membership] of cases) {
+    assert.deepEqual(verify(presented, last, membership), { ok: true }, name)
+  }
+})
+
+test('equivocation: a lower settled epoch, another settled membership, or another pending successor', () => {
+  const cases = [
+    ['a lower settled epoch', head(1, [I, P], NOW - 10), head(2, [P], NOW - 50), P],
+    ['the same epoch, another settled membership', head(2, [Q], NOW - 10), head(2, [P], NOW - 50), P],
+    ['the pending successor gone', head(1, [I], NOW - 10), head(1, [I, P], NOW - 50), I],
+    ['a rival pending successor', head(1, [I, Q], NOW - 10), head(1, [I, P], NOW - 50), I],
+    ['the next epoch settles another than the pending successor', head(2, [Q], NOW - 10), head(1, [I, P], NOW - 50), Q],
+  ]
+  for (const [name, presented, last, membership] of cases) {
+    assert.deepEqual(verify(presented, last, membership), refused('equivocation'), name)
+  }
+})
+
+test('stale: a head older than the last one accepted, even a consistent one', () => {
+  assert.deepEqual(verify(head(1, [I], NOW - 19), head(1, [I], NOW - 10), I), refused('stale'))
+  assert.deepEqual(verify(head(1, [I], NOW - 11), head(1, [I], NOW - 10), I), refused('stale'), 'one second older')
+})
+
+test('identity: a head for another identity than the last head\'s is refused, never thrown', () => {
+  const other = rootModule.identityOf('f'.repeat(64))
+  assert.deepEqual(verify(head(1, [I], NOW - 10), head(1, [other], NOW - 50, { identity: other }), I), refused('identity'))
+})
+
+test('the last head is checked at its own time, so it stays usable after the witness rotates keys', () => {
+  const last = head(1, [I], NOW - 50) // signed by the old key, whose window has ended
+  assert.deepEqual(verify(head(1, [I], NOW - 10), last, I), { ok: true })
+  assert.deepEqual(verify(last, undefined, I), refused('head'), 'presented now, the same head is refused')
+})
+
+test('a last head that is not a pinned head is a programming error', () => {
+  const unpinned = Uint8Array.from({ length: 32 }, (_, i) => 200 - i)
+  for (const lastHead of ['x', null, 1, head(1, [I], NOW - 50, { secret: unpinned }), DEL[I], head(0, [I], NOW - 50)]) {
+    assert.throws(() => verify(head(1, [I], NOW - 10), lastHead, I), { name: 'TypeError' }, String(lastHead).slice(0, 40))
+  }
+})
+
+test('F3: a last head only removes trust, over every pair of a pool of heads', () => {
+  const pool = [head(1, [I], NOW - 50), head(1, [I], NOW - 10), head(1, [I, P], NOW - 40), head(1, [I, Q], NOW - 5),
+    head(2, [P], NOW - 30), head(2, [P, R], NOW - 3), head(2, [Q], NOW - 25), head(3, [R], NOW - 1)]
+  let refusedByLast = 0
+  for (const presented of pool) {
+    for (const last of pool) {
+      for (const membership of [I, P, R]) {
+        const without = verify(presented, undefined, membership)
+        const withLast = verify(presented, last, membership)
+        if (withLast.ok) assert.ok(without.ok, 'an accept with a last head is an accept without one')
+        if (without.ok && !withLast.ok) refusedByLast++
+      }
+    }
+  }
+  assert.ok(refusedByLast > 10, 'the last head refuses some heads accepted without it')
+})

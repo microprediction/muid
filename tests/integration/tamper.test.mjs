@@ -24,7 +24,7 @@ const del = envelope.seal('delegation', { identity: IDENTITY, membership: IDENTI
   subject: hex(ed25519.getPublicKey(APP)), aud: AUD, scopes: ['post'], nbf: NOW - 10, exp: NOW + 86_000 })
 const delegation = envelope.wrap(del.payload, { root: make({ covers: [del.id] }),
   subject: hex(ed25519.sign(Buffer.concat([Buffer.from('muid/v1/accept\n'), Buffer.from(del.id, 'hex')]), APP)) })
-const h = envelope.seal('head', { identity: IDENTITY, memberships: [IDENTITY], authority: [ROOT], revoked: [], at: NOW - 100 })
+const h = envelope.seal('head', { identity: IDENTITY, epoch: 1, memberships: [IDENTITY], authority: [ROOT], revoked: [], at: NOW - 100 })
 const head = envelope.wrap(h.payload, { signature: hex(ed25519.sign(envelope.signedBytes(h.payload), W)), witness: WITNESS })
 const c = envelope.seal('claim', { delegation: del.id, scope: 'post', request: REQUEST, at: NOW - 5, data: { n: 1 } })
 const claim = envelope.wrap(c.payload, { signature: hex(ed25519.sign(envelope.signedBytes(c.payload), APP)) })

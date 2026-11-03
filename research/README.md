@@ -10,6 +10,7 @@ Background research behind the draft spec in [`../SPEC.md`](../SPEC.md). Sources
 | [passkeys-and-recovery.md](passkeys-and-recovery.md) | Related Origin Requests, iframes vs popups, passkey-rooted wallet designs, sync-provider risk, recovery |
 | [delegation.md](delegation.md) | UCAN, ZCAP, Biscuit, did:plc, KERI, NIP-26, RFC 8693, X.509: scope, audience, depth, time, revocation |
 | [oidc-witness.md](oidc-witness.md) | Binding provider accounts to keys (Fulcio, DPoP, PKCE, nonce), GitHub/Google/ORCID identifiers, device flow |
+| [witness.md](witness.md) | Witness equivocation and backdating in CT, checksum databases, KERI, key transparency, did:plc; revocation lag; several witnesses |
 | [assurance.md](assurance.md) | Mutation testing, property testing, fuzzing, linters, known-answer vectors, supply chain, anti-vacuity |
 
 ## Structure of each topic file

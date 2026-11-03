@@ -18,7 +18,7 @@ const { isRefusal } = EnvelopeError
 
 const ID = /^[0-9a-f]{64}$/
 const SCOPE = /^[a-z][a-z0-9_.:-]{0,63}$/
-const HEAD_KEYS = freeze(['at', 'authority', 'identity', 'memberships', 'revoked'])
+const HEAD_KEYS = freeze(['at', 'authority', 'epoch', 'identity', 'memberships', 'revoked'])
 const MAX_REVOKED = 64
 const isId = (x) => typeof x === 'string' && apply(exec, ID, [x]) !== null
 const isTime = (x) => isSafeInteger(x) && x >= 0
@@ -57,7 +57,8 @@ function allIds (list) {
   return freeze(out)
 }
 
-// R9: the head's body if it is a head of its form, signed by a pinned witness key whose window holds its `at` and now.
+// R9: the head's body if it is a head of its form, signed by a pinned witness key whose window holds its `at` and now
+// (its `at` alone when `now` is undefined, as for a relying party's last head: undefined compares false either way).
 function headBody (text, cfg, now) {
   let r
   try {
@@ -69,7 +70,8 @@ function headBody (text, cfg, now) {
   let i = 0
   for (const k in b) if (k !== HEAD_KEYS[i++]) return undefined
   if (!isId(b.identity) || !ids(b.memberships, 1, 2, false) || !ids(b.authority, 1, 5, true) ||
-    !ids(b.revoked, 0, MAX_REVOKED, true) || !isTime(b.at)) return undefined
+    !ids(b.revoked, 0, MAX_REVOKED, true) || !isTime(b.at) || !isTime(b.epoch) ||
+    (b.epoch === 1) !== (b.memberships[0] === b.identity)) return undefined
   // The key's window must hold both the head's time and now, whichever comes first.
   // Stryker disable next-line EqualityOperator: equivalent; at now === at both branches give the same value
   const from = now < b.at ? now : b.at
@@ -83,14 +85,26 @@ const CLAIM_KEYS = freeze(['at', 'data', 'delegation', 'request', 'scope'])
 const SIG128 = /^[0-9a-f]{128}$/
 
 // The call's fields, each read once (the revoked list copied); a claim's call also names the request it is for.
-function readCall (call, claim) {
-  const { now, scope, request, revoked, minHeadAt = 0 } = typeof call === 'object' && call !== null ? call : {}
+function readCall (call, claim, cfg) {
+  const { now, scope, request, revoked, minHeadAt = 0, lastHead } = typeof call === 'object' && call !== null ? call : {}
   const list = allIds(revoked)
+  const last = headBody(lastHead, cfg, undefined) // undefined when no last head is given
   if (!isTime(now) || typeof scope !== 'string' || apply(exec, SCOPE, [scope]) === null || !isTime(minHeadAt) ||
-    list === undefined || (claim && typeof request !== 'string')) {
+    list === undefined || (claim && typeof request !== 'string') || (lastHead !== undefined && last === undefined)) {
     throw new TypeError('call must hold now, a scope and a revoked list')
   }
-  return { now, scope, request, revoked: list, minHeadAt }
+  return { now, scope, request, revoked: list, minHeadAt, last }
+}
+
+// Decision 10: a head the witness cannot honestly have signed at or after the relying party's last head `l`. A settled
+// epoch never falls; while it stands its settled membership and any pending successor never change; and a pending
+// successor is the only membership the next epoch can settle (one anchor per prev, R3).
+function forked (l, h) {
+  const settled = l.memberships[0] // index reads: decoded arrays have no prototype, so no iterator
+  const pending = l.memberships[1]
+  if (h.epoch === l.epoch) return h.memberships[0] !== settled || (pending !== undefined && h.memberships[1] !== pending)
+  // Stryker disable next-line EqualityOperator: equivalent; equal epochs have returned above
+  return h.epoch < l.epoch || (h.epoch === l.epoch + 1 && pending !== undefined && h.memberships[0] !== pending)
 }
 
 // The fields of `records`, each read once; undefined if they cannot be read.
@@ -107,10 +121,14 @@ export function verifier (config) {
   if (cfg === undefined) throw new TypeError('verifier configuration is not well formed')
 
   // F5 for a delegation, given its records and the call's fields.
-  function check (given, { now, scope, revoked, minHeadAt }) {
+  function check (given, { now, scope, revoked, minHeadAt, last }) {
     const h = headBody(given.head, cfg, now)
     if (h === undefined) return refuse('head')
-    if (h.at < now - cfg.maxStaleness || h.at > now + cfg.skew || h.at < minHeadAt) return refuse('stale')
+    if (h.at < now - cfg.maxStaleness || h.at > now + cfg.skew || h.at < minHeadAt || (last && h.at < last.at)) {
+      return refuse('stale')
+    }
+    if (last && last.identity !== h.identity) return refuse('identity')
+    if (last && forked(last, h)) return refuse('equivocation')
     const r = checkRoot(given.root, { rpId: cfg.rpId })
     if (!r.ok) return refuse('root-record')
     const d = checkDelegation(given.delegation, { rootKey: r.key, rpId: cfg.rpId, origin: cfg.origin, now,
@@ -130,14 +148,14 @@ export function verifier (config) {
   }
 
   function verifyDelegation (records, call) {
-    const c = readCall(call, false)
+    const c = readCall(call, false, cfg)
     const given = readRecords(records)
     return given === undefined ? refuse('head') : check(given, c)
   }
 
   // C1: an ephemeral claim, with its delegation verified in full under the claim's scope.
   function verifyClaim (records, call) {
-    const c = readCall(call, true)
+    const c = readCall(call, true, cfg)
     const given = readRecords(records)
     let claim
     try {
@@ -163,8 +181,8 @@ export function verifier (config) {
       b.at >= d.body.exp) return refuse('claim-time')
     const s = checkEd25519(claim.sig.signature, signedBytes(claim.payload), d.body.subject)
     if (!s.ok) return s
-    // Replay inside the window is the caller's to refuse: keep the id until `until`.
-    return accept({ id: claim.id, body: b, delegation: freeze({ id: d.id, body: d.body }), until: b.at + cfg.maxClaimAge })
+    // Replay inside the window is the caller's to refuse: keep the id until `until`, the first time it is refused.
+    return accept({ id: claim.id, body: b, delegation: freeze({ id: d.id, body: d.body }), until: b.at + cfg.maxClaimAge + 1 })
   }
 
   return freeze({ verifyDelegation, verifyClaim })
