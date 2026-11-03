@@ -299,6 +299,20 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
 - **Twins:** skew applied to `exp`; `<=` at `exp`; no lifetime cap; scopes prefix-matched or unsorted allowed; no D6;
   D6 over hex text; aud not checked; root assertion checked against a fixed record id.
 
+## 4e. Layer 6 — attestations (`src/attestation.js`): A1, A3, A4
+
+- **Accounts:** GitHub `1`, `583231`, a 20-digit id (accepted); `0`, `01`, 21 digits, `-1`, a login (refused).
+  Google: a 21-digit sub, 255 printable characters (accepted); empty, 256 characters, a space, a non-ASCII
+  character (refused). ORCID: the iDs ORCID publishes as examples, including one ending in `X` (accepted); each with
+  its check digit changed, lowercase `x`, no hyphens, a URL form (refused).
+- **Witness keys (A1):** an unpinned key; a pinned key before its `nbf` and at its `exp`; a pinned key inside its
+  window (accepted); a signature by a different pinned key than the one named.
+- **Window and lifetime:** as for delegations (§4d).
+- **Signature:** over the signed bytes, by the named key; any change to the payload or signature is refused.
+- **Shape, totality, context read once,** as for delegations.
+- **Twins:** no check digit; leading zeros allowed; any provider; witness found by trying keys; key window ignored;
+  signature over the payload without the prefix.
+
 ## 5. Later layers (outline; each is expanded here before its code is written)
 
 1. **Envelope and record id:** expanded as §3.

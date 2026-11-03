@@ -14,6 +14,7 @@ const SUITE = readdirSync(SUITE_DIR).filter((f) => f.endsWith('.test.mjs')).map(
 // A twin lives outside the repository, so its imports are made absolute.
 const absolute = (m) => new URL('../../src/' + m + '.js', import.meta.url).href
 const IMPORTS = [
+  ["from './bytes.js'", "from '" + new URL('../../src/bytes.js', import.meta.url).href + "'"],
   ["from '@noble/hashes/sha2.js'", "from '" + import.meta.resolve('@noble/hashes/sha2.js') + "'"],
   ...['envelope', 'p256'].map((m) => ["from './" + m + ".js'", "from '" + absolute(m) + "'"]),
 ]
@@ -22,7 +23,7 @@ const IMPORTS = [
 const TWINS = [
   ['id-without-prefix', 'the root id omits its domain prefix', [["concat('muid-root\\n' + rpId + '\\n', pub)", "concat(rpId + '\\n', pub)"]]],
   ['id-over-hex-text', 'the root id hashes the key as hex text', [["concat('muid-root\\n' + rpId + '\\n', pub)", "concat('muid-root\\n' + rpId + '\\n' + pub, '')"]]],
-  ['rp-id-unchecked', 'any rp ID is accepted', [["  if (b.rp_id !== rpId) return verdict({ ok: false, reason: 'rp-id' })\n", '']]],
+  ['rp-id-unchecked', 'any rp ID is accepted', [["  if (b.rp_id !== rpId) return refuse('rp-id')\n", '']]],
   ['identity-over-hex', 'the identity id hashes the root id as hex text', [["concat('muid-identity\\n', rootId)", "concat('muid-identity\\n' + rootId, '')"]]],
   ['identity-unchecked-input', 'identityOf accepts anything', [["  if (typeof rootId !== 'string' || apply(exec, ID, [rootId]) === null) throw new TypeError('root id must be 64 lowercase hex')\n", '']]],
 ]

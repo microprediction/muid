@@ -3,46 +3,25 @@
 import { sha256 } from '@noble/hashes/sha2.js'
 import { open, EnvelopeError } from './envelope.js'
 import { checkP256Key } from './p256.js'
+import { fromHex, toHex, refuse, accept } from './bytes.js'
 
 const { apply } = Reflect
-const { create, freeze } = Object
+const { freeze } = Object
 const { exec } = RegExp.prototype
-const { charCodeAt } = String.prototype
 const { isRefusal } = EnvelopeError
 const Bytes = Uint8Array
 const { set } = Object.getPrototypeOf(Uint8Array.prototype)
-const HEX = freeze(Array.from({ length: 256 }, (_, i) => (i < 16 ? '0' : '') + i.toString(16)))
 const ID = /^[0-9a-f]{64}$/
 const KEYS = freeze(['pub', 'rp_id'])
 const textEncode = TextEncoder.prototype.encode
 const UTF8 = new TextEncoder()
-
-function verdict (fields) {
-  const out = create(null)
-  for (const k in fields) out[k] = fields[k]
-  return freeze(out)
-}
 
 // UTF-8 of the text, then the bytes of the hex.
 function concat (text, hex) {
   const head = apply(textEncode, UTF8, [text])
   const out = new Bytes(head.length + hex.length / 2)
   apply(set, out, [head])
-  // Stryker disable next-line EqualityOperator: equivalent; a write past the end of a typed array is ignored
-  for (let j = 0; j < hex.length; j += 2) {
-    let byte = 0
-    for (let k = 0; k < 2; k++) {
-      const c = apply(charCodeAt, hex, [j + k])
-      byte = byte * 16 + (c <= 57 ? c - 48 : c - 87)
-    }
-    out[head.length + j / 2] = byte
-  }
-  return out
-}
-
-function toHex (bytes) {
-  let out = ''
-  for (let i = 0; i < bytes.length; i++) out += HEX[bytes[i]]
+  apply(set, out, [fromHex(hex), head.length])
   return out
 }
 
@@ -64,15 +43,15 @@ export function checkRoot (text, ctx) {
     record = open(text, 'root')
   } catch (e) {
     // Anything but a refusal can only come from built-ins patched in the page (§4 residual): fail closed.
-    return verdict({ ok: false, reason: isRefusal(e) ? e.reason : 'envelope-encoding' })
+    return refuse(isRefusal(e) ? e.reason : 'envelope-encoding')
   }
   const b = record.body
   let i = 0
-  for (const k in b) if (k !== KEYS[i++]) return verdict({ ok: false, reason: 'root-shape' })
-  if (typeof b.rp_id !== 'string') return verdict({ ok: false, reason: 'root-shape' })
+  for (const k in b) if (k !== KEYS[i++]) return refuse('root-shape')
+  if (typeof b.rp_id !== 'string') return refuse('root-shape')
   const key = checkP256Key(b.pub) // a pub that is not a string is key-encoding
-  if (key.reason === 'key-encoding') return verdict({ ok: false, reason: 'root-shape' })
-  if (b.rp_id !== rpId) return verdict({ ok: false, reason: 'rp-id' })
+  if (key.reason === 'key-encoding') return refuse('root-shape')
+  if (b.rp_id !== rpId) return refuse('rp-id')
   if (!key.ok) return key
-  return verdict({ ok: true, id: rootIdOf(b.rp_id, b.pub), key: b.pub })
+  return accept({ id: rootIdOf(b.rp_id, b.pub), key: b.pub })
 }

@@ -14,6 +14,7 @@ const SUITE = readdirSync(SUITE_DIR).filter((f) => f.endsWith('.test.mjs')).map(
 
 // A twin lives outside the repository, so its import is made absolute.
 const IMPORTS = [
+  ["from './bytes.js'", "from '" + new URL('../../src/bytes.js', import.meta.url).href + "'"],
   ["from '@noble/curves/nist.js'", `from '${import.meta.resolve('@noble/curves/nist.js')}'`],
 ]
 
@@ -30,10 +31,6 @@ const TWINS = [
     ["  return isPoint(fromHex(key)) ? undefined : 'key-point'", '  return undefined']]],
   ['library-throw-escapes', 'a throw from the library leaves checkP256', [
     ['  } catch { /* a throw is a reject (K2) */ }', '  } finally { /* none */ }']]],
-  ['no-snapshot', 'a subclass can change the bytes while they are verified', [
-    ['    return new Bytes(x)\n', '    return x\n']]],
-  ['live-builtins', 'built-ins are looked up when called, so patching them later changes results', [
-    ['      const c = apply(charCodeAt, text, [2 * i + j])', '      const c = text.charCodeAt(2 * i + j)']]],
 ]
 
 function run (implPath) {
@@ -77,7 +74,7 @@ test('P-256 broken twins', { timeout: 600_000 }, async (t) => {
     })
 
     const jobs = TWINS.map(([name, why, edits]) => [name, why, generate(name, edits)])
-    assert.equal(jobs.length, 7, 'twin count')
+    assert.equal(jobs.length, 5, 'twin count')
     const results = []
     const queue = [...jobs]
     const workers = Math.max(1, Math.floor(availableParallelism() / 4))

@@ -16,6 +16,7 @@ const SUITE = readdirSync(SUITE_DIR).filter((f) => f.endsWith('.test.mjs')).map(
 
 // A twin lives outside the repository, so its import is made absolute.
 const IMPORTS = [
+  ["from './bytes.js'", "from '" + new URL('../../src/bytes.js', import.meta.url).href + "'"],
   ["from '@noble/curves/ed25519.js'", `from '${import.meta.resolve('@noble/curves/ed25519.js')}'`],
 ]
 
@@ -29,21 +30,17 @@ const TWINS = [
   ['no-torsion-check', 'mixed-order keys and R values are accepted', [
     ['    if (!p.isTorsionFree()) return `${prefix}-mixed-order`\n', '']]],
   ['no-r-checks', 'R is not checked (K4)', [
-    ["  const rFault = pointFault(apply(subarray, sigBytes, [0, 32]), 'sig-r')\n  if (rFault) return result(rFault)\n", '']]],
+    ["  const rFault = pointFault(apply(subarray, sigBytes, [0, 32]), 'sig-r')\n  if (rFault) return verdict(rFault)\n", '']]],
   ['no-s-range-check', 'S >= L is left to the library, so the reason is wrong', [
-    ["  if (!scalarInRange(apply(subarray, sigBytes, [32]))) return result('sig-s-range')\n", '']]],
+    ["  if (!scalarInRange(apply(subarray, sigBytes, [32]))) return verdict('sig-s-range')\n", '']]],
   ['uppercase-hex', 'uppercase hex is accepted', [
     ['const KEY_HEX = /^[0-9a-f]{64}$/', 'const KEY_HEX = /^[0-9a-fA-F]{64}$/i'],
     ['const SIG_HEX = /^[0-9a-f]{128}$/', 'const SIG_HEX = /^[0-9a-fA-F]{128}$/i']]],
   ['library-throw-escapes', 'a throw from the library leaves checkEd25519', [
     ['  } catch { /* a throw is a reject (K2) */ }', '  } finally { /* none */ }']]],
-  ['no-snapshot', 'a subclass can change the message while it is verified', [
-    ['    return new Bytes(x)\n', '    return x\n']]],
-  ['live-builtins', 'built-ins are looked up when called, so patching them later changes results', [
-    ['      const c = apply(charCodeAt, text, [2 * i + j])', '      const c = text.charCodeAt(2 * i + j)']]],
   ['key-checks-after-sig', 'the signature is examined before the key', [
-    ["  const keyFault = keyReason(key)\n  if (keyFault) return result(keyFault)\n  const keyBytes = fromHex(key)\n  if (!isHex(SIG_HEX, sig)) return result('sig-encoding')\n",
-      "  if (!isHex(SIG_HEX, sig)) return result('sig-encoding')\n  const keyFault = keyReason(key)\n  if (keyFault) return result(keyFault)\n  const keyBytes = fromHex(key)\n"]]],
+    ["  const keyFault = keyReason(key)\n  if (keyFault) return verdict(keyFault)\n  const keyBytes = fromHex(key)\n  if (!isHex(SIG_HEX, sig)) return verdict('sig-encoding')\n",
+      "  if (!isHex(SIG_HEX, sig)) return verdict('sig-encoding')\n  const keyFault = keyReason(key)\n  if (keyFault) return verdict(keyFault)\n  const keyBytes = fromHex(key)\n"]]],
 ]
 
 function run (implPath) {
@@ -87,7 +84,7 @@ test('Ed25519 broken twins', { timeout: 600_000 }, async (t) => {
     })
 
     const jobs = TWINS.map(([name, why, edits]) => [name, why, generate(name, edits)])
-    assert.equal(jobs.length, 10, 'twin count')
+    assert.equal(jobs.length, 8, 'twin count')
     const results = []
     const queue = [...jobs]
     const workers = Math.max(1, Math.floor(availableParallelism() / 4))

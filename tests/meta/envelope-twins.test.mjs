@@ -15,6 +15,7 @@ const SUITE = readdirSync(SUITE_DIR).filter((f) => f.endsWith('.test.mjs')).map(
 
 // A twin lives outside the repository, so its imports are made absolute.
 const IMPORTS = [
+  ["from './bytes.js'", "from '" + new URL('../../src/bytes.js', import.meta.url).href + "'"],
   ["from '@noble/hashes/sha2.js'", `from '${import.meta.resolve('@noble/hashes/sha2.js')}'`],
   ["from './encode.js'", `from '${new URL('../../src/encode.js', import.meta.url).href}'`],
 ]
@@ -29,7 +30,7 @@ const TWINS = [
   ['extra-keys-accepted', 'keys beyond the expected ones are ignored', [
     ['function sameKeys (o, expected) {\n', 'function sameKeys (o, expected) {\n  return expected.every((e) => apply(includes, keys(o), [e]))\n']]],
   ['id-without-prefix', 'the record id hashes the payload without the domain prefix', [
-    ['const digest = sha256(signedBytes(payload))', 'const digest = sha256(apply(textEncode, UTF8, [payload]))']]],
+    ['toHex(sha256(signedBytes(payload)))', 'toHex(sha256(apply(textEncode, UTF8, [payload])))']]],
   ['no-payload-size-on-open', 'open accepts a payload too large to have been sealed', [
     ["  if (envelopeBytes(env.payload) > MAX_PAYLOAD) fail('payload-size')\n", '']]],
   ['no-payload-size-on-seal', 'seal returns a payload that cannot be wrapped with a signature', [

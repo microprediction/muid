@@ -14,6 +14,7 @@ const SUITE = readdirSync(SUITE_DIR).filter((f) => f.endsWith('.test.mjs')).map(
 
 // A twin lives outside the repository, so its imports are made absolute.
 const IMPORTS = [
+  ["from './bytes.js'", "from '" + new URL('../../src/bytes.js', import.meta.url).href + "'"],
   ["from '@noble/hashes/sha2.js'", `from '${import.meta.resolve('@noble/hashes/sha2.js')}'`],
   ["from './encode.js'", `from '${new URL('../../src/encode.js', import.meta.url).href}'`],
   ["from './p256.js'", `from '${new URL('../../src/p256.js', import.meta.url).href}'`],

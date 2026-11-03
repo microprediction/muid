@@ -236,8 +236,18 @@ Its envelope's `sig` is `{ root, subject }`: `root` the passkey assertion (W0–
   token commits to it.
 - **A3 SUBJECT:** identity is the pair (`provider`, `account`). `provider` is one of a closed list, each mapped to one
   pinned issuer. `account` is the provider's stable id in its canonical form: GitHub numeric user id (decimal, no
-  leading zeros); Google `sub`; ORCID iD (`dddd-dddd-dddd-dddX`, ISO 7064 MOD 11-2 check digit). Never an email,
-  handle, login or domain.
+  leading zeros, at most 20 digits); Google `sub` (1–255 printable ASCII characters, no space, as Google documents
+  it); ORCID iD (`dddd-dddd-dddd-dddX`, ISO 7064 MOD 11-2 check digit). Never an email, handle, login or domain.
+- **A4 CHECKS, IN ORDER:** the envelope's `sig` is `{ signature, witness }`: `witness` names the pinned key (64
+  lowercase hex) and `signature` is its Ed25519 signature over the record's signed bytes (128 lowercase hex); keys
+  are named, never found by trying. `checkAttestation(text, { witnessKeys, now, skew, maxLifetime })`, where
+  `witnessKeys` is the pinned list of `{ key, nbf, exp }`, opens the envelope itself and returns
+  `{ ok: true, id, body }` or `{ ok: false, reason }`, never throwing for any `text`: V4's reasons;
+  `attestation-shape` (body keys other than the five, `root` not an id, `nbf`/`exp` not non-negative integers,
+  `provider`/`account` not strings, or `sig` not as above); `provider` (not `github`, `google` or `orcid`);
+  `account` (not that provider's form); `lifetime` (`exp ≤ nbf`, or longer than `maxLifetime`); `not-yet`,
+  `expired` (D1's window); `witness` (not a pinned key, or `now` outside that key's window — A1); then K5's signature
+  reasons.
 
 **membership** — the identity's root set at one epoch. `{ identity, prev, epoch, roots }`. `roots` is a sorted list
 of 1–5 distinct root ids. Epoch 1 is implicit: it is the single first root, and needs no record. `prev` is the record

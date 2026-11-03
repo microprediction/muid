@@ -27,3 +27,5 @@ export const assertion = await load('MUID_ASSERTION_IMPL', '../src/assertion.js'
 export const origin = await load('MUID_ORIGIN_IMPL', '../src/origin.js')
 export const delegation = await load('MUID_DELEGATION_IMPL', '../src/delegation.js')
 export const root = await load('MUID_ROOT_IMPL', '../src/root.js')
+export const bytes = await load('MUID_BYTES_IMPL', '../src/bytes.js')
+export const attestation = await load('MUID_ATTESTATION_IMPL', '../src/attestation.js')

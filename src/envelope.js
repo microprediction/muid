@@ -4,6 +4,7 @@
 // checked over signedBytes(payload) by the record type's own rules, and nothing here re-serialises what it opened.
 import { sha256 } from '@noble/hashes/sha2.js'
 import { encode, decode } from './encode.js'
+import { toHex } from './bytes.js'
 
 const { apply } = Reflect
 const { create, defineProperty, freeze, keys } = Object
@@ -13,7 +14,6 @@ const { isWellFormed } = String.prototype
 const stringify = JSON.stringify
 const textEncode = TextEncoder.prototype.encode
 const UTF8 = new TextEncoder()
-const HEX = freeze(Array.from({ length: 256 }, (_, i) => (i < 16 ? '0' : '') + i.toString(16)))
 
 export const MAX_PAYLOAD = 49152
 
@@ -73,12 +73,7 @@ export function signedBytes (payload) {
   return apply(textEncode, UTF8, [PREFIX + payload])
 }
 
-function idOf (payload) {
-  const digest = sha256(signedBytes(payload))
-  let out = ''
-  for (let i = 0; i < digest.length; i++) out += HEX[digest[i]]
-  return out
-}
+const idOf = (payload) => toHex(sha256(signedBytes(payload)))
 
 export function open (text, type) {
   knownType(type)

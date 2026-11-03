@@ -8,13 +8,16 @@ import { checkRootAssertion } from './assertion.js'
 import { checkEd25519, checkEd25519Key } from './ed25519.js'
 import { isCanonicalOrigin } from './origin.js'
 import { rootIdOf } from './root.js'
+import { fromHex, refuse, accept } from './bytes.js'
 
 const { apply } = Reflect
-const { create, freeze } = Object
+const { freeze } = Object
 const { isArray } = Array
 const { isSafeInteger } = Number
 const { exec } = RegExp.prototype
-const { charCodeAt } = String.prototype
+const { set } = Object.getPrototypeOf(Uint8Array.prototype)
+const textEncode = TextEncoder.prototype.encode
+const UTF8 = new TextEncoder()
 const { isRefusal } = EnvelopeError
 const Bytes = Uint8Array
 
@@ -25,13 +28,6 @@ const HEX128 = /^[0-9a-f]{128}$/
 const SCOPE = /^[a-z][a-z0-9_.:-]{0,63}$/
 const MAX_SCOPES = 16
 const ACCEPT_PREFIX = 'muid/v1/accept\n'
-
-function refuse (reason) {
-  const out = create(null)
-  out.ok = false
-  out.reason = reason
-  return freeze(out)
-}
 
 const isHex = (re, x) => typeof x === 'string' && apply(exec, re, [x]) !== null
 const isTime = (x) => isSafeInteger(x) && x >= 0
@@ -61,17 +57,8 @@ function scopesOk (scopes) {
 // D6's message: the accept prefix, then the record id as 32 raw bytes.
 function acceptMessage (id) {
   const out = new Bytes(ACCEPT_PREFIX.length + 32)
-  // Stryker disable next-line EqualityOperator: equivalent; a write past the end of a typed array is ignored
-  for (let i = 0; i < ACCEPT_PREFIX.length; i++) out[i] = apply(charCodeAt, ACCEPT_PREFIX, [i])
-  // Stryker disable next-line EqualityOperator: equivalent; a write past the end of a typed array is ignored
-  for (let i = 0; i < 32; i++) {
-    let byte = 0
-    for (let j = 0; j < 2; j++) {
-      const c = apply(charCodeAt, id, [2 * i + j])
-      byte = byte * 16 + (c <= 57 ? c - 48 : c - 87)
-    }
-    out[ACCEPT_PREFIX.length + i] = byte
-  }
+  apply(set, out, [apply(textEncode, UTF8, [ACCEPT_PREFIX])])
+  apply(set, out, [fromHex(id), ACCEPT_PREFIX.length])
   return out
 }
 
@@ -84,14 +71,6 @@ function readContext (ctx) {
   if (!isHex(ROOT_KEY, rootKey) || typeof rpId !== 'string' || typeof origin !== 'string' || !isTime(now) ||
     !isTime(skew) || !isTime(maxLifetime)) return undefined
   return { rootKey, rpId, origin, now, skew, maxLifetime }
-}
-
-function accept (id, body) {
-  const out = create(null)
-  out.ok = true
-  out.id = id
-  out.body = body
-  return freeze(out)
 }
 
 export function checkDelegation (text, context) {
@@ -118,5 +97,5 @@ export function checkDelegation (text, context) {
   if (rootIdOf(ctx.rpId, ctx.rootKey) !== b.root) return refuse('root')
   const root = checkRootAssertion(sig.root, { record: id, rpId: ctx.rpId, origin: ctx.origin, key: ctx.rootKey })
   if (!root.ok) return root
-  return checkEd25519(sig.subject, acceptMessage(id), b.subject).ok ? accept(id, b) : refuse('subject-consent')
+  return checkEd25519(sig.subject, acceptMessage(id), b.subject).ok ? accept({ id, body: b }) : refuse('subject-consent')
 }

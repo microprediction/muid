@@ -5,9 +5,10 @@
 import { sha256 } from '@noble/hashes/sha2.js'
 import { encode, decode } from './encode.js'
 import { checkP256 } from './p256.js'
+import { refuse } from './bytes.js'
 
 const { apply } = Reflect
-const { create, freeze } = Object
+const { freeze } = Object
 const { isArray } = Array
 const { exec } = RegExp.prototype
 const { charCodeAt } = String.prototype
@@ -39,12 +40,6 @@ const BS = 0x10
 const FORBIDDEN = 0xe2 // AT, ED and the two reserved bits
 
 // This module only refuses; an accept is K6's result, returned as it is.
-function refuse (reason) {
-  const out = create(null)
-  out.ok = false
-  out.reason = reason
-  return freeze(out)
-}
 
 const utf8 = (text) => apply(textEncode, UTF8, [text])
 
