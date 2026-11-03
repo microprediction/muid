@@ -260,6 +260,31 @@ Interface under test: `checkRootAssertion(sig, { record, rpId, origin, key })` �
 - **Twins:** uppercase allowed; port 443 allowed; trailing slash allowed; `xn--` allowed; IPv4 allowed; no length
   limits.
 
+## 4d. Layer 5 — delegations (`src/delegation.js`): D1–D7
+
+Interface under test: `checkDelegation(record, ctx)` → frozen `{ ok: true }` or `{ ok: false, reason }` (D7), where
+`record` comes from the real `open` and `sig.root` from a real passkey-shaped assertion (as in §4b).
+
+- **Window (D1):** `now` at `nbf − skew − 1` (`not-yet`), `nbf − skew` (accepted), `exp − 1` (accepted), `exp`
+  (`expired`); skew never extends `exp`.
+- **Lifetime (D2):** `exp − nbf` at `maxLifetime` (accepted) and one over; `exp = nbf`; `exp < nbf`.
+- **Shape:** each of the eight keys missing, an extra key, each field of the wrong type or form (uppercase hex, 63 or
+  65 characters, a float or unsafe time, a string time); `sig` without `subject`, with an extra key, `subject` not
+  128 hex.
+- **Scopes:** empty, 17, unsorted, duplicate, uppercase, a 65-character scope, a scope starting with a digit; 16
+  accepted.
+- **Audience:** every refused case of §4c gives `aud`; a canonical origin is accepted.
+- **Subject key (K1):** a small-order and a mixed-order key give `subject-key`.
+- **Root assertion:** an assertion covering another record (`covers`), one signed by another passkey (`sig-invalid`),
+  one whose covers include this record and others (accepted).
+- **Subject consent (D6):** signed by another key; over the hex id instead of its bytes; with the signed-bytes or
+  assertion prefix instead of the accept prefix; over another delegation's id — each `subject-consent`.
+- **Context:** a context that is not well formed (`now`, `skew`, `maxLifetime` not non-negative safe integers; keys
+  not strings) is a programming error.
+- **K2:** arbitrary records never throw.
+- **Twins:** skew applied to `exp`; `<=` at `exp`; no lifetime cap; scopes prefix-matched or unsorted allowed; no D6;
+  D6 over hex text; aud not checked; root assertion checked against a fixed record id.
+
 ## 5. Later layers (outline; each is expanded here before its code is written)
 
 1. **Envelope and record id:** expanded as §3.
@@ -276,7 +301,7 @@ Interface under test: `checkRootAssertion(sig, { record, rpId, origin, key })` �
    allowed. W0: `covers` empty, longer than 8, unsorted, with a duplicate, with an uppercase id, or missing the
    record's own id; a challenge computed with the signed-bytes prefix instead of the assertion prefix; one record's
    assertion replayed onto another record not in its `covers`.
-4. **Delegation** (D1–D5): window boundaries at `nbf − skew − 1`, `nbf − skew`, `exp − 1`, `exp`; lifetime at the
+4. **Delegation:** expanded as §4d. Original outline (D1–D5): window boundaries at `nbf − skew − 1`, `nbf − skew`, `exp − 1`, `exp`; lifetime at the
    cap and one over; a delegation signed by an Ed25519 key; audience spelling variants (trailing slash, uppercase,
    default port, path, userinfo); unsorted or duplicate scopes; F3 monotonicity (no option turns a reject into an
    accept).

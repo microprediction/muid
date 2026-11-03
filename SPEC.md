@@ -185,15 +185,27 @@ happens to its roots afterwards.
 **delegation** — signed by a root (passkey assertion). Never by an Ed25519 key.
 `{ identity, membership, root, subject, aud, scopes, nbf, exp }`. `root` is a member of `membership` (R6 below);
 `subject` is an Ed25519 public key; `aud` is one exact origin;
-`scopes` is a non-empty sorted list of distinct scope strings (`^[a-z][a-z0-9_.:-]{0,63}$`). A scope's meaning
-belongs to the relying party; the core checks only exact membership — no prefix, wildcard or hierarchy rule.
+`scopes` is a sorted list of 1–16 distinct scope strings (`^[a-z][a-z0-9_.:-]{0,63}$`). A scope's meaning belongs
+to the relying party; the core checks only exact membership — no prefix, wildcard or hierarchy rule. `identity`,
+`membership` and `root` are ids (64 lowercase hex), `subject` is 64 lowercase hex, `nbf` and `exp` are
+non-negative integers.
+Its envelope's `sig` is `{ root, subject }`: `root` the passkey assertion (W0–W6), `subject` the D6 signature
+(128 lowercase hex).
 - **D1 WINDOW:** `nbf − skew ≤ now < exp`. Skew applies to `nbf` only; it never extends `exp`.
 - **D2 LIFETIME:** `exp − nbf ≤ MAX_DELEGATION`.
 - **D3 DEPTH ONE BY TYPE:** only a root can sign a delegation (V3). There is no depth counter to get wrong.
 - **D4 SUBJECT KEY:** the subject key satisfies K1 at issue and at verify.
-- **D6 SUBJECT CONSENT:** a delegation is valid only together with an Ed25519 signature by `subject` over the
-  delegation's record id (domain `"muid/v1/accept\n"`). Without it, a root could attach someone else's public key to
-  its identity and have that key's signatures counted as its own.
+- **D6 SUBJECT CONSENT:** a delegation is valid only together with an Ed25519 signature by `subject` over
+  `UTF-8("muid/v1/accept\n") ‖` the delegation's record id as 32 raw bytes. Without it, a root could attach someone
+  else's public key to its identity and have that key's signatures counted as its own.
+- **D7 CHECKS, IN ORDER:** `checkDelegation(record, { rootKey, rpId, origin, now, skew, maxLifetime })`, where
+  `record` is what `open(text, 'delegation')` returned, returns `{ ok: true }` or `{ ok: false, reason }` and never
+  throws for any record. Reasons: `delegation-shape` (body keys other than the eight, or a field of the wrong form,
+  or `sig` not `{ root, subject }`); `scopes`; `aud` (O1); `subject-key` (K1, via K5's key checks); `lifetime`
+  (`exp ≤ nbf` or D2); `not-yet` and `expired` (D1); then W6's reasons for `sig.root` with this record's id; then
+  `subject-consent` (any K5 signature reason for `sig.subject`). Whether `root` has authority under `membership`
+  (R6), and whether the verifier's view is fresh (open decision 7), are the verifier's to decide (§6), not this
+  check's. `skew` and `maxLifetime` are configuration (open decision 3).
 - **D5 AUDIENCE:** `aud` is the origin of the relying party — the service that verifies the delegate's signatures. It
   is compared by exact string equality, after the origin itself is checked to be canonical (O1). For an app, the
   relying party is the app (I3). For a machine, it is the service the machine calls, chosen by the user on the id
