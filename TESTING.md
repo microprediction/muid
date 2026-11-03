@@ -313,6 +313,23 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
 - **Twins:** no check digit; leading zeros allowed; any provider; witness found by trying keys; key window ignored;
   signature over the payload without the prefix.
 
+## 4f. Layer 7 — membership state (`src/membership.js`): R1–R8
+
+- **The model as oracle:** every state `model/settled.mjs`'s explorer reaches in five scenarios (one root stolen; two
+  roots, the later stolen; three roots, a later or the first stolen; three roots, two stolen) — thief moves, owner
+  answers, then the window closing — is translated into real signed records (P-256 roots, an Ed25519 witness), and
+  `membershipState` must give the model's answer. The scenarios together must reach dead, frozen, pending and settled
+  states. Sampled partial views (subsets a network attacker could show) must agree too. Under a small `FC_RUNS` a
+  deterministic sample is used, keeping every dead and frozen state.
+- **Hand cases:** memberships of every wrong shape (extra key, empty, six roots, unsorted, duplicate, non-id roots,
+  wrong epoch, another identity, bad `prev`) ignored even when anchored; witness records with a bad signature shape,
+  a negative `at` or a bad outcome ignored; contests and freezes of non-ids ignored; a witness that anchors two
+  rivals ends the identity; witness keys outside their window at the record's `at`; assertions over another record
+  or by a key that is not the named root; a signer whose root record is missing; unreadable `records`.
+- **Twins:** half counted as a majority; added roots not required to sign; the witness window ignored; a contest
+  without a majority; new roots with authority while pending; a freeze lifted at anchoring; settlements ignored; one
+  of two anchored rivals chosen; root assertions not verified.
+
 ## 5. Later layers (outline; each is expanded here before its code is written)
 
 1. **Envelope and record id:** expanded as §3.
@@ -335,7 +352,7 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
    accept).
 5. **Attestation** (A1–A3): witness key outside its window; unknown provider; each provider's account format and its
    near misses (GitHub leading zero or login string; ORCID bad check digit).
-6. **Membership, freeze, revocation** (R1–R7): a membership record signed by exactly half of `prev`'s roots
+6. **Membership, freeze, revocation** — membership expanded as §4f; the rest (R1–R7): a membership record signed by exactly half of `prev`'s roots
    (rejected) and by a strict majority (accepted); an added root that did not sign; epoch 2 whose `prev` is not the
    identity id; an `epoch` that is not `prev`'s plus one; a freeze by a retired root; a record without an anchor, or
    with an anchor or settlement from an unpinned key or outside its key's window; two anchors for one `prev` (the

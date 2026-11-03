@@ -104,7 +104,7 @@
   surface (findings 15–18) is registration and attestation. Option (a) needs only the stateless subset of §7.2, and
   findings 6 and 11 show option (b) would bring SimpleWebAuthn's option surface (UP skipped under `advancedFIDOConfig`,
   challenge callback, lenient DER, no credential-id check) into the trust decision and split it across F1.
-- W0–W5 (§6) checklist, each with no option that weakens it: `rawId` equals `root.cred_id`; strict canonical base64url for
+- W0–W6 (§6) checklist, each with no option that weakens it: `rawId` equals `root.cred_id`; strict canonical base64url for
   every field (§2); fatal UTF-8 decode, BOM stripped; `type === "webauthn.get"`; challenge equals
   b64url(SHA-256(signed bytes)) exactly, no prefix or substring match; origin equals the id origin exactly; reject
   `crossOrigin === true` and any `topOrigin`; authData ≥ 37 bytes with no leftover bytes; rpIdHash equals
@@ -136,7 +136,7 @@
   double-hashed; wrong credential id.
 - §12 negative controls: verifiers that skip the challenge, use `origin.endsWith`, use `lowS: true`, or use the AND-form
   counter (finding 14) must each fail the suite.
-- §12 mutation testing: every check in the W0–W5 (§6) checklist needs a test that kills its removal.
+- §12 mutation testing: every check in the W0–W6 (§6) checklist needs a test that kills its removal.
 
 ## Unverified
 

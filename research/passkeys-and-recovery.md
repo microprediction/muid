@@ -83,7 +83,7 @@
 - §8: ROR is capped at 5 labels and edited only by the RP ID owner (findings 1, 2), so it cannot share one root across
   open third-party origins; at most it serves a small first-party family. Whoever can write `/.well-known/webauthn` on
   the id host can authorise new origins to request root assertions, which supports "the id host serves nothing else".
-- §8, W0–W5 (§6): if ROR is ever used, `clientDataJSON.origin` is the related origin, not `https://<rp_id>`; the exact
+- §8, W0–W6 (§6): if ROR is ever used, `clientDataJSON.origin` is the related origin, not `https://<rp_id>`; the exact
   single-origin rule would become an exact-match allowlist. Not yet in spec.
 - §8: clients without ROR or cross-origin `create()` need a top-level id-origin window anyway (findings 3, 4); ROR can
   only be an optimisation over it.
@@ -93,14 +93,14 @@
   value the app supplies and never from `topOrigin`.
 - I1–I2 (§8): postMessage on the id origin uses an explicit targetOrigin (never `*`), checks
   `event.origin` by exact equality and `event.source`, and rejects the `null` origin (finding 14).
-- W0–W5 (§6), F3: UV must be required and checked; Pass-ta-key works exactly where it is not (finding 15).
+- W0–W6 (§6), F3: UV must be required and checked; Pass-ta-key works exactly where it is not (finding 15).
 - not yet in spec (§5 root): record BE/BS at root creation so policy can treat a synced root as relying on the sync
   provider.
 - §1: add "compromise of the passkey sync-provider account" to the threat table; it yields valid root
   assertions (finding 15), is not covered by short delegation lifetimes, and is recoverable only by another root.
-- R1–R5 (§5): a second passkey in a different sync domain is the FIDO-preferred direction (findings 16, 17) and hedges
+- R1–R8 (§5): a second passkey in a different sync domain is the FIDO-preferred direction (findings 16, 17) and hedges
   against finding 15; a printed recovery code is a bearer secret whose strength depends on storage and rate limiting.
-- R1–R5 (§5): root id depends on `rp_id` and the passkey point, so recovery produces a new root id; carrying
+- R1–R8 (§5): root id depends on `rp_id` and the passkey point, so recovery produces a new root id; carrying
   attestations and reputation over needs a signed root-to-root succession record.
 - §5 delegation, §8 and §9 decision 4: Porto's expiring, call-scoped session keys under a passkey admin key (finding 10) are the closest
   analogue to depth-one Ed25519 delegations; unlike Porto and Base, scope is enforced by every relying verifier calling

@@ -15,7 +15,7 @@ Background research behind the draft spec in [`../SPEC.md`](../SPEC.md). Sources
 ## Structure of each topic file
 
 - `## Findings`: numbered. Each carries its source URL(s) inline.
-- `## Consequences for the spec`: each line starts with the SPEC.md rule label (E1–E5, V1–V3, K1–K3, D1–D6, A1–A3, R1–R5, F1–F4, W0–W5, I1–I5, U1–U3) or
+- `## Consequences for the spec`: each line starts with the SPEC.md rule label (E1–E8, V1–V5, K1–K7, D1–D7, A1–A4, O1, R1–R9, F1–F4, W0–W6, I1–I5, U1–U3) or
   section (§N, §N.M) it informs, or "not yet in spec".
 - `## Unverified`: claims that lack a primary source. Secondary or informal sources are given where one exists. Treat
   these as leads, not citations.

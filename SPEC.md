@@ -1,7 +1,8 @@
 # muid — threat model and record spec
 
-Status: draft 1. Nothing here is implemented. Every invariant below gets a test before the code it governs
-(see `TESTING.md`). Sources and reasoning for each rule are in [`research/`](research/README.md).
+Status: draft 2. Layers 1–7 are implemented in `src/`; the verifier that composes them is not. Every invariant below
+gets a test before the code it governs (see `TESTING.md`). Sources and reasoning for each rule are in
+[`research/`](research/README.md).
 
 ## 1. Trust boundary
 
@@ -209,7 +210,8 @@ Its envelope's `sig` is `{ root, subject }`: `root` the passkey assertion (W0–
   else's public key to its identity and have that key's signatures counted as its own.
 - **D7 CHECKS, IN ORDER:** `checkDelegation(text, { rootKey, rpId, origin, now, skew, maxLifetime })` opens the
   envelope itself — so the id it checks is always the id of the bytes it was given — and returns
-  `{ ok: true, id, body }` or `{ ok: false, reason }`, never throwing for any `text`. The context is read once. Reasons: V4's, for the envelope; `delegation-shape` (body keys other than the eight, or a field of the wrong form,
+  `{ ok: true, id, body }` or `{ ok: false, reason }`, never throwing for any `text`. The context is read once.
+  Reasons: V4's, for the envelope; `delegation-shape` (body keys other than the eight, or a field of the wrong form,
   or `sig` not `{ root, subject }`); `scopes`; `aud` (O1); `subject-key` (K1, via K5's key checks); `lifetime`
   (`exp ≤ nbf` or D2); `not-yet` and `expired` (D1); `root` (the root id of `rootKey` under `rpId` is not the body's
   `root`, so a caller cannot verify one root's assertion as another's); then W6's reasons for `sig.root` with this
@@ -246,7 +248,8 @@ Its envelope's `sig` is `{ root, subject }`: `root` the passkey assertion (W0–
   are named, never found by trying. `checkAttestation(text, { witnessKeys, now, skew, maxLifetime })`, where
   `witnessKeys` is the pinned list of `{ key, nbf, exp }`, opens the envelope itself and returns
   `{ ok: true, id, body, witness }` or `{ ok: false, reason }`, never throwing for any `text`: V4's reasons;
-  `attestation-shape` (body keys other than the six, `identity` not an id, `root` not an id, `nbf`/`exp` not non-negative integers,
+  `attestation-shape` (body keys other than the six, `identity` not an id, `root` not an id, `nbf`/`exp` not
+  non-negative integers,
   `provider`/`account` not strings, or `sig` not as above); `provider` (not `github`, `google` or `orcid`);
   `account` (not that provider's form); `lifetime` (`exp ≤ nbf`, or longer than `maxLifetime`); `not-yet`,
   `expired` (D1's window); `witness` (not a pinned key, or `now` outside that key's window — A1); then K5's signature
@@ -392,7 +395,8 @@ client_data_json, signature }`; WebAuthn fields base64url):
   `record` is the id of the record being verified; `key` is the root's `pub` (K6). The first failure is the reason:
   `assertion-shape` (`sig` is not an object with exactly the four keys, three strings and an array);
   `covers` (W0); `assertion-encoding` (a WebAuthn field is not canonical unpadded base64url, or `client_data_json`
-  is not UTF-8); `client-data` (W1's prefix is absent, or what follows it is not as W1 requires); `challenge`; `origin`; `auth-data-length`; `rp-id`;
+  is not UTF-8); `client-data` (W1's prefix is absent, or what follows it is not as W1 requires); `challenge`;
+  `origin`; `auth-data-length`; `rp-id`;
   `user-presence`; `user-verification`; `auth-data-flags` (AT, ED or a reserved bit set, or BS without BE); then the
   K6 reasons for the signature, over `authenticator_data ‖ SHA-256(client_data_json)`. A throw from the hash library
   (possible only if code in the page patches built-ins it uses) is `sig-invalid`.

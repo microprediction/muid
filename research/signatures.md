@@ -91,7 +91,7 @@
   derived from a signature" is required, not optional (cf. did:plc, finding 13, which must mandate low-S because it
   hashes signatures).
 - §4: record id = SHA-256 of signed bytes excluding the signature is the malleability-safe choice given findings 2 and 8.
-- W0–W5 (§6): pin `p256.verify(sig, authData ‖ SHA-256(clientDataJSON), pub65, { format: 'der', lowS: false, prehash: true })`
+- W0–W6 (§6): pin `p256.verify(sig, authData ‖ SHA-256(clientDataJSON), pub65, { format: 'der', lowS: false, prehash: true })`
   with every option passed explicitly, as §2 already does for `zip215: false` (findings 3, 4, 11).
 - F2: `p256.verify` can throw (finding 5); the core must map any throw to reject, or pre-validate lengths.
 - §2 (canonical bytes): noble's DER decoder accepts one encoding per signature (finding 6), so a strict DER rule costs
