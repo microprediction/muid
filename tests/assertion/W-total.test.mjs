@@ -39,10 +39,18 @@ test('built-ins the module uses are captured at load: patching them later change
   const expected = [result(ok), result(bad)]
   for (const [obj, name, fn] of [
     [String.prototype, 'startsWith', () => true], [String.prototype, 'charCodeAt', () => 65], [String.prototype, 'slice', () => ''],
-    [Array.prototype, 'includes', () => true], [Array.isArray ? Array : Array, 'isArray', () => true],
-    [JSON, 'parse', () => ({})], [Object, 'keys', () => []], [RegExp.prototype, 'exec', () => []],
+    [Array.prototype, 'includes', () => true],
+    [JSON, 'parse', () => ({})], [RegExp.prototype, 'exec', () => []],
     [TextDecoder.prototype, 'decode', () => ''], [TextEncoder.prototype, 'encode', () => new Uint8Array(0)],
   ]) {
     assert.deepEqual(patched(obj, name, fn, () => [result(ok), result(bad)]), expected, name)
+  }
+  // Built-ins the libraries call (Array.isArray among them) can only make it fail closed.
+  for (const [obj, name, fn] of [[Object, 'keys', () => []], [Array, 'isArray', () => true], [Array, 'isArray', () => false], [Uint8Array.prototype, 'subarray', () => { throw new Error('x') }]]) {
+    const got = patched(obj, name, fn, () => [result(ok), result(bad)])
+    assert.ok(Array.isArray(got), `${name}: ${JSON.stringify(got)}`)
+    assert.equal(got[1].ok, false, `${name}: a refusal became an accept`)
+    for (const r of got) if (!r.ok) assert.ok(REASONS.includes(r.reason))
+    if (name === 'subarray') assert.deepEqual(got[0], { ok: false, reason: 'sig-invalid' }, 'a hash failure is a refusal')
   }
 })

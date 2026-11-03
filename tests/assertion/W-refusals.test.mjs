@@ -1,7 +1,7 @@
 // W0–W6: starting from a valid assertion, one field changed at a time; each refusal carries its reason.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { make, result, rejects, clientData, challengeFor, authData, b64u, sha256, RECORD, CTX, FLAGS, ORIGIN, KEY } from './helpers.mjs'
+import { checkRootAssertion, make, result, rejects, clientData, challengeFor, authData, b64u, sha256, RECORD, CTX, FLAGS, ORIGIN, KEY } from './helpers.mjs'
 
 const ok = make()
 
@@ -18,20 +18,25 @@ test('assertion-shape: not an object with exactly the four keys and the right ty
     rejects({ ...ok, [k]: [ok[k]] }, 'assertion-shape', `${k} an array`)
   }
   rejects(Object.assign(Object.create({ covers: [RECORD] }), { ...three }), 'assertion-shape', 'inherited covers')
+  // covers is snapshotted with the rest of sig, so an array the encoder refuses is a shape fault.
+  rejects({ ...ok, covers: Object.assign([RECORD], { length: 2 }) }, 'assertion-shape', 'sparse covers')
 })
 
 test('covers (W0): 1–8 sorted, distinct, lowercase 64-hex ids including the record', () => {
   const id = (c) => c.repeat(64)
   const bad = [
     ['empty', []],
-    ['nine', Array.from({ length: 9 }, (_, i) => String(i).repeat(64)).map((x) => x === RECORD ? id('b') : x).sort()],
+    ['nine, including the record', [RECORD, ...Array.from({ length: 8 }, (_, i) => String(i).repeat(64))].sort()],
     ['unsorted', [RECORD, id('0')]],
     ['duplicate', [RECORD, RECORD]],
     ['uppercase', [RECORD.toUpperCase()]],
     ['short id', [RECORD, 'b'.repeat(63)].sort()],
     ['non-string id', [RECORD, 1]],
+    ['65 characters', [RECORD, 'b'.repeat(65)]],
+    ['a prefix before the hex', [RECORD, 'x' + 'b'.repeat(64)]],
+    ['a suffix after the hex', [RECORD, 'b'.repeat(64) + 'x']],
+    ['an array whose string form is an id', [RECORD, ['b'.repeat(64)]]],
     ['record missing', [id('b')]],
-    ['sparse', Object.assign([RECORD], { length: 2 })],
   ]
   for (const [name, covers] of bad) rejects({ ...ok, covers }, 'covers', name)
 })
@@ -80,14 +85,24 @@ test('client-data (W1): the prefix, one JSON object, no disagreeing duplicate, n
     ['two objects', clientData({ challenge: ch }) + '{}'],
     ['not closed', clientData({ challenge: ch }).slice(0, -1)],
     ['bad tail', clientData({ challenge: ch, tail: ',x' })],
+    ['closed by the wrong bracket', clientData({ challenge: ch }).slice(0, -1) + ']'],
+    ['later crossOrigin as a string', clientData({ challenge: ch, tail: ',"crossOrigin":"false"' })],
+    ['later challenge disagrees', clientData({ challenge: ch, tail: ',"challenge":"AAAA"' })],
+    ['leading space', ' ' + clientData({ challenge: ch })],
+    ['leading byte order mark', String.fromCharCode(0xfeff) + clientData({ challenge: ch })],
+    ['a tail, then trailing whitespace', clientData({ challenge: ch, tail: ',"a":1' }) + ' '],
     ['crossOrigin false then garbage', clientData({ challenge: ch }).slice(0, -1) + 'x}'],
   ]
   for (const [name, cdj] of cases) rejects(make({ cdj }), 'client-data', name)
 })
 
-test('client-data: a later duplicate that agrees is harmless', () => {
+test('client-data: any repeat of a prefix key is refused, even one that agrees; non-string members are refused', () => {
   const ch = challengeFor([RECORD])
-  assert.deepEqual(result(make({ cdj: clientData({ challenge: ch, tail: ',"type":"webauthn.get"' }) })), { ok: true })
+  for (const [name, tail] of [['agreeing type', ',"type":"webauthn.get"'], ['agreeing challenge', `,"challenge":"${ch}"`],
+    ['number', ',"n":1'], ['object', ',"o":{}'], ['escaped string', ',"s":"a\\"b"'], ['empty key', ',"":"x"']]) {
+    rejects(make({ cdj: clientData({ challenge: ch, tail }) }), 'client-data', name)
+  }
+  assert.deepEqual(result(make({ cdj: clientData({ challenge: ch, tail: ',"a":"x","b":""' }) })), { ok: true }, 'two string members')
 })
 
 test('challenge (W1): from another record set, from the signed-bytes prefix, or altered', () => {
@@ -130,7 +145,7 @@ test('every single flag bit changed from the base flags gives a refusal or an ac
   for (let bit = 0; bit < 8; bit++) {
     const flags = 0x1d ^ (1 << bit)
     const r = result(make({ ad: authData({ flags }) }))
-    const acceptable = (flags & 0xe2) === 0 && (flags & 0x05) === 0x05 && (!(flags & 0x10) || (flags & 0x08))
+    const acceptable = (flags & 0xe2) === 0 && (flags & 0x05) === 0x05 && (!(flags & 0x10) || (flags & 0x08) !== 0)
     assert.equal(r.ok, acceptable, `flags ${flags.toString(16)}: ${JSON.stringify(r)}`)
   }
 })
@@ -145,7 +160,8 @@ test('the signature (K6): another key, another message, a flipped byte', () => {
 })
 
 test('a context that is not four strings is a programming error', () => {
-  for (const ctx of [undefined, null, {}, { ...CTX, rpId: 1 }, { ...CTX, origin: undefined }, { ...CTX, record: [] }]) {
-    assert.throws(() => result(ok, ctx), TypeError)
+  for (const ctx of [undefined, null, {}, { ...CTX, rpId: 1 }, { ...CTX, origin: undefined }, { ...CTX, record: [] },
+    { ...CTX, key: 1 }]) {
+    assert.throws(() => checkRootAssertion(ok, ctx), { name: 'TypeError', message: 'context must hold record, rpId, origin and key strings' })
   }
 })

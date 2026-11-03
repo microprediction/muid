@@ -323,14 +323,16 @@ client_data_json, signature }`; WebAuthn fields base64url):
   `record` is the id of the record being verified; `key` is the root's `pub` (K6). The first failure is the reason:
   `assertion-shape` (`sig` is not an object with exactly the four keys, three strings and an array);
   `covers` (W0); `assertion-encoding` (a WebAuthn field is not canonical unpadded base64url, or `client_data_json`
-  is not UTF-8); `client-data` (W1's prefix is absent, the text is not one JSON object, a later duplicate of one of
-  the four keys disagrees with it, or `topOrigin` is present); `challenge`; `origin`; `auth-data-length`; `rp-id`;
+  is not UTF-8); `client-data` (W1's prefix is absent, or what follows it is not as W1 requires); `challenge`; `origin`; `auth-data-length`; `rp-id`;
   `user-presence`; `user-verification`; `auth-data-flags` (AT, ED or a reserved bit set, or BS without BE); then the
-  K6 reasons for the signature, over `authenticator_data ‖ SHA-256(client_data_json)`.
+  K6 reasons for the signature, over `authenticator_data ‖ SHA-256(client_data_json)`. A throw from the hash library
+  (possible only if code in the page patches built-ins it uses) is `sig-invalid`.
 - **W1 in bytes:** `client_data_json` begins with exactly
   `{"type":"webauthn.get","challenge":"<challenge>","origin":"<origin>","crossOrigin":false` and the next byte is
-  `}` (the last byte) or `,`. The four fields are compared as bytes; the remainder is parsed only to reject what the
-  prefix cannot see.
+  `}` (the last byte) or `,`. The four fields are compared as bytes. What follows may only be further members whose
+  value is a string without escapes, `,"<key>":"<text>"`, with keys other than the prefix's four and `topOrigin`,
+  then `}` as the last byte. Browsers add such members (Chromium sometimes adds one on purpose); nothing else is
+  accepted, so no second JSON parser reads these bytes (§1).
 
 Research: [`webauthn.md`](research/webauthn.md).
 
