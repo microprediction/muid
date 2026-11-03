@@ -260,6 +260,17 @@ Interface under test: `checkRootAssertion(sig, { record, rpId, origin, key })` �
 - **Twins:** uppercase allowed; port 443 allowed; trailing slash allowed; `xn--` allowed; IPv4 allowed; no length
   limits.
 
+## 4c2. Roots and identities (`src/root.js`)
+
+- **Hand vectors:** a root record's id and its identity id, computed outside the project with `printf … | shasum`.
+- **Refusals:** each V4 reason through `checkRoot`; `root-shape` for a missing, extra or non-string key and for `pub`
+  not 130 lowercase hex starting `04`; `rp-id` for another rp ID, a different case, a trailing dot; `key-point` for a
+  point off the curve.
+- **Binding:** the id changes with the rp ID and with any key byte; the same key under two rp IDs gives two roots.
+- **K2:** arbitrary texts never throw; `identityOf` refuses anything but a 64-hex id as a programming error.
+- **Twins:** id without the domain prefix; id over the hex text instead of the bytes; rp ID not compared; identity
+  over the hex root id.
+
 ## 4d. Layer 5 — delegations (`src/delegation.js`): D1–D7
 
 Interface under test: `checkDelegation(text, ctx)` → frozen `{ ok: true }` or `{ ok: false, reason }` (D7), with

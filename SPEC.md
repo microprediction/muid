@@ -174,12 +174,17 @@ Research: [`encoding.md`](research/encoding.md).
 ## 5. Record types
 
 **root** — unsigned and self-certifying. `{ pub, rp_id }`, where `pub` is the passkey public key from `create()`
-(65-byte uncompressed point, hex). Root id = hex SHA-256(`"muid-root\n"` ‖ `rp_id` ‖ `"\n"` ‖ point bytes). Anyone can
+(65-byte uncompressed point, 130 lowercase hex). Root id = hex SHA-256(`UTF-8("muid-root\n")` ‖ `UTF-8(rp_id)` ‖
+`"\n"` ‖ the 65 point bytes). `checkRoot(text, { rpId })` opens the envelope as a `root` and returns
+`{ ok: true, id, key }` or `{ ok: false, reason }`, never throwing for any `text`: V4's reasons; `root-shape` (keys
+other than `pub` and `rp_id`, or either not a string); `rp-id` (not the configured one); then K6's key reasons for
+`pub`. Anyone can
 publish anyone's root record and gains nothing: the id is derived from the key, and only the key's holder can sign
 under it. The record carries nothing else: a credential id is a client-side lookup hint, not covered by any assertion
 signature, and a creation time would be chosen by the signer and prove nothing.
 
-**identity** — the identity id is hex SHA-256(`"muid-identity\n"` ‖ first root id). It never changes, whatever
+**identity** — the identity id is hex SHA-256(`UTF-8("muid-identity\n")` ‖ the first root id as 32 raw bytes)
+(`identityOf(rootId)`). It never changes, whatever
 happens to its roots afterwards.
 
 **delegation** — signed by a root (passkey assertion). Never by an Ed25519 key.

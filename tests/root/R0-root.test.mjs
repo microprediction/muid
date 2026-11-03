@@ -1,0 +1,69 @@
+// Root records and identity ids (SPEC §5): ids by hand vector, refusals with their reasons, binding to rp ID and key.
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { root, envelope } from '../impl.mjs'
+import { KEY, RP_ID } from '../assertion/helpers.mjs'
+
+const { checkRoot, identityOf } = root
+const ROOT_ID = '44404d2d618dcf0680853eb9c05c20fe78d3958f7be85a0d8faa8a238200caae' // printf … | shasum -a 256
+const IDENTITY_ID = '6d74085630cd2542bf867cf76961dd9e83148e6cb4dd68380666e1e94d77ea46'
+const text = (body) => envelope.wrap(envelope.seal('root', body).payload)
+const CTX = Object.freeze({ rpId: RP_ID })
+const result = (t, ctx = CTX) => ({ ...checkRoot(t, ctx) })
+
+test('hand vectors: the root id and its identity id', () => {
+  assert.deepEqual(result(text({ pub: KEY, rp_id: RP_ID })), { ok: true, id: ROOT_ID, key: KEY })
+  assert.equal(identityOf(ROOT_ID), IDENTITY_ID)
+})
+
+test('V4 reasons pass through', () => {
+  assert.deepEqual(result('x'), { ok: false, reason: 'envelope-encoding' })
+  assert.deepEqual(result(envelope.wrap(envelope.seal('root', { pub: KEY, rp_id: RP_ID }).payload, {})), { ok: false, reason: 'envelope-shape' })
+  const { payload } = envelope.seal('delegation', { pub: KEY, rp_id: RP_ID })
+  assert.deepEqual(result(envelope.wrap(payload, {})), { ok: false, reason: 'envelope-shape' })
+  assert.deepEqual(result(`{"payload":${JSON.stringify(payload)}}`), { ok: false, reason: 'type' })
+})
+
+test('root-shape: exactly pub and rp_id, both strings; pub 130 lowercase hex starting 04', () => {
+  for (const [name, body] of [['no pub', { rp_id: RP_ID }], ['no rp_id', { pub: KEY }], ['extra', { pub: KEY, rp_id: RP_ID, x: 1 }],
+    ['pub number', { pub: 1, rp_id: RP_ID }], ['rp_id array', { pub: KEY, rp_id: [RP_ID] }], ['pub upper', { pub: KEY.toUpperCase(), rp_id: RP_ID }],
+    ['pub compressed', { pub: '02' + KEY.slice(2, 66), rp_id: RP_ID }], ['pub 128', { pub: KEY.slice(2), rp_id: RP_ID }],
+    ['pub 132', { pub: KEY + '00', rp_id: RP_ID }]]) {
+    assert.deepEqual(result(text(body)), { ok: false, reason: 'root-shape' }, name)
+  }
+})
+
+test('rp-id: exactly the configured one', () => {
+  for (const rp of ['ID.example', 'id.example.', 'example', 'other.example', '']) {
+    assert.deepEqual(result(text({ pub: KEY, rp_id: rp })), { ok: false, reason: 'rp-id' }, rp)
+  }
+})
+
+test('key-point: a point off the curve', () => {
+  assert.deepEqual(result(text({ pub: '04' + '00'.repeat(64), rp_id: RP_ID })), { ok: false, reason: 'key-point' })
+})
+
+test('binding: the id changes with the rp ID and with any key byte', () => {
+  const other = result(text({ pub: KEY, rp_id: 'other.example' }), { rpId: 'other.example' })
+  assert.equal(other.ok, true)
+  assert.notEqual(other.id, ROOT_ID)
+  const ids = new Set([ROOT_ID, other.id])
+  assert.equal(ids.size, 2)
+})
+
+test('results are frozen; arbitrary values never throw; a bad context is a programming error', () => {
+  for (const t of [undefined, null, 1, {}, [], 'x']) {
+    const r = checkRoot(t, CTX)
+    assert.ok(Object.isFrozen(r) && r.ok === false)
+  }
+  assert.ok(Object.isFrozen(checkRoot(text({ pub: KEY, rp_id: RP_ID }), CTX)))
+  for (const ctx of [undefined, null, {}, { rpId: 1 }]) {
+    assert.throws(() => checkRoot('x', ctx), { name: 'TypeError', message: 'context must hold an rpId string' })
+  }
+})
+
+test('identityOf refuses anything but a 64-hex id', () => {
+  for (const x of [undefined, 1, ROOT_ID.toUpperCase(), ROOT_ID.slice(1), ROOT_ID + '0', 'g'.repeat(64)]) {
+    assert.throws(() => identityOf(x), { name: 'TypeError', message: 'root id must be 64 lowercase hex' })
+  }
+})
