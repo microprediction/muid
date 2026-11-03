@@ -9,15 +9,11 @@ This library generates unique identifiers whose hashes are memorable.
 Quickstart
 ===========
 
-If you cut and paste the following at the terminal it will mine for MUIDs and explain itself along the way
+Install the library from PyPI:
 
-     /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/microprediction/muid/master/examples/mine_from_venv.sh)"
+    python3 -m pip install --upgrade muid
 
-If it fails you might need Python 3
-
-    ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)"
-
-    brew install python
+Then call `muid.mine()` from Python, as shown below.
 
 Explanatory video
 =================
