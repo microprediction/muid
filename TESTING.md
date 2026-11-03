@@ -346,12 +346,14 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
 - **F3:** adding revocations never turns a refusal into an accept (property).
 - **Programming errors** for configuration, `now`, `scope` and `revoked`; the configuration is copied at
   construction; arbitrary and hostile records never throw.
-- **Claims (C1):** accepted with id, body and delegation; every shape fault (extra key, missing or non-object data,
-  bad delegation id or scope, negative or string time, signature not exactly 128 hex or not alone) is
-  `claim-shape`; the delegation is verified in full under the claim's scope; another delegation named; time at and
-  one past `maxClaimAge` and `skew`; a signature by another key or over the payload without its prefix.
-- **Twins:** no staleness bound; heads from the future; `minHeadAt` ignored; claim time, delegation, signature or
-  scope unchecked; membership, authority, identity,
+- **Claims (C1):** accepted with id, body, delegation and `until`; every shape fault (extra key, missing or
+  non-object data, missing or non-string request, bad delegation id or scope, negative or string time, signature not
+  exactly 128 hex or not alone) is `claim-shape`; a claim for another scope or request; the delegation verified in
+  full; another delegation named; time at and one past `maxClaimAge` and `skew`, and outside the delegation's window;
+  a signature by another key or over the payload without its prefix; subject keys in the call's revoked list; the
+  call read once.
+- **Twins:** no staleness bound; heads from the future; `minHeadAt` ignored; claim time, delegation window, delegation,
+  signature, scope or request unchecked; subject keys in the call's revoked list ignored; membership, authority, identity,
   revocation (call's or head's), audience or scope unchecked; revocation by id only; the witness key's window checked
   at the head's time only; the head's signature unchecked.
 
