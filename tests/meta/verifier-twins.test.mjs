@@ -13,7 +13,7 @@ const SUITE = readdirSync(SUITE_DIR).filter((f) => f.endsWith('.test.mjs')).map(
 
 // A twin lives outside the repository, so its imports are made absolute.
 const absolute = (m) => new URL('../../src/' + m + '.js', import.meta.url).href
-const IMPORTS = ['envelope', 'root', 'delegation', 'attestation', 'origin', 'bytes'].map((m) => ["from './" + m + ".js'", "from '" + absolute(m) + "'"])
+const IMPORTS = ['envelope', 'ed25519', 'root', 'delegation', 'attestation', 'origin', 'bytes'].map((m) => ["from './" + m + ".js'", "from '" + absolute(m) + "'"])
 
 // [name, bug class, [find, replace] pairs]
 const TWINS = [
@@ -21,6 +21,10 @@ const TWINS = [
   ['min-head-at-ignored', 'a head older than one already seen is accepted', [[' || h.at < minHeadAt', '']]],
   ['head-revocations-ignored', 'revocations carried by the head are not applied', [["    if (has(h.revoked, d.id) || has(h.revoked, b.subject)) return refuse('revoked')\n", '']]],
   ['revoke-by-id-only', 'revoking a subject key does not revoke its delegations', [[' || has(h.revoked, b.subject)', '']]],
+  ['claim-time-unchecked', 'a claim of any age is accepted', [["    if (b.at < c.now - cfg.maxClaimAge || b.at > c.now + cfg.skew) return refuse('claim-time')\n", '']]],
+  ['claim-delegation-unchecked', 'a claim may name any delegation', [["    if (b.delegation !== d.id) return refuse('claim-delegation')\n", '']]],
+  ['claim-unsigned', 'the claim\'s signature is not checked', [['    if (!s.ok) return s\n', '']]],
+  ['claim-scope-ignored', 'the delegation is checked without the claim\'s scope', [['    const d = check(given, { ...c, scope: b.scope })', "    const d = check(given, { ...c, scope: 'post' })"]]],
   ['key-window-at-head-only', 'a retired witness key\'s heads are accepted', [['  const until = (now > b.at ? now : b.at) + 1', '  const until = b.at + 1']]],
   ['head-from-the-future', 'a head dated after now is accepted', [[' || h.at > now + cfg.skew', '']]],
   ['membership-unchecked', 'the delegation may name any membership', [["    if (!has(h.memberships, b.membership)) return refuse('membership')\n", '']]],
@@ -73,7 +77,7 @@ test('verifier broken twins', { timeout: 600_000 }, async (t) => {
     })
 
     const jobs = TWINS.map(([name, why, edits]) => [name, why, generate(name, edits)])
-    assert.equal(jobs.length, 13, 'twin count')
+    assert.equal(jobs.length, 17, 'twin count')
     const results = []
     const queue = [...jobs]
     const workers = Math.max(1, Math.floor(availableParallelism() / 4))

@@ -346,7 +346,12 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
 - **F3:** adding revocations never turns a refusal into an accept (property).
 - **Programming errors** for configuration, `now`, `scope` and `revoked`; the configuration is copied at
   construction; arbitrary and hostile records never throw.
-- **Twins:** no staleness bound; heads from the future; `minHeadAt` ignored; membership, authority, identity,
+- **Claims (C1):** accepted with id, body and delegation; every shape fault (extra key, missing or non-object data,
+  bad delegation id or scope, negative or string time, signature not exactly 128 hex or not alone) is
+  `claim-shape`; the delegation is verified in full under the claim's scope; another delegation named; time at and
+  one past `maxClaimAge` and `skew`; a signature by another key or over the payload without its prefix.
+- **Twins:** no staleness bound; heads from the future; `minHeadAt` ignored; claim time, delegation, signature or
+  scope unchecked; membership, authority, identity,
   revocation (call's or head's), audience or scope unchecked; revocation by id only; the witness key's window checked
   at the head's time only; the head's signature unchecked.
 

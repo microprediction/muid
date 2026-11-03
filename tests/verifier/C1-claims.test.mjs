@@ -52,10 +52,13 @@ test('a claim under a valid delegation is accepted, with its id, body and the de
 
 test('claim-shape: keys, forms, sig', () => {
   for (const [name, over] of [['extra key', { x: 1 }], ['no data', { data: '__drop__' }], ['data an array', { data: [1] }],
-    ['delegation not an id', { delegation: 'x' }], ['scope not a scope', { scope: 'Post' }], ['at negative', { at: -1 }], ['at a string', { at: '1' }]]) {
+    ['delegation not an id', { delegation: 'x' }], ['scope not a scope', { scope: 'Post' }], ['scope an array', { scope: ['post'] }],
+    ['data a string', { data: 'x' }], ['data a number', { data: 1 }], ['at negative', { at: -1 }], ['at a string', { at: '1' }]]) {
     assert.deepEqual(call({ claim: claim(over).text }), refused('claim-shape'), name)
   }
-  for (const sig of [{}, { signature: 'ab' }, { signature: '0'.repeat(128), x: 1 }, { signature: 'A'.repeat(128) }]) {
+  const good = JSON.parse(C.text).sig.signature
+  for (const sig of [{}, { signature: 'ab' }, { signature: good, x: 1 }, { a: good, signature: good }, { signature: 'A'.repeat(128) },
+    { signature: good + '0' }, { signature: 'x' + good }, { signature: [good] }, { other: good }]) {
     assert.deepEqual(call({ claim: claim({}, { sig }).text }), refused('claim-shape'), JSON.stringify(sig).slice(0, 30))
   }
   assert.deepEqual(call({ claim: 'x' }), refused('envelope-encoding'))
@@ -93,5 +96,13 @@ test('programming errors and totality', () => {
   assert.throws(() => v.verifyClaim({ claim: C.text, delegation, root, head }, { now: NOW }), { name: 'TypeError' })
   for (const x of [undefined, null, 1, {}, []]) assert.equal(v.verifyClaim({ claim: x, delegation, root, head }, { now: NOW, revoked: [] }).ok, false)
   const hostile = new Proxy({}, { get () { throw new Error('trap') } })
-  assert.equal(v.verifyClaim(hostile, { now: NOW, revoked: [] }).ok, false)
+  assert.deepEqual({ ...v.verifyClaim(hostile, { now: NOW, revoked: [] }) }, { ok: false, reason: 'envelope-encoding' })
+})
+
+test('a foreign error opening the claim (patched built-ins in the hash library) fails closed, never throws', () => {
+  const original = Uint8Array.prototype.fill
+  Uint8Array.prototype.fill = function () { throw new Error('patched') }
+  let out
+  try { out = { ...v.verifyClaim({ claim: C.text, delegation, root, head }, { now: NOW, revoked: [] }) } } catch (e) { out = { threw: String(e) } } finally { Uint8Array.prototype.fill = original }
+  assert.deepEqual(out, { ok: false, reason: 'envelope-encoding' })
 })
