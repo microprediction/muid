@@ -35,6 +35,8 @@ const CASES = [
   ['extra enumerable property on an array', () => { const a = [1]; a.x = 1; return { a } }, 'array-shape'],
   ['extra non-enumerable property on an array', () => { const a = [1]; Object.defineProperty(a, 'x', { value: 1 }); return { a } }, 'array-shape'],
   ['symbol property on an array', () => { const a = [1]; a[sym] = 1; return { a } }, 'array-shape'],
+  // The own-key count matches (index 1, length, x), so only a per-index check finds the hole at 0.
+  ['hole hidden by an extra property', () => { const a = [, 1]; a.x = 1; return { a } }, 'array-shape'], // eslint-disable-line no-sparse-arrays
   ['array subclass', () => ({ a: List.from([1]) }), 'non-plain'],
   ['undefined element', () => ({ a: [undefined] }), 'undefined'],
   // Numbers
@@ -87,7 +89,7 @@ const CASES = [
 ]
 
 test('value refusal count', () => {
-  assert.equal(CASES.length, 66)
+  assert.equal(CASES.length, 67)
 })
 
 for (const [label, make, reason] of CASES) {

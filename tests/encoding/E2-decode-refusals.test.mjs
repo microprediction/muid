@@ -3,6 +3,13 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { decode, refuses } from './helpers.mjs'
 
+// A backslash built from its code point, so no tool or editor can turn a typed "é" into a literal "é" (which
+// happened once, silently making three of these cases canonical). The guard test at the bottom pins the bytes.
+const BS = String.fromCharCode(92)
+const ESCAPED_E_ACUTE = `{"a":"${BS}u00e9"}`
+const ESCAPED_A = `{"a":"${BS}u0041"}`
+const ESCAPED_KEY = `{"${BS}u0061":1}`
+
 const CASES = [
   // Parses, but is not canonical.
   ['leading space', ' {}', 'non-canonical'],
@@ -13,12 +20,12 @@ const CASES = [
   ['duplicate key, same value', '{"a":1,"a":1}', 'non-canonical'],
   ['keys out of order', '{"b":1,"a":2}', 'non-canonical'],
   ['escaped slash', String.raw`{"a":"\/"}`, 'non-canonical'],
-  ['escaped e-acute', String.raw`{"a":"é"}`, 'non-canonical'],
-  ['escaped ASCII letter', String.raw`{"a":"A"}`, 'non-canonical'],
+  ['escaped e-acute', ESCAPED_E_ACUTE, 'non-canonical'],
+  ['escaped ASCII letter', ESCAPED_A, 'non-canonical'],
   ['uppercase hex in escape', String.raw`{"a":"\u001F"}`, 'non-canonical'],
   ['escaped DEL', String.raw`{"a":"\u007f"}`, 'non-canonical'],
   ['\\u000a instead of \\n', String.raw`{"a":"\u000a"}`, 'non-canonical'],
-  ['escaped key', String.raw`{"a":1}`, 'non-canonical'],
+  ['escaped key', ESCAPED_KEY, 'non-canonical'],
   ['exponent form of an integer', '{"a":1e0}', 'non-canonical'],
   ['trailing .0', '{"a":1.0}', 'non-canonical'],
   // Parses to a value outside the domain.
@@ -60,4 +67,12 @@ test('decode refuses a non-string input with "type"', () => {
   for (const input of [undefined, null, 1, {}, [], new Uint8Array([123, 125]), Buffer.from('{}')]) {
     refuses(() => decode(input), 'type', `input ${Object.prototype.toString.call(input)}`)
   }
+})
+
+test('the escaped cases contain a real backslash escape', () => {
+  assert.deepEqual([...ESCAPED_E_ACUTE].map((c) => c.charCodeAt(0)),
+    [123, 34, 97, 34, 58, 34, 92, 117, 48, 48, 101, 57, 34, 125])
+  assert.equal(ESCAPED_A.length, 14)
+  assert.equal(ESCAPED_KEY.length, 12)
+  assert.ok(ESCAPED_A.includes(BS + 'u0041') && ESCAPED_KEY.includes(BS + 'u0061'))
 })
