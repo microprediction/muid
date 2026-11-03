@@ -218,6 +218,34 @@ Interface under test: `checkP256(sig, message, key)` → frozen `{ ok: true }` o
   only make it fail closed.
 - **Twins:** `lowS: true` (the library default); `prehash: false`; compressed keys accepted; a throw escaping.
 
+## 4b. Layer 4 — root assertions (`src/assertion.js`): W0–W6
+
+Interface under test: `checkRootAssertion(sig, { record, rpId, origin, key })` → frozen `{ ok: true }` or
+`{ ok: false, reason }` (W6).
+
+- **W3C WebAuthn L3 §16 vectors** (pinned excerpt): for each ES256 authentication example, its authenticator data and
+  client data are kept byte for byte except the challenge, which becomes a muid challenge, and the assertion is
+  re-signed with the published credential private key. Expected: the plain example and the long-credential-id
+  example accept (with UV set, as W2 requires — an example without UV is refused as `user-verification`); the
+  `crossOrigin: true` and `topOrigin` examples are refused as `client-data`.
+- **Browser fixtures:** the shapes measured in Chrome, Safari and Firefox, including Chromium's extra key, rebuilt
+  from their recorded layout with a test key.
+- **One field at a time:** starting from a valid assertion, each field is mutated (every flag bit; each prefix
+  byte; challenge from another record set; origin with a trailing slash, another port, `http`; rp ID hash of a
+  sibling domain; trailing authenticator-data bytes; extensions; a second `type` key later in the JSON) and the reason
+  is asserted.
+- **W0:** `covers` empty, longer than 8, unsorted, with a duplicate, with an uppercase id, not containing the record;
+  the record covered together with others (accepted); a challenge computed with `muid/v1\n` (the signed-bytes
+  prefix) instead of `muid/v1/assert\n` (refused); one record's assertion replayed onto a record outside `covers`.
+- **Encoding:** padded base64url, standard base64 characters, trailing bits not zero, length ≡ 1 mod 4, invalid
+  UTF-8 in client data.
+- **K2:** arbitrary `sig` values never throw; captured built-ins.
+- **Differential, one direction:** whatever we accept, SimpleWebAuthn's `verifyAuthenticationResponse` also accepts
+  (it is a dev dependency only; its known stricter or looser points are a committed list).
+- **Twins:** no challenge check; an `endsWith` origin check; UV not required; trailing authenticator-data bytes
+  allowed; `topOrigin` allowed; the challenge computed over the signed-bytes prefix; covers not required to contain
+  the record.
+
 ## 5. Later layers (outline; each is expanded here before its code is written)
 
 1. **Envelope and record id:** expanded as §3.
@@ -225,7 +253,7 @@ Interface under test: `checkP256(sig, message, key)` → frozen `{ ok: true }` o
    all 21 mixed-order acceptable cases, so the torsion check is load-bearing; the identity point passes
    `isTorsionFree()`, so `!isSmallOrder()` is too; a small-order component added to R is accepted by noble and
    rejected by WebCrypto (K4).
-3. **Root assertions** (W0–W5): Wycheproof P-256 DER (all 484, with `lowS: false`; a broken twin with the default
+3. **Root assertions:** expanded as §4b. Original outline (W0–W5): Wycheproof P-256 DER (all 484, with `lowS: false`; a broken twin with the default
    `lowS: true` must fail the 71 high-S cases); the W3C WebAuthn L3 §16 vectors, which publish their private keys so
    mutated assertions can be re-signed (3 of the 10 ES256 vectors accept under W2; §16.2's flags 0x19 lack UV); real
    Chrome, Safari and Firefox assertions from the spike, including Chromium's extra `clientDataJSON` key; a software
