@@ -498,6 +498,7 @@ test fails the build on any direct `indexedDB` or `localStorage` use outside the
    its delegation (as OCSP stapling does), and the verifier checks the delegation's membership against the head
    rather than against whatever records it was given. The cost is that every delegate must reach the witness at least
    once per `MAX_STALENESS`. The value (hours to days) belongs with decision 3.
+   Evidence: `tests/model/R9-fresh-head.test.mjs` shows the attack without a head and its absence with one.
 
 8. **Attestation binding — from review, for decision.** (a) One provider account can be attested to many roots or
    identities, and a verifier holding one identity's records cannot see that; counting `(provider, account)` once
