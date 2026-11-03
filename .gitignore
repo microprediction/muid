@@ -1,5 +1,11 @@
+node_modules/
+coverage/
+reports/
+.stryker-tmp/
+*.log
+.DS_Store
+# carried over from the archived Python package
 *private.py
-bump.sh
 __pycache*
 build/*
 dist/*
