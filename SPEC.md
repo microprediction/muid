@@ -17,7 +17,7 @@ into frozen plain data. Nothing else reads them.
 | User | hold one or more root passkeys; issue and revoke delegations | — |
 | Delegate (device, app, machine key) | sign within its delegation's audience, scope and window | widen its scope; outlive its expiry; delegate further |
 | App on another origin | ask the id origin for actions; receive results | read keys or stored records of the id origin; choose the audience a delegation names |
-| Witness | attest that a provider account maps to a root, within the witness key's window | attest without the root's proof of possession bound to that sign-in |
+| Witness | attest that a provider account maps to a root, within the witness key's window; timestamp membership records (R3) | attest without the root's proof of possession bound to that sign-in; change membership without the roots' signatures |
 | Provider (GitHub, Google, ORCID) | authenticate the account at attestation time | — (trusted for account control only) |
 | Passkey sync provider (Apple, Google) | restore a synced passkey to a device after its own account recovery | — (see threats) |
 | Network attacker | read, drop, replay, reorder, modify any message | forge a signature |
@@ -190,24 +190,41 @@ each signed by one root.
 - **R2 FREEZE BY ANY:** a `freeze` record `{ identity, epoch }` signed by any one root of that epoch freezes it:
   delegations under a frozen epoch fail. Only a valid next epoch (R1) moves past a freeze. Freezing only removes
   trust, so any single root may do it.
-- **R3 EQUIVOCATION FREEZES:** two different valid membership records for the same epoch freeze the epoch before
-  them, permanently: neither branch, nor any later epoch built on either, is ever accepted. A fork is never resolved
-  by choosing one side. Only a strict majority of that epoch's roots can produce a second valid record, so an
-  equivocation means the majority signed twice; the owner starts a new identity and re-attests.
-- **R4 CURRENT EPOCH:** delegations are accepted only under the highest epoch reachable by a valid chain from epoch 1,
-  if it is not frozen, and only from that epoch's roots.
-- **R5 ORDER-FREE:** the identity's state is a function of the *set* of membership and freeze records the verifier
-  holds, never of their order or of any timestamp in them. Recovery therefore needs no time anchor.
+- **R3 ANCHORED, CONTESTABLE:** a membership record counts only together with a witness anchor `{ record, at }`
+  signed by a pinned witness key. The witness anchors every valid membership record that extends the identity's
+  current chain, at the time it first sees it, and notifies the owner. Among valid anchored records for the same
+  epoch, the earliest wins — unless a different one was anchored less than `CONTEST_WINDOW` after it: then the epoch
+  before them is frozen permanently and the identity ends. A rival anchored later than that is ignored. A fork is
+  never resolved by choosing a side while it is contested.
+- **R4 CURRENT EPOCH:** delegations are accepted only under the current epoch — the last on the chain R3 selects — if
+  it is not frozen, and only from that epoch's roots.
+- **R5 ORDER-FREE:** the identity's state is a function of the *set* of membership records, anchors and freezes the
+  verifier holds, never of their order. The only time it uses is the witness's `at`; a time inside a record is chosen
+  by its signer and is never used.
 
-What this gives (to be model-checked, §12):
-- **Three roots, one stolen:** the other two sign the next epoch without it, at once. The thief can freeze the old
-  epoch, but the new one moves past it.
-- **Two roots, one stolen:** neither side reaches a majority alone. Either side can freeze, and the thief then has no
-  authority either. The owner starts a new identity and re-attests their provider accounts.
-- **One root, lost or stolen:** the identity ends. The owner starts a new identity and re-attests. Linking the old and
-  new identities through shared provider attestations is the reputation layer's job (§12), not the core's.
-- **Residual:** a verifier that has not yet seen a newer epoch still accepts the older epoch's roots. That window is
-  bounded by delegation lifetimes and by how membership records reach verifiers (open decision 3).
+Why R3 needs the witness: without a trusted time, a record signed late cannot be told from one signed early. Every
+set of roots that was ever a majority of any epoch — including the first root alone, and roots long retired — could
+then end the identity at any time with one conflicting record.
+
+What this gives (model-checked: [`model/recovery.mjs`](model/recovery.mjs), pinned in `tests/model/`):
+- **Three roots, a later one stolen:** the other two sign the next epoch without it, at once, and no thief move undoes
+  that. The thief can freeze the old epoch; the new one moves past it.
+- **Two roots, a later one stolen:** the thief can neither take over nor end the identity. Either side can freeze.
+- **A first or retired root stolen:** once its epoch is past the window, it can do nothing.
+- **Every root the owner holds also stolen** (one root, or a majority): the thief can take over. Within the window the
+  owner can end the identity by signing a rival record; after it, the takeover is final.
+- A freeze never makes an inactive identity active.
+
+Residuals:
+- **The witness is trusted for membership.** A witness that backdates an anchor lets an old majority take over; one
+  that refuses to anchor blocks recovery. Anchors are published to an append-only public log, so a backdated anchor
+  is visible; more than one witness is a later step.
+- **Notification carries the window.** An owner who does not learn of a change within `CONTEST_WINDOW` loses the
+  ability to contest it. The window's length is part of open decision 3.
+- **The id page must never sign two different membership records for one epoch:** within the window that ends the
+  identity.
+- A verifier that has not yet seen a newer epoch still accepts the older epoch's roots. That window is bounded by
+  delegation lifetimes and by how membership records reach verifiers (open decision 3).
 
 **revocation** — signed by the root, or by the witness for its own attestations, or by a delegate for itself.
 `{ target, at }`. `target` is a record id. A revocation may be pruned once its target's `exp` has passed.
@@ -304,9 +321,9 @@ test fails the build on any direct `indexedDB` or `localStorage` use outside the
    Either way, a claim names the record id of the delegation it is made under, so a signature made under one
    delegation is never accepted under another. Revocation semantics follow from this choice: whether a revocation
    is retroactive, what `at` means, and whether a verifier may ever forget a revocation it has seen.
-2. **Recovery — drafted as R1–R5, pending the model check.** Epochs changed by majority and frozen by any one root
-   replace link/retire/veto, whose two-root case was a stalemate in the thief's favour. Confirm once the Quint/TLA+
-   model has explored the one-, two- and three-root cases with one root stolen.
+2. **Recovery — decided: R1–R5 with witness anchors and a contest window.** The model showed that without a trusted
+   time any past majority can end an identity, and that anchoring the first record alone makes a thief's takeover of
+   a one-root identity final at once. The window keeps both: old roots are harmless, and the owner can contest.
 3. **Lifetimes, and the conflict they must resolve.** F4 wants delegations short so that expiry does the revocation
    work. D3 and U2 mean every renewal is a passkey prompt by a human. A machine that runs for weeks makes the two
    collide. Options: (a) long machine delegations, which make the revocation set the primary mechanism — then the
@@ -372,9 +389,8 @@ never afterwards. Details and thresholds: `TESTING.md`; sources: [`assurance.md`
 **Scheduled, not gating**
 
 - Long fuzz runs of `decode` and `verify` (fast-check at high iteration counts; Jazzer.js).
-- A model of the delegation, revocation, membership (R1–R5) and time-window rules (Quint or TLA+), with its traces
-  replayed against `verify`. It must cover one, two and three roots with any one of them stolen, and fail if a
-  thief holding a minority of roots can ever keep authority the owner cannot remove.
+- The membership model (`model/recovery.mjs`) at greater depth than the pinned tests, and models of the delegation,
+  revocation and time-window rules, with their traces replayed against `verify`.
 - An adversarial review agent against the core. Its findings go to a **private** security advisory, never a public
   issue.
 - After every fix, a variant-analysis sweep for siblings of the bug.

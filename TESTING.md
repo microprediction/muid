@@ -141,10 +141,11 @@ The meta-test generates 23 twins from `src/encode.js` (one targeted change each)
 5. **Attestation** (A1–A3): witness key outside its window; unknown provider; each provider's account format and its
    near misses (GitHub leading zero or login string; ORCID bad check digit).
 6. **Membership, freeze, revocation** (R1–R5): next epoch signed by exactly half (rejected) and by a strict
-   majority (accepted); an added root that did not sign; a freeze by a retired root; two valid records for one epoch
-   (R3); every permutation of a record set gives the same state (R5, property); a delegation from a root of an older
-   epoch; pruning a revocation only after its target's expiry. The three stolen-root scenarios, and traces from the
-   Quint/TLA+ model, replayed as tests.
+   majority (accepted); an added root that did not sign; a freeze by a retired root; a record without an anchor, or
+   with an anchor from an unpinned key; two anchored rivals at `CONTEST_WINDOW − 1` apart (the identity ends) and at
+   `CONTEST_WINDOW` apart (the earlier wins); every permutation of a record set gives the same state (R5, property); a
+   delegation from a root of an older epoch; pruning a revocation only after its target's expiry. The model's
+   scenarios (`tests/model/`) are replayed as tests against `verify`, and so are its counterexample traces.
 
 Candidate cases drawn from the published behaviour of Porto, Farcaster and Keybase are added to these sections as they
 are expanded.
