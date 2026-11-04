@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'sha256-9vL72uvEUCcJGeX/LoUKObeMuuP9Qx3r3dGQpFN9aTw='; style-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'">
 <title>muid identity</title>
+<!-- The witness service this page registers with, and its pinned keys (deployment configuration). -->
+<meta name="muid-witness" content="/witness/">
+<meta name="muid-witness-keys" content="[]">
 <link rel="stylesheet" href="page.css">
 <script type="importmap">{"imports":{"@noble/hashes/":"/node_modules/@noble/hashes/","@noble/curves/":"/node_modules/@noble/curves/"}}</script>
 <script type="module" src="page.js"></script>
@@ -16,10 +19,40 @@
     <p>Your identity is a passkey on this device. Nothing leaves this page until you hand a record to someone.</p>
     <label>Name for the passkey <input id="name" autocomplete="off" placeholder="muid identity"></label>
     <button id="create-button" type="button">Create an identity</button>
+    <p>Or, to add this device to an identity you already have: <button id="join-button" type="button">Create a passkey to join</button></p>
+  </section>
+  <section id="joining" hidden>
+    <p>Give this passkey's root record to a device of the identity, and add it there:</p>
+    <textarea id="join-root" readonly></textarea>
+    <h2>Co-sign the change</h2>
+    <label>The change, from that device <textarea id="cosign-payload" spellcheck="false"></textarea></label>
+    <button id="cosign-review" type="button">Review</button>
+    <div id="cosign-panel" hidden>
+      <p>Your passkey will sign exactly this change:</p>
+      <dl>
+        <dt>Identity</dt><dd id="cosign-identity"></dd>
+        <dt>Roots after it</dt><dd id="cosign-roots"></dd>
+      </dl>
+      <button id="cosign-sign" type="button">Sign with your passkey</button>
+    </div>
   </section>
   <section id="identity" hidden>
     <p>Identity <code id="identity-id"></code></p>
     <details><summary>Root record</summary><textarea id="root-text" readonly></textarea></details>
+  </section>
+  <section id="add-root" hidden>
+    <h2>Add a passkey on another device</h2>
+    <label>Its root record <textarea id="new-root" spellcheck="false"></textarea></label>
+    <button id="add-review" type="button">Review</button>
+    <div id="add-panel" hidden>
+      <p>Your passkey will sign exactly this change:</p>
+      <dl>
+        <dt>Adds the root</dt><dd id="add-added"></dd>
+        <dt>Epoch</dt><dd id="add-epoch"></dd>
+      </dl>
+      <button id="add-sign" type="button">Sign with your passkey</button>
+    </div>
+    <textarea id="add-handoff" readonly hidden aria-label="Give this to the other device to co-sign"></textarea>
   </section>
   <section id="authorise" hidden>
     <h2>Authorise a worker</h2>
@@ -40,6 +73,7 @@
     </div>
     <textarea id="handoff" readonly hidden aria-label="Give this to the worker"></textarea>
   </section>
+  <p id="status" role="status"></p>
   <p id="error" role="alert"></p>
 </main>
 </body>

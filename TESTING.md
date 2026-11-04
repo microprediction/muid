@@ -508,12 +508,22 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   (the passkey moved to an authenticator that cannot verify); the identity's own passkey among others; an
   unreadable stored identity forgotten; a refused passkey reported. Chrome's warning that only ES256 is offered is
   the one console message allowed.
+- A second passkey (`P2`, two browser profiles with their own authenticators, the witness service in memory): one
+  device joins; the other adds it, after a refused bad root record, a shown change (the root added, the epoch) and
+  an edit that withdraws it; the new device refuses a change that does not add it and one that is not a change,
+  shows and co-signs this one; the witness anchors it; the new root is told it has no authority until settlement;
+  after the window it authorises a worker under the settled membership, which the verifier accepts. `records.js`
+  in Node: the current membership by `membershipState`, an ended identity, the change (next epoch, sorted roots,
+  what it adds) and each refusal (pending, already a root, not a root record, five roots), the root-signed envelope,
+  a change read back to co-sign.
 - The HTML (`P3-html.test.mjs`): one inline script, the import map, allowed by its hash; nothing from elsewhere.
 - Mutation testing runs inside the page: the test activates Stryker's mutant in the page and returns the page's
   coverage to the test process. Both files at 100%.
-- Twins (`tests/meta/id-twins.test.mjs`, 12): the challenge's domain, any algorithm, unsorted scopes, an unbounded
+- Twins (`tests/meta/id-twins.test.mjs`, 21): the challenge's domain, any algorithm, unsorted scopes, an unbounded
   lifetime, an unchecked audience, an edit that keeps the review, a late signature kept, verification preferred,
-  any passkey, a credential that is not resident, inline scripts allowed, hidden parts shown.
+  any passkey, a credential that is not resident, inline scripts allowed, hidden parts shown; attest granted; a change co-signed that does not add
+  this passkey, an edit of the new root kept, authority unchecked, delegations under the first membership, the root
+  or the added root not submitted, a change proposed while one is pending, its roots unsorted.
 
 ## 4l. The two-application demo (`demo/`, not core)
 

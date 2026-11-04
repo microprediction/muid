@@ -9,3 +9,4 @@ reports/
 __pycache*
 build/*
 dist/*
+stryker-output-*.json

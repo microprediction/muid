@@ -7,7 +7,7 @@ import { ed25519 } from '@noble/curves/ed25519.js'
 import { chromium } from 'playwright-core'
 import { generateKeyPairSync } from 'node:crypto'
 import { root as rootModule, delegation as delegationModule, assertion as assertionModule, envelope, verifier as verifierModule } from '../impl.mjs'
-import { witness } from '../witness/impl.mjs'
+import { witness, witnessService, memoryHoldings, memoryLog } from '../witness/impl.mjs'
 import { serve } from './serve.mjs'
 
 const hex = (b) => Buffer.from(b).toString('hex')
@@ -16,41 +16,64 @@ const SUBJECT = hex(ed25519.getPublicKey(WORKER))
 const W = Uint8Array.from({ length: 32 }, (_, i) => 120 + i)
 const WITNESS = hex(ed25519.getPublicKey(W))
 
+// A site serving the page and a witness service (in memory, its contest window a minute, its clock movable), and a
+// browser with one device; `device()` adds another, with its own profile and authenticator.
 async function open ({ init } = {}) {
-  const site = await serve()
+  const holder = {}
+  const keys = [{ key: WITNESS, nbf: 0, exp: 4_000_000_000 }]
+  const site = await serve({ witness: { handle: (r) => holder.svc.handle(r) }, witnessKeys: keys })
+  let offset = 0
+  const clock = () => Math.floor(Date.now() / 1000) + offset
+  const w = witness({ rpId: 'localhost', origin: site.origin, witnessKeys: keys, key: WITNESS, sign: (b) => hex(ed25519.sign(b, W)),
+    contestWindow: 60, skew: 60, maxLifetime: 2_592_000 })
+  holder.svc = witnessService({ witness: w, holdings: memoryHoldings(), log: memoryLog(), clock, headInterval: 0 })
   const browser = await chromium.launch({ channel: 'chrome', headless: true })
-  const context = await browser.newContext()
-  // Under mutation testing, the mutant the runner activated is activated in the page too: Stryker's instrumented code
-  // reads it from process.env in Node, which a page has not.
-  const mutant = process.env.__STRYKER_ACTIVE_MUTANT__
-  if (mutant !== undefined) await context.addInitScript((m) => { globalThis.__stryker__ = { activeMutant: m } }, mutant)
-  if (init !== undefined) await context.addInitScript(init)
-  const page = await context.newPage()
   const problems = []
-  // Chrome warns that only ES256 is offered: deliberate (I6), and the only warning allowed.
-  const ES256_ONLY = /^publicKey\.pubKeyCredParams is missing at least one of the default algorithm identifiers: ES256 and RS256\./
-  page.on('console', (m) => { if ((m.type() === 'error' || m.type() === 'warning') && !ES256_ONLY.test(m.text())) problems.push(m.text()) })
-  page.on('pageerror', (e) => problems.push(String(e)))
-  const cdp = await context.newCDPSession(page)
-  await cdp.send('WebAuthn.enable')
-  const { authenticatorId } = await cdp.send('WebAuthn.addVirtualAuthenticator', { options: { protocol: 'ctap2', transport: 'internal',
-    hasResidentKey: true, hasUserVerification: true, isUserVerified: true, automaticPresenceSimulation: true } })
-  await page.goto(site.origin + '/id/')
-  // Under mutation testing's first run, the page's coverage is added to this process's, which the runner reads.
+  const pages = []
+  async function device () {
+    const context = await browser.newContext()
+    // Under mutation testing, the mutant the runner activated is activated in the page too: Stryker's instrumented
+    // code reads it from process.env in Node, which a page has not.
+    const mutant = process.env.__STRYKER_ACTIVE_MUTANT__
+    if (mutant !== undefined) await context.addInitScript((m) => { globalThis.__stryker__ = { activeMutant: m } }, mutant)
+    if (init !== undefined) await context.addInitScript(init)
+    const page = await context.newPage()
+    // Chrome warns that only ES256 is offered: deliberate (I6), and the only warning allowed.
+    const ES256_ONLY = /^publicKey\.pubKeyCredParams is missing at least one of the default algorithm identifiers: ES256 and RS256\./
+    page.on('console', (m) => { if ((m.type() === 'error' || m.type() === 'warning') && !ES256_ONLY.test(m.text())) problems.push(m.text()) })
+    page.on('pageerror', (e) => problems.push(String(e)))
+    const cdp = await context.newCDPSession(page)
+    await cdp.send('WebAuthn.enable')
+    const { authenticatorId } = await cdp.send('WebAuthn.addVirtualAuthenticator', { options: { protocol: 'ctap2', transport: 'internal',
+      hasResidentKey: true, hasUserVerification: true, isUserVerified: true, automaticPresenceSimulation: true } })
+    await page.goto(site.origin + '/id/')
+    pages.push(page)
+    return { context, page, cdp, authenticatorId }
+  }
+  // Under mutation testing's first run, the pages' coverage is added to this process's, which the runner reads.
   const collect = async () => {
     const ns = globalThis.__stryker__
-    const cov = ns === undefined ? undefined : await page.evaluate(() => globalThis.__stryker__?.mutantCoverage)
-    if (cov === undefined) return
-    ns.mutantCoverage ??= { static: {}, perTest: {} }
-    for (const [id, n] of Object.entries(cov.static)) ns.mutantCoverage.static[id] = (ns.mutantCoverage.static[id] ?? 0) + n
+    if (ns === undefined) return
+    for (const page of pages) {
+      const cov = await page.evaluate(() => globalThis.__stryker__?.mutantCoverage)
+      if (cov === undefined) continue
+      ns.mutantCoverage ??= { static: {}, perTest: {} }
+      for (const [id, n] of Object.entries(cov.static)) ns.mutantCoverage.static[id] = (ns.mutantCoverage.static[id] ?? 0) + n
+    }
   }
-  return { site, browser, context, page, cdp, authenticatorId, problems, collect, close: async () => { await collect(); await browser.close(); site.close() } }
+  const first = await device()
+  const witnessGet = async (path) => (await holder.svc.handle(new Request('http://witness' + path))).json()
+  return { site, browser, ...first, device, problems, collect, keys, clock, witnessGet, svc: holder.svc, advance: (s) => { offset += s },
+    close: async () => { await collect(); await browser.close(); site.close() } }
 }
+
+const errorShown = (page) => page.waitForFunction(() => document.getElementById('error').textContent !== '')
 
 async function createIdentity (page, name = 'test') {
   await page.fill('#name', name)
   await page.click('#create-button')
   await page.waitForSelector('#identity:not([hidden])')
+  await page.waitForFunction(() => document.getElementById('status').textContent === 'Registered with the witness.')
   return { text: await page.inputValue('#root-text'), identity: await page.textContent('#identity-id') }
 }
 
@@ -101,13 +124,9 @@ test('create an identity and authorise a worker: the core, the witness and the v
     const d = delegationModule.checkDelegation(text, { rootKey: c.key, rpId, origin: t.site.origin, now, skew: 60, maxLifetime: 2_592_000 })
     assert.equal(d.ok, true, JSON.stringify(d))
 
-    // The witness holds the root and signs a head; a relying party at the audience accepts the delegation.
-    const sign = (bytes) => hex(ed25519.sign(bytes, W))
-    const keys = [{ key: WITNESS, nbf: 0, exp: now + 86_400 }]
-    const w = witness({ rpId, origin: t.site.origin, witnessKeys: keys, key: WITNESS, sign, contestWindow: 259_200, skew: 60, maxLifetime: 2_592_000 })
-    const held = w.admit(w.empty(r.identity), 'root', r.text).held
-    const head = w.head(held, now)
-    const v = verifierModule.verifier({ rpId, origin: t.site.origin, audience: 'https://app.example', witnessKeys: keys, skew: 60,
+    // The page registered the root with the witness, which signs a head; a relying party at the audience accepts it.
+    const { head } = await t.witnessGet(`/v1/identities/${r.identity}/head`)
+    const v = verifierModule.verifier({ rpId, origin: t.site.origin, audience: 'https://app.example', witnessKeys: t.keys, skew: 60,
       maxLifetime: 2_592_000, maxStaleness: 86_400, maxClaimAge: 300 })
     const accepted = v.verifyDelegation({ delegation: text, root: r.text, head }, { now, scope: 'post', revoked: [] })
     assert.equal(accepted.ok, true, JSON.stringify(accepted))
@@ -128,6 +147,7 @@ test('I4: what is shown is what is signed; any change withdraws it, and refusals
   try {
     await createIdentity(t.page)
     await authorise(t.page, { aud: 'https://App.example' })
+    await errorShown(t.page)
     assert.equal(await t.page.textContent('#error'), 'the audience must be an origin, such as https://app.example')
     assert.equal(await t.page.isHidden('#review-panel'), true)
     await authorise(t.page)
@@ -139,6 +159,7 @@ test('I4: what is shown is what is signed; any change withdraws it, and refusals
     assert.equal(await t.page.isHidden('#handoff'), true, 'nothing is signed without a review')
     assert.equal(await t.page.textContent('#error'), '')
     await authorise(t.page, { subject: 'x' })
+    await errorShown(t.page)
     assert.equal(await t.page.textContent('#error'), "the worker's key must be an Ed25519 public key, 64 hex digits")
   } finally {
     await t.close()
@@ -244,6 +265,86 @@ test('a passkey that refuses (no user verification) is reported, and nothing is 
     assert.equal(await t.page.textContent('#error'), '')
     const { credentials } = await t.cdp.send('WebAuthn.getCredentials', { authenticatorId: t.authenticatorId })
     assert.equal(credentials[0].userName, 'muid identity')
+  } finally {
+    await t.close()
+  }
+})
+
+test('a second passkey: one device adds it, the other co-signs; once settled it authorises a worker the verifier accepts', { timeout: 180_000 }, async () => {
+  const t = await open()
+  try {
+    const rpId = 'localhost'
+    const a = await createIdentity(t.page)
+    const b = await t.device()
+    await b.page.click('#join-button')
+    await b.page.waitForSelector('#joining:not([hidden])')
+    assert.equal(await b.page.isHidden('#identity'), true)
+    const bRoot = await b.page.inputValue('#join-root')
+    const bId = rootModule.checkRoot(bRoot, { rpId }).id
+
+    // On the first device: what is added is shown, and an edit withdraws it.
+    await t.page.fill('#new-root', 'x')
+    await t.page.click('#add-review')
+    await errorShown(t.page)
+    assert.equal(await t.page.textContent('#error'), 'that is not a root record: envelope-encoding')
+    await t.page.fill('#new-root', ` ${bRoot} `)
+    await t.page.click('#add-review')
+    await t.page.waitForSelector('#add-panel:not([hidden])')
+    assert.equal(await t.page.textContent('#add-added'), bId)
+    assert.equal(await t.page.textContent('#add-epoch'), '2')
+    await t.page.fill('#new-root', bRoot + ' ')
+    assert.equal(await t.page.isHidden('#add-panel'), true, 'an edit withdraws the change')
+    await t.page.click('#add-review')
+    await t.page.waitForSelector('#add-panel:not([hidden])')
+    await t.page.click('#add-sign')
+    await t.page.waitForSelector('#add-handoff:not([hidden])')
+    const payload = await t.page.inputValue('#add-handoff')
+    const change = envelope.open(envelope.wrap(payload, {}), 'membership')
+    assert.deepEqual(Array.from(change.body.roots), [rootModule.checkRoot(a.text, { rpId }).id, bId].sort())
+
+    // On the second device: a change that does not add it is refused; this one is shown, then co-signed.
+    const elsewhere = envelope.seal('membership', { ...change.body, roots: [rootModule.checkRoot(a.text, { rpId }).id] }).payload
+    await b.page.fill('#cosign-payload', elsewhere)
+    await b.page.click('#cosign-review')
+    await errorShown(b.page)
+    assert.equal(await b.page.textContent('#error'), 'that change does not add this passkey')
+    await b.page.fill('#cosign-payload', 'x')
+    await b.page.click('#cosign-review')
+    assert.equal(await b.page.textContent('#error'), 'that is not a membership change')
+    await b.page.fill('#cosign-payload', payload)
+    await b.page.click('#cosign-review')
+    await b.page.waitForSelector('#cosign-panel:not([hidden])')
+    assert.equal(await b.page.textContent('#cosign-identity'), a.identity)
+    assert.equal(await b.page.textContent('#cosign-roots'), Array.from(change.body.roots).join(' '))
+    await b.page.click('#cosign-sign')
+    await b.page.waitForSelector('#identity:not([hidden])')
+    assert.equal(await b.page.textContent('#identity-id'), a.identity)
+
+    // The witness anchored the change: pending; the new root has no authority until it settles.
+    const held = await t.witnessGet(`/v1/identities/${a.identity}/records`)
+    assert.equal(held.anchors.length, 1)
+    await authorise(b.page)
+    await errorShown(b.page)
+    assert.equal(await b.page.textContent('#error'), 'this passkey has no authority yet: wait for the change to settle')
+    t.advance(61)
+    assert.equal((await t.svc.tick()).length, 1, 'the settlement, once the window has passed')
+
+    // Now the second passkey authorises a worker, under the settled membership; the verifier accepts it.
+    await authorise(b.page)
+    await b.page.waitForSelector('#review-panel:not([hidden])')
+    await b.page.click('#sign')
+    await b.page.waitForSelector('#handoff:not([hidden])')
+    const h = JSON.parse(await b.page.inputValue('#handoff'))
+    const id = envelope.open(envelope.wrap(h.payload, { root: h.root, subject: '0'.repeat(128) }), 'delegation')
+    assert.equal(id.body.membership, change.id)
+    const subject = hex(ed25519.sign(Buffer.concat([Buffer.from('muid/v1/accept\n'), Buffer.from(id.id, 'hex')]), WORKER))
+    const text = envelope.wrap(h.payload, { root: h.root, subject })
+    const { head } = await t.witnessGet(`/v1/identities/${a.identity}/head`)
+    const v = verifierModule.verifier({ rpId, origin: t.site.origin, audience: 'https://app.example', witnessKeys: t.keys, skew: 60,
+      maxLifetime: 2_592_000, maxStaleness: 86_400, maxClaimAge: 300 })
+    const accepted = v.verifyDelegation({ delegation: text, root: bRoot, head }, { now: t.clock(), scope: 'post', revoked: [] })
+    assert.equal(accepted.ok, true, JSON.stringify(accepted))
+    assert.deepEqual(t.problems, [])
   } finally {
     await t.close()
   }

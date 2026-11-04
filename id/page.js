@@ -1,23 +1,36 @@
-// The id page (SPEC §8): create an identity with a passkey, and authorise a worker's key by one assertion. The page
-// shows the delegation's fields from the exact payload the passkey will sign (I4); changing any input withdraws it.
-// The root record and the credential id are kept in this browser only.
-import { rootRecord, challenge, assertion, delegation, handOff, b64u, fromB64u } from './records.js'
+// The id page (SPEC §8): create an identity with a passkey and register its root with the witness; add a passkey on
+// another device (a membership change, R1: signed here, co-signed there); and authorise a worker's key by one
+// assertion, under the identity's current membership. Every record the passkey signs is shown first from its exact
+// payload (I4); changing any input withdraws it, and a signature that returns after an edit is discarded. The root
+// record and the credential id are kept in this browser only.
+import { rootRecord, challenge, assertion, delegation, handOff, b64u, fromB64u, currentMembership, addRoot, rootSigned, changeToSign } from './records.js'
 
 const $ = (id) => document.getElementById(id)
+const meta = (name) => document.querySelector(`meta[name="${name}"]`).content
 const rpId = location.hostname
 const KEY = 'muid.root'
+const WITNESS = meta('muid-witness')
+const WITNESS_KEYS = JSON.parse(meta('muid-witness-keys'))
 
 let root
 try { root = JSON.parse(localStorage.getItem(KEY)) } catch { root = null } // none is null; unreadable, forgotten
-let pending = null
+const pending = { delegation: null, change: null, cosign: null }
+
+function save () {
+  try { localStorage.setItem(KEY, JSON.stringify(root)) } catch { /* kept for this visit only */ }
+}
 
 function show () {
+  const joining = root?.joining === true
   $('create').hidden = root !== null
-  $('identity').hidden = root === null
-  $('authorise').hidden = root === null
+  $('joining').hidden = !joining
+  $('identity').hidden = root === null || joining
+  $('add-root').hidden = root === null || joining
+  $('authorise').hidden = root === null || joining
   if (root !== null) {
     $('identity-id').textContent = root.identity
     $('root-text').value = root.text
+    $('join-root').value = root.text
   }
 }
 
@@ -25,15 +38,36 @@ function fail (e) {
   $('error').textContent = e.name === 'NotAllowedError' ? 'The passkey request was cancelled.' : e.message
 }
 
+// The witness service: a record submitted, or the records it holds for the identity.
+async function submit (identity, type, text) {
+  const r = await (await fetch(WITNESS + 'v1/records', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ identity, type, text }) })).json()
+  if (!r.ok) throw new Error(`the witness refused the ${type}: ${r.reason}`)
+}
+async function state () {
+  const res = await fetch(WITNESS + `v1/identities/${root.identity}/records`)
+  const records = res.ok ? await res.json() : {}
+  return currentMembership(records, { identity: root.identity, rpId, origin: location.origin, witnessKeys: WITNESS_KEYS })
+}
+
+// One user-verified assertion by this identity's own passkey over the records in `covers` (W1).
+async function sign (covers) {
+  const a = await navigator.credentials.get({ publicKey: {
+    rpId, challenge: challenge(covers), userVerification: 'required',
+    allowCredentials: [{ type: 'public-key', id: fromB64u(root.credential) }],
+  } })
+  return assertion(covers, a.response)
+}
+
 function withdraw () {
-  pending = null
-  $('review-panel').hidden = true
-  $('handoff').hidden = true
+  pending.delegation = null
+  pending.change = null
+  pending.cosign = null
+  for (const id of ['review-panel', 'handoff', 'add-panel', 'add-handoff', 'cosign-panel']) $(id).hidden = true
   $('error').textContent = ''
 }
 
-$('create-button').addEventListener('click', async () => {
-  $('error').textContent = ''
+async function create (joining) {
+  withdraw()
   try {
     const name = $('name').value.trim() || 'muid identity'
     const c = await navigator.credentials.create({ publicKey: {
@@ -48,42 +82,101 @@ $('create-button').addEventListener('click', async () => {
       attestation: 'none',
     } })
     const r = rootRecord(c.response.getPublicKey(), c.response.getPublicKeyAlgorithm(), rpId)
-    root = { ...r, credential: b64u(c.rawId) }
-    try { localStorage.setItem(KEY, JSON.stringify(root)) } catch { /* kept for this visit only */ }
+    root = { ...r, credential: b64u(c.rawId), joining }
+    save()
     show()
+    if (!joining) {
+      await submit(r.identity, 'root', r.text)
+      $('status').textContent = 'Registered with the witness.'
+    }
   } catch (e) { fail(e) }
-})
+}
 
-for (const id of ['subject', 'aud', 'scopes', 'days']) $(id).addEventListener('input', withdraw)
+$('create-button').addEventListener('click', () => create(false))
+$('join-button').addEventListener('click', () => create(true))
+for (const id of ['subject', 'aud', 'scopes', 'days', 'new-root', 'cosign-payload']) $(id).addEventListener('input', withdraw)
 
-$('review').addEventListener('click', () => {
+$('review').addEventListener('click', async () => {
   withdraw()
   try {
-    pending = delegation({
-      identity: root.identity, membership: root.identity, root: root.id, subject: $('subject').value.trim(),
+    const s = await state()
+    if (!s.authority.includes(root.id)) throw new Error('this passkey has no authority yet: wait for the change to settle')
+    const d = delegation({
+      identity: root.identity, membership: s.membership, root: root.id, subject: $('subject').value.trim(),
       aud: $('aud').value.trim(), scopes: $('scopes').value.trim().split(/\s+/),
       now: Math.floor(Date.now() / 1000), lifetime: Math.round(Number($('days').value) * 86_400),
     })
-    $('show-aud').textContent = pending.body.aud
-    $('show-scopes').textContent = pending.body.scopes.join(' ')
-    $('show-exp').textContent = new Date(pending.body.exp * 1000).toISOString()
-    $('show-subject').textContent = pending.body.subject
+    pending.delegation = d
+    $('show-aud').textContent = d.body.aud
+    $('show-scopes').textContent = d.body.scopes.join(' ')
+    $('show-exp').textContent = new Date(d.body.exp * 1000).toISOString()
+    $('show-subject').textContent = d.body.subject
     $('review-panel').hidden = false
   } catch (e) { fail(e) }
 })
 
 $('sign').addEventListener('click', async () => {
-  const d = pending
+  const d = pending.delegation
   if (d === null) return
   $('error').textContent = ''
   try {
-    const a = await navigator.credentials.get({ publicKey: {
-      rpId, challenge: challenge([d.id]), userVerification: 'required',
-      allowCredentials: [{ type: 'public-key', id: fromB64u(root.credential) }],
-    } })
-    if (pending !== d) return // withdrawn while the passkey was asked
-    $('handoff').value = handOff(d.payload, assertion([d.id], a.response))
+    const a = await sign([d.id])
+    if (pending.delegation !== d) return // withdrawn while the passkey was asked
+    $('handoff').value = handOff(d.payload, a)
     $('handoff').hidden = false
+  } catch (e) { fail(e) }
+})
+
+$('add-review').addEventListener('click', async () => {
+  withdraw()
+  try {
+    const c = addRoot({ identity: root.identity, state: await state(), root: $('new-root').value.trim(), rpId })
+    pending.change = { ...c, rootText: $('new-root').value.trim() }
+    $('add-added').textContent = c.added
+    $('add-epoch').textContent = String(c.body.epoch)
+    $('add-panel').hidden = false
+  } catch (e) { fail(e) }
+})
+
+$('add-sign').addEventListener('click', async () => {
+  const c = pending.change
+  if (c === null) return
+  $('error').textContent = ''
+  try {
+    const a = await sign([c.id])
+    if (pending.change !== c) return
+    await submit(root.identity, 'membership', rootSigned(c.payload, root.id, a))
+    await submit(root.identity, 'root', c.rootText)
+    $('add-handoff').value = c.payload
+    $('add-handoff').hidden = false
+    $('status').textContent = 'Signed. The other device co-signs this change.'
+  } catch (e) { fail(e) }
+})
+
+$('cosign-review').addEventListener('click', () => {
+  withdraw()
+  try {
+    const c = changeToSign($('cosign-payload').value.trim())
+    if (!c.body.roots.includes(root.id)) throw new Error('that change does not add this passkey')
+    pending.cosign = c
+    $('cosign-identity').textContent = c.body.identity
+    $('cosign-roots').textContent = c.body.roots.join(' ')
+    $('cosign-panel').hidden = false
+  } catch (e) { fail(e) }
+})
+
+$('cosign-sign').addEventListener('click', async () => {
+  const c = pending.cosign
+  if (c === null) return
+  $('error').textContent = ''
+  try {
+    const a = await sign([c.id])
+    if (pending.cosign !== c) return
+    await submit(c.body.identity, 'membership', rootSigned(c.payload, root.id, a))
+    root = { ...root, identity: c.body.identity, joining: false }
+    save()
+    show()
+    $('status').textContent = 'Co-signed. The change settles once its contest window has passed.'
   } catch (e) { fail(e) }
 })
 

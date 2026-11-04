@@ -625,8 +625,15 @@ worker: the user gives the worker's Ed25519 key, the audience, scopes (never `at
 shows the fields of the exact payload it will ask the passkey to sign (I4), any edit withdraws it, and a signature
 that returns after an edit is discarded. One assertion (W1 challenge, user verification required, the identity's
 own credential only) signs it, and the page hands the worker the payload and assertion; the worker adds its own
-consent (D6). `id/records.js` builds every record with the core's functions and refuses first what the core would.
-Not yet: rotation, freezes and contests, the I1–I3 window protocol for apps, and the witness round trip.
+consent (D6). A new identity's root is registered with the witness service the page is configured with (its URL
+and pinned keys are meta tags, deployment configuration). A second passkey joins from another device: there it
+creates its passkey and shows its root record; a device of the identity reads the current membership from the
+witness's records by the core's `membershipState`, shows the root it adds and the new epoch (I4), signs the change
+(R1) and submits it with the new root record; the new device shows the change, co-signs it and submits it. The
+witness anchors it, and it settles once its contest window has passed; until then the new root has no authority
+(R6), and the page says so. Delegations name the current membership. `id/records.js` builds every record with the
+core's functions and refuses first what the core would. Not yet: removing a root, freezes and contests, and the
+I1–I3 window protocol for apps.
 
 - The id origin is a dedicated host serving nothing else, with no subdomains. `rp_id` and the exact origin are
   deployment configuration, compared exactly; no suffix or wildcard rule exists anywhere.

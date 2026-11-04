@@ -2,7 +2,8 @@
 // challenge, the assertion object (W0–W6) from what the passkey returns, and a delegation to a worker's key, whose
 // fields the page shows (I4) before the passkey signs. Nothing here signs; the passkey does, in the browser.
 import { sha256 } from '@noble/hashes/sha2.js'
-import { seal, wrap } from '../src/envelope.js'
+import { seal, wrap, open } from '../src/envelope.js'
+import { membershipState } from '../src/membership.js'
 import { checkRoot, identityOf } from '../src/root.js'
 import { isCanonicalOrigin } from '../src/origin.js'
 import { checkEd25519Key } from '../src/ed25519.js'
@@ -62,3 +63,40 @@ export function delegation ({ identity, membership, root, subject, aud, scopes, 
 
 // What the page hands the worker: the payload and the root's assertion. The worker adds its own consent (D6).
 export const handOff = (payload, root) => JSON.stringify({ payload, root })
+
+// The identity's current membership, from the records the witness holds, by the core's own membershipState: the
+// effective membership's id, epoch and roots, the roots with authority (R6), and whether a change is pending.
+export function currentMembership (records, ctx) {
+  const s = membershipState(records, ctx)
+  if (!s.ok) throw new Error('the witness holds no record of this identity')
+  if (s.dead) throw new Error('this identity has ended')
+  return { membership: s.membership, epoch: s.epoch, roots: [...s.roots], authority: [...s.authority], pending: s.pending }
+}
+
+// The membership change that adds the root in `root` (its root record) to the current membership (R1): the next
+// epoch, the roots sorted. { body, payload, id, added }; anything R1 or the witness would refuse, refused first.
+export function addRoot ({ identity, state, root, rpId }) {
+  if (state.pending) throw new Error('a change is already pending: wait for it to settle')
+  const r = checkRoot(root, { rpId })
+  if (!r.ok) throw new Error(`that is not a root record: ${r.reason}`)
+  if (state.roots.includes(r.id)) throw new Error('that passkey is already a root of this identity')
+  if (state.roots.length >= 5) throw new Error('an identity has at most 5 roots')
+  const body = { identity, prev: state.membership, epoch: state.epoch + 1, roots: [...state.roots, r.id].sort() }
+  return { body, ...seal('membership', body), added: r.id }
+}
+
+// A root-signed record's envelope: the payload, signed by one root's assertion (R1–R5's `sig = { root, assertion }`).
+export const rootSigned = (payload, root, assertion) => wrap(payload, { root, assertion })
+
+// A membership change handed over to co-sign: its body (to show, I4), id (to sign) and payload; else a reason.
+export function changeToSign (payload) {
+  let r
+  try {
+    r = open(wrap(payload, {}), 'membership')
+  } catch {
+    throw new Error('that is not a membership change')
+  }
+  const { identity, prev, epoch, roots } = r.body
+  if (!Array.isArray(roots)) throw new Error('that is not a membership change')
+  return { body: { identity, prev, epoch, roots: Array.from(roots) }, id: r.id, payload }
+}

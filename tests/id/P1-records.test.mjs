@@ -5,10 +5,11 @@ import assert from 'node:assert/strict'
 import { p256 } from '@noble/curves/nist.js'
 import { ed25519 } from '@noble/curves/ed25519.js'
 import { records } from './impl.mjs'
+import * as wf from '../witness/fixtures.mjs'
 import { root as rootModule, assertion as assertionModule, delegation as delegationModule, envelope } from '../impl.mjs'
 import { challengeFor, authData, clientData, signOver, sha256 } from '../assertion/helpers.mjs'
 
-const { rootRecord, challenge, assertion, delegation, handOff, b64u, fromB64u, MAX_LIFETIME } = records
+const { rootRecord, challenge, assertion, delegation, handOff, b64u, fromB64u, MAX_LIFETIME, currentMembership, addRoot, rootSigned, changeToSign } = records
 const hex = (b) => Buffer.from(b).toString('hex')
 const RP_ID = 'localhost'
 const ORIGIN = 'http://localhost:8080'
@@ -121,4 +122,64 @@ test('what the core would refuse is refused first, with a reason to show', () =>
     assert.doesNotThrow(() => delegation({ ...base, ...ok }), JSON.stringify(ok).slice(0, 40))
   }
   assert.equal(MAX_LIFETIME, 604_800, 'decision 3: the id page gives machines at most 7 days')
+})
+
+// Adding a root (R1): the change is built against the membership the witness's records give, by the core's own
+// membershipState; the page shows what it adds (I4).
+import { ed25519 as ed } from '@noble/curves/ed25519.js'
+const W_SECRET = Uint8Array.from({ length: 32 }, (_, i) => 120 + i)
+const W_KEY = hex(ed.getPublicKey(W_SECRET))
+const KEYS = [{ key: W_KEY, nbf: 0, exp: 4_000_000_000 }]
+const OTHER = Uint8Array.from(sha256('id page test second passkey'))
+const OTHER_SPKI = Buffer.concat([Buffer.from('3059301306072a8648ce3d020106082a8648ce3d030107034200', 'hex'), p256.getPublicKey(OTHER, false)])
+
+test('the current membership, from what the witness holds', () => {
+  const r = rootRecord(SPKI, -7, RP_ID)
+  const records = { roots: [r.text], memberships: [], contests: [], freezes: [], anchors: [], settlements: [] }
+  const s = currentMembership(records, { identity: r.identity, rpId: RP_ID, origin: ORIGIN, witnessKeys: KEYS })
+  assert.deepEqual(s, { membership: r.identity, epoch: 1, roots: [r.id], authority: [r.id], pending: false })
+  assert.throws(() => currentMembership({ roots: [] }, { identity: r.identity, rpId: RP_ID, origin: ORIGIN, witnessKeys: KEYS }),
+    { message: 'the witness holds no record of this identity' })
+  // A contested change ends the identity.
+  const pending = wf.w.advance(wf.withM2(), wf.BASE).held
+  const contested = wf.admitAll(pending, [['contest', wf.signed('contest', { identity: wf.IDENTITY, record: wf.mId(wf.M2) }, 'a')]])
+  const dead = wf.w.advance(wf.w.advance(contested, wf.BASE + 1).held, wf.BASE + wf.WINDOW).held
+  assert.throws(() => currentMembership(dead, wf.CTX), { message: 'this identity has ended' })
+})
+
+test('adding a root: the next epoch, its roots sorted, and what it adds; refusals with a reason', () => {
+  const a = rootRecord(SPKI, -7, RP_ID)
+  const b = rootRecord(OTHER_SPKI, -7, RP_ID)
+  const state = { membership: a.identity, epoch: 1, roots: [a.id], authority: [a.id], pending: false }
+  const c = addRoot({ identity: a.identity, state, root: b.text, rpId: RP_ID })
+  assert.deepEqual(c.body, { identity: a.identity, prev: a.identity, epoch: 2, roots: [a.id, b.id].sort() })
+  assert.equal(c.id, envelope.seal('membership', c.body).id)
+  assert.equal(c.added, b.id)
+  assert.throws(() => addRoot({ identity: a.identity, state, root: a.text, rpId: RP_ID }), { message: 'that passkey is already a root of this identity' })
+  assert.throws(() => addRoot({ identity: a.identity, state, root: 'x', rpId: RP_ID }), { message: 'that is not a root record: envelope-encoding' })
+  assert.throws(() => addRoot({ identity: a.identity, state: { ...state, pending: true }, root: b.text, rpId: RP_ID }),
+    { message: 'a change is already pending: wait for it to settle' })
+  const five = { ...state, roots: ['1', '2', '3', '4', '5'].map((x) => x.repeat(64)) }
+  assert.throws(() => addRoot({ identity: a.identity, state: five, root: b.text, rpId: RP_ID }), { message: 'an identity has at most 5 roots' })
+  assert.doesNotThrow(() => addRoot({ identity: a.identity, state: { ...state, roots: five.roots.slice(1) }, root: b.text, rpId: RP_ID }))
+  // The new root sorts wherever its id falls: here before the existing one.
+  const later = { ...state, roots: ['f'.repeat(64)] }
+  assert.deepEqual(addRoot({ identity: a.identity, state: later, root: b.text, rpId: RP_ID }).body.roots, [b.id, 'f'.repeat(64)])
+})
+
+test('a root-signed record: the root and its assertion, as membership records carry them', () => {
+  const a = rootRecord(SPKI, -7, RP_ID)
+  const { payload, id } = envelope.seal('membership', { identity: a.identity, prev: a.identity, epoch: 2, roots: [a.id] })
+  const sig = { covers: [id], authenticator_data: 'x', client_data_json: 'y', signature: 'z' }
+  assert.deepEqual(JSON.parse(rootSigned(payload, a.id, sig)), { payload, sig: { root: a.id, assertion: sig } })
+})
+
+test('reading a change to co-sign: its body and id, or a reason', () => {
+  const a = rootRecord(SPKI, -7, RP_ID)
+  const body = { identity: a.identity, prev: a.identity, epoch: 2, roots: [a.id] }
+  const { payload, id } = envelope.seal('membership', body)
+  assert.deepEqual(changeToSign(payload), { body, id, payload })
+  for (const bad of ['x', envelope.seal('freeze', { identity: a.identity, membership: a.identity }).payload, envelope.seal('membership', { ...body, roots: 'x' }).payload]) {
+    assert.throws(() => changeToSign(bad), { message: 'that is not a membership change' })
+  }
 })
