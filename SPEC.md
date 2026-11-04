@@ -410,8 +410,11 @@ and `GET /v1/identities/{id}/head` (a head, reused for `headInterval` seconds wh
 advances every identity, settling once windows pass. Each identity's changes are serialised by its store, and every
 record the witness signs is appended to the log before the holding that contains it is kept, so nothing is served
 that the log did not take; a failing log or store is 503 and nothing is kept. Refusals are 422 with the witness's
-reason; malformed requests are 400, 404, 405 or 413 (bodies past 131,072 characters). The log is Tessera's own
-POSIX server (`log/go.mod` pins it; no Go code of muid's), which signs C2SP checkpoints and serves C2SP tiles;
+reason; malformed requests are 400, 404, 405 or 413 (bodies past 131,072 characters). The log is Tessera's POSIX
+server with a witness policy (`log/cmd/muid-log`: Tessera's own server example, plus the witness-policy option from
+its one-shot example, unchanged otherwise; `log/go.mod` pins Tessera and every module), which publishes a C2SP
+checkpoint only once the witnesses in its policy have cosigned it (tlog-witness), and serves C2SP tiles; the
+cosigner in tests is transparency-dev's omniwitness, pinned in the same module;
 `witness/log.js` appends to it and builds RFC 9162 inclusion proofs from its tiles for any entry against any
 checkpoint, which the core's `verifyCheckpoint` and `verifyInclusion` then check. Anyone can read the tiles; only the
 witness service appends (the server listens on a private address). An in-memory log and store stand in for tests.

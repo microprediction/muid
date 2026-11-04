@@ -475,9 +475,11 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   9162's PATH for every entry of trees of 1 to 1,000 entries and at a level-2 tile (65,836); an older tree's partial
   tiles; a partial tile no longer served read from its full tile; each tile read once, at the right path; a missing
   or short tile, a failing server, an index outside the tree; append's answer read strictly; the checkpoint.
-- Tessera itself (`tests/log/L1-tessera.test.mjs`, runs `go tool posix` from `log/`): 300 entries appended
-  concurrently, the checkpoint verified by the core under the log's key, an inclusion proof from Tessera's tiles
-  verified for every entry, and again after 21 more; another entry's hash refused.
+- Tessera itself (`tests/log/L1-tessera.test.mjs`, building `log/cmd/muid-log` and transparency-dev's omniwitness
+  from the pinned module): 300 entries appended, the checkpoint verified by the core under the log's key, an
+  inclusion proof from Tessera's tiles verified for every entry, and again after 21 more; another entry's hash
+  refused. With a witness policy naming the omniwitness, every published checkpoint carries its cosignature, which
+  the core counts toward a quorum of one, with the witness's clock as the time.
 - Twins (`tests/meta/witness-twins.test.mjs`, 42): each admission rule dropped in turn; the anchor kept unchecked;
   the highest id anchored; settlement inside the window; contests never anchored, anchored unchecked, or ignored at
   settlement; the witness's view counting contest anchors; a settlement ending the step; `sign` unchecked; heads
