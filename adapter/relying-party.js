@@ -1,13 +1,24 @@
 // A relying party's integration of the pure verifier (issue #21; outside the trusted core). It adds the state the
-// verifier leaves to its caller, with the established mechanisms for each:
+// verifier leaves to its caller, with the established mechanism for each:
 // - replay: a claim id is consumed by one atomic insert-if-absent, before the protected action runs (as a DPoP
 //   server's jti store, RFC 9449 §11.1);
 // - head memory: the last head accepted for an identity is passed to the verifier and only ever moves forward (as a
 //   TUF client's stored metadata).
-// Storage that fails, or reads back corrupt, is refused as `storage`; the protected action then does not run.
+// The records are verified inside one store transaction, against the memory as it stands there, which then advances
+// the head and consumes the claim: a database store holds its write lock for one verification. Storage that fails is
+// refused as `storage`, and the protected action does not run.
 import { open } from '../src/envelope.js'
 
 const refusal = (reason) => Object.freeze({ ok: false, reason })
+
+// The presented records, each read once: what is verified is what is remembered. Undefined if reading throws.
+function readGiven (given) {
+  try {
+    const { claim, delegation, root, head } = given // null and undefined throw; a primitive gives no fields
+    return { claim, delegation, root, head }
+  } catch { /* refused by the verifier */ }
+  return undefined
+}
 
 // The identity and time a presented head claims, for looking up and advancing the memory. Unverified until the
 // verifier accepts the records; undefined if the head cannot be read.
@@ -20,53 +31,57 @@ function headFields (text) {
 }
 
 export function relyingParty ({ verifier, store }) {
-  // Verify with the stored last head (none when undefined). A stored head the verifier cannot read is corrupt
-  // storage, unless the call is itself malformed: then verifying without it throws too, and that programming error
-  // propagates. Anything else the verifier throws propagates.
-  async function verify (method, given, call) {
-    const fields = headFields(given?.head)
-    let lastHead
-    if (fields !== undefined) {
-      try {
-        lastHead = await store.lastHead(fields.identity)
-      } catch {
-        return { r: refusal('storage') }
-      }
-    }
-    let r
+  // Verify against the remembered { head, at }, if any. A stored head the verifier cannot read (corrupt, or signed
+  // by a witness key since removed from its configuration) still bounds rollback: its time becomes minHeadAt. A
+  // malformed call throws without the stored head too, and that programming error propagates, as does anything the
+  // verifier throws other than a TypeError.
+  function verifyWith (method, given, call, stored) {
+    if (stored === undefined) return verifier[method](given, call)
     try {
-      r = verifier[method](given, { ...call, lastHead })
+      return verifier[method](given, { ...call, lastHead: stored.head })
     } catch (e) {
       if (!(e instanceof TypeError)) throw e
       verifier[method](given, call)
-      return { r: refusal('storage') }
+      if (!Number.isSafeInteger(stored.at) || stored.at < 0) return refusal('storage')
+      return verifier[method](given, { ...call, minHeadAt: Math.max(call.minHeadAt ?? 0, stored.at) }) // call checked above
     }
-    if (!r.ok) return { r: refusal(r.reason) } // one shape for every refusal the adapter returns
+  }
+
+  async function accept (method, records, call) {
+    const given = readGiven(records)
+    const fields = headFields(given?.head)
+    // A head that cannot be read has no memory to consult, and the verifier refuses it.
+    if (fields === undefined) return refusal(verifier[method](given, call).reason)
+    let outcome
     try {
-      await store.advanceHead(fields.identity, given.head, fields.at)
+      outcome = await store.transaction((tx) => {
+        const stored = tx.lastHead(fields.identity) // the store's: a failure here is refused as storage
+        let r
+        try {
+          r = verifyWith(method, given, call, stored)
+        } catch (e) {
+          return { thrown: e } // the verifier's, not the store's: rethrown below
+        }
+        if (!r.ok) return refusal(r.reason)
+        tx.advanceHead(fields.identity, given.head, fields.at)
+        if (method === 'verifyClaim' && !tx.consume(r.id, r.until)) return refusal('replay')
+        return r
+      })
     } catch {
-      return { r: refusal('storage') }
+      return refusal('storage')
     }
-    return { r }
+    if (outcome.thrown !== undefined) throw outcome.thrown
+    return outcome
   }
 
   // A delegation alone (a request that carries no claim): verified, and the head remembered.
-  async function acceptDelegation (given, call) {
-    return (await verify('verifyDelegation', given, call)).r
-  }
+  const acceptDelegation = (given, call) => accept('verifyDelegation', given, call)
 
   // A claim: verified, consumed atomically, and only then `action(result)` run, once. If the action fails, the claim
   // stays consumed and the error propagates: the delegate makes a new claim.
   async function acceptClaim (given, call, action) {
-    const { r } = await verify('verifyClaim', given, call)
+    const r = await accept('verifyClaim', given, call)
     if (!r.ok) return r
-    let fresh
-    try {
-      fresh = await store.consume(r.id, r.until)
-    } catch {
-      return refusal('storage')
-    }
-    if (!fresh) return refusal('replay')
     const value = await action(r)
     return Object.freeze({ ok: true, id: r.id, until: r.until, body: r.body, delegation: r.delegation, value })
   }

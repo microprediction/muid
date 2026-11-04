@@ -16,19 +16,25 @@ const IMPORTS = [["from '../" + "src/envelope.js'", "from '" + new URL('../../sr
 
 // [name, bug class, file, [find, replace] pairs]
 const TWINS = [
-  ['memory-check-then-insert', 'the memory store checks, yields, then inserts, so two requests both consume', 'stores.js',
-    [['      if (consumed.has(id)) return false\n      consumed.set(id, until)', '      if (consumed.has(id)) return false\n      await null\n      consumed.set(id, until)']]],
-  ['sqlite-check-then-insert', 'the database store selects, then inserts, so two instances both consume', 'stores.js',
-    [["    async consume (id, until) { return insert.run(id, until).changes === 1 },",
-      "    async consume (id, until) {\n      if (db.prepare('SELECT 1 FROM consumed WHERE id = ?').get(id)) return false\n      await new Promise((resolve) => setTimeout(resolve, 50))\n      db.prepare('INSERT OR REPLACE INTO consumed (id, until) VALUES (?, ?)').run(id, until)\n      return true\n    },"]]],
-  ['action-before-consume', 'the action runs before the claim is consumed', 'relying-party.js',
-    [['    let fresh\n', '    const early = await action(r)\n    let fresh\n'], ['    const value = await action(r)\n', '    const value = early\n']]],
+  ['memory-not-read-in-transaction', 'the transaction verifies without the memory as it stands there', 'relying-party.js',
+    [['const stored = tx.lastHead(fields.identity)', 'const stored = undefined']]],
+  ['storage-read-in-verifier-guard', 'a failing memory read is taken for a verifier error and escapes', 'relying-party.js',
+    [['        const stored = tx.lastHead(fields.identity) // the store\'s: a failure here is refused as storage\n        let r\n        try {\n          r = verifyWith(method, given, call, stored)',
+      '        let r\n        try {\n          r = verifyWith(method, given, call, tx.lastHead(fields.identity))']]],
+  ['consume-ignored', 'a claim already consumed is accepted again', 'relying-party.js',
+    [["if (method === 'verifyClaim' && !tx.consume(r.id, r.until)) return refusal('replay')", "if (method === 'verifyClaim') tx.consume(r.id, r.until)"]]],
+  ['storage-failure-ignored', 'a failed transaction is taken as success', 'relying-party.js',
+    [["      })\n    } catch {\n      return refusal('storage')", "      })\n    } catch {\n      return verifier[method](given, call)"]]],
+  ['no-head-memory', 'the stored head is not passed to the verifier', 'relying-party.js',
+    [['return verifier[method](given, { ...call, lastHead: stored.head })', 'return verifier[method](given, call)']]],
+  ['rotation-locks-out', 'a stored head the verifier cannot read locks its identity out', 'relying-party.js',
+    [['      return verifier[method](given, { ...call, minHeadAt: Math.max(call.minHeadAt ?? 0, stored.at) })', "      return refusal('storage')"]]],
+  ['time-floor-ignored', "an unreadable stored head's time is not kept as a floor", 'relying-party.js',
+    [['      return verifier[method](given, { ...call, minHeadAt: Math.max(call.minHeadAt ?? 0, stored.at) })', '      return verifier[method](given, call)']]],
+  ['records-read-twice', 'the head is read again from the presented records', 'relying-party.js',
+    [['const fields = headFields(given?.head)', 'const fields = headFields(records?.head)']]],
   ['memory-head-regresses', 'the memory store replaces a head with an older one', 'stores.js', [['if (old === undefined || at > old.at) heads.set', 'heads.set']]],
   ['sqlite-head-regresses', 'the database store replaces a head with an older one', 'stores.js', [[' WHERE excluded.at > heads.at', '']]],
-  ['storage-failure-is-fresh', 'a failed insert is taken as a fresh claim', 'relying-party.js',
-    [["      fresh = await store.consume(r.id, r.until)\n    } catch {\n      return refusal('storage')", '      fresh = await store.consume(r.id, r.until)\n    } catch {\n      fresh = true']]],
-  ['no-head-memory', 'the stored head is not passed to the verifier', 'relying-party.js', [['r = verifier[method](given, { ...call, lastHead })', 'r = verifier[method](given, call)']]],
-  ['corrupt-storage-throws', 'a stored head the verifier cannot read escapes as an exception', 'relying-party.js', [['      if (!(e instanceof TypeError)) throw e\n', '      throw e\n']]],
 ]
 
 function run (dir) {
@@ -75,7 +81,7 @@ test('adapter broken twins', { timeout: 900_000 }, async (t) => {
       assert.ok(r.pass >= 20, `control: only ${r.pass} tests ran`)
     })
     const jobs = TWINS.map(([name, why, file, edits]) => [name, why, generate(name, file, edits)])
-    assert.equal(jobs.length, 8, 'twin count')
+    assert.equal(jobs.length, 10, 'twin count')
     const results = []
     const queue = [...jobs]
     const workers = Math.max(1, Math.floor(availableParallelism() / 4))

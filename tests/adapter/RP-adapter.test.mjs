@@ -7,7 +7,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { relyingParty, memoryStore, sqliteStore } from './impl.mjs'
-import { verifier, records, claim, head, CALL, NOW, IDENTITY } from './fixtures.mjs'
+import { verifier, verifierWithKey, records, claim, head, CALL, NOW, IDENTITY, DELEGATION_ID, W2, delegation2 } from './fixtures.mjs'
 
 const refused = (reason) => ({ ok: false, reason })
 const tmp = () => mkdtempSync(join(tmpdir(), 'muid-rp-'))
@@ -36,12 +36,12 @@ for (const [name, open] of [['memory', () => memoryStore()], ['sqlite', () => sq
     const store = open()
     const rp = relyingParty({ verifier: verifier(), store })
     assert.equal((await rp.acceptClaim(records(claim(NOW - 5, 'one'), head(NOW - 50)), CALL, () => 1)).ok, true)
-    assert.equal(await store.lastHead(IDENTITY), head(NOW - 50))
+    assert.deepEqual(await store.lastHead(IDENTITY), { head: head(NOW - 50), at: NOW - 50 })
     assert.deepEqual(await rp.acceptClaim(records(claim(NOW - 4, 'two'), head(NOW - 100)), CALL, () => 1), refused('stale'))
-    await store.advanceHead(IDENTITY, head(NOW - 100), NOW - 100) // a late writer with an older head
-    assert.equal(await store.lastHead(IDENTITY), head(NOW - 50), 'not moved back')
+    await store.transaction((tx) => tx.advanceHead(IDENTITY, head(NOW - 100), NOW - 100)) // a late writer with an older head
+    assert.deepEqual(await store.lastHead(IDENTITY), { head: head(NOW - 50), at: NOW - 50 }, 'not moved back')
     assert.equal((await rp.acceptClaim(records(claim(NOW - 3, 'three'), head(NOW - 20)), CALL, () => 1)).ok, true)
-    assert.equal(await store.lastHead(IDENTITY), head(NOW - 20))
+    assert.deepEqual(await store.lastHead(IDENTITY), { head: head(NOW - 20), at: NOW - 20 })
   })
 
   test(`${name}: delegations alone use and advance the same memory`, async () => {
@@ -49,7 +49,7 @@ for (const [name, open] of [['memory', () => memoryStore()], ['sqlite', () => sq
     const rp = relyingParty({ verifier: verifier(), store })
     const { claim: _, ...d } = records(undefined, head(NOW - 40))
     assert.equal((await rp.acceptDelegation(d, CALL)).ok, true)
-    assert.equal(await store.lastHead(IDENTITY), head(NOW - 40))
+    assert.deepEqual(await store.lastHead(IDENTITY), { head: head(NOW - 40), at: NOW - 40 })
     assert.deepEqual(await rp.acceptDelegation({ ...d, head: head(NOW - 90) }, CALL), refused('stale'))
   })
 
@@ -74,28 +74,94 @@ test('sqlite: a restart keeps consumed claims and the remembered head', async ()
   const b = sqliteStore(file)
   const rp = relyingParty({ verifier: verifier(), store: b })
   assert.deepEqual(await rp.acceptClaim(records(undefined, head(NOW - 30)), CALL, () => 1), refused('replay'))
-  assert.equal(await b.lastHead(IDENTITY), head(NOW - 30))
+  assert.deepEqual(await b.lastHead(IDENTITY), { head: head(NOW - 30), at: NOW - 30 })
   b.close()
 })
 
 test('storage that fails is refused, and the action does not run', async () => {
-  for (const method of ['lastHead', 'advanceHead', 'consume']) {
-    const store = { ...memoryStore(), [method]: async () => { throw new Error('disk') } }
-    let runs = 0
-    assert.deepEqual(await relyingParty({ verifier: verifier(), store }).acceptClaim(records(), CALL, () => runs++), refused('storage'), method)
-    assert.equal(runs, 0, method)
+  const failing = memoryStore()
+  failing.transaction = async () => { throw new Error('disk') }
+  let runs = 0
+  assert.deepEqual(await relyingParty({ verifier: verifier(), store: failing }).acceptClaim(records(), CALL, () => runs++), refused('storage'), 'transaction')
+  for (const op of ['lastHead', 'advanceHead', 'consume']) {
+    const base = memoryStore()
+    const store = { ...base, transaction: (fn) => base.transaction((tx) => fn({ ...tx, [op]: () => { throw new Error('disk') } })) }
+    assert.deepEqual(await relyingParty({ verifier: verifier(), store }).acceptClaim(records(), CALL, () => runs++), refused('storage'), op)
   }
+  assert.equal(runs, 0)
 })
 
-test('a stored head that reads back corrupt is refused as storage; a malformed call is still a programming error', async () => {
+// Found by review: a stored head the verifier can no longer read (corrupt, or signed by a witness key since removed)
+// locked its identity out for good. Its stored time still bounds rollback.
+test('a stored head the verifier cannot read still bounds rollback by its time; a corrupt time is refused as storage', async () => {
   const store = memoryStore()
-  await store.advanceHead(IDENTITY, 'not a head', NOW)
+  await store.transaction((tx) => tx.advanceHead(IDENTITY, 'not a head', NOW - 60))
   const rp = relyingParty({ verifier: verifier(), store })
   let runs = 0
-  assert.deepEqual(await rp.acceptClaim(records(), CALL, () => runs++), refused('storage'))
-  assert.equal(runs, 0)
+  assert.deepEqual(await rp.acceptClaim(records(undefined, head(NOW - 100)), CALL, () => runs++), refused('stale'), 'older than the stored time')
+  assert.equal((await rp.acceptClaim(records(undefined, head(NOW - 30)), CALL, () => runs++)).ok, true, 'newer')
+  assert.equal(runs, 1)
+  for (const at of ['x', -1, 1.5]) {
+    const bad = memoryStore()
+    await bad.transaction((tx) => tx.advanceHead(IDENTITY, 'not a head', at))
+    assert.deepEqual(await relyingParty({ verifier: verifier(), store: bad }).acceptClaim(records(), CALL, () => runs++), refused('storage'), `time ${at}`)
+  }
+  const zero = memoryStore()
+  await zero.transaction((tx) => tx.advanceHead(IDENTITY, 'not a head', 0))
+  assert.equal((await relyingParty({ verifier: verifier(), store: zero }).acceptClaim(records(), CALL, () => runs++)).ok, true, 'time 0 is a time')
+  assert.equal(runs, 2)
+  // The caller's own floor applies when it is the later one; a malformed call still throws, whatever is stored.
+  const floored = memoryStore()
+  await floored.transaction((tx) => tx.advanceHead(IDENTITY, 'not a head', NOW - 200))
+  const fr = relyingParty({ verifier: verifier(), store: floored })
+  assert.deepEqual(await fr.acceptClaim(records(claim(NOW - 5, 'x'), head(NOW - 100)), { ...CALL, minHeadAt: NOW - 80 }, () => 1), refused('stale'), 'the call floor, later')
+  assert.equal((await fr.acceptClaim(records(claim(NOW - 4, 'y'), head(NOW - 100)), { ...CALL, minHeadAt: NOW - 250 }, () => 1)).ok, true, 'the stored floor, later')
+  await assert.rejects(fr.acceptClaim(records(claim(NOW - 3, 'z'), head(NOW - 50)), { ...CALL, minHeadAt: -1 }, () => 1), TypeError, 'a malformed floor')
+  const corrupt = memoryStore()
+  await corrupt.transaction((tx) => tx.advanceHead(IDENTITY, 'not a head', 'x'))
+  await assert.rejects(relyingParty({ verifier: verifier(), store: corrupt }).acceptClaim(records(), { ...CALL, now: -1 }, () => 1), TypeError, 'malformed call, corrupt store')
   await assert.rejects(rp.acceptClaim(records(), { ...CALL, scope: 'not a scope!' }, () => runs++), TypeError)
   await assert.rejects(relyingParty({ verifier: verifier(), store: memoryStore() }).acceptClaim(records(), { ...CALL, now: -1 }, () => 1), TypeError)
+})
+
+test('a witness key rotation: memory under the removed key does not lock the identity out', async () => {
+  const store = memoryStore()
+  assert.equal((await relyingParty({ verifier: verifier(), store }).acceptClaim(records(claim(NOW - 5, 'a'), head(NOW - 60)), CALL, () => 1)).ok, true)
+  const rotated = relyingParty({ verifier: verifierWithKey(W2), store })
+  assert.equal((await rotated.acceptClaim(records(claim(NOW - 4, 'b'), head(NOW - 30, { secret: W2 })), CALL, () => 1)).ok, true)
+  assert.deepEqual(await rotated.acceptClaim(records(claim(NOW - 3, 'c'), head(NOW - 90, { secret: W2 })), CALL, () => 1), refused('stale'))
+})
+
+// Found by review: the memory was read, then the records verified, then the head advanced, so a request holding an
+// old head could pass while another stored a newer one that revokes its delegation. Verification now happens inside
+// the transaction, against the memory as it stands there.
+test('a request whose transaction waits behind another is verified against the memory that one left', async () => {
+  const base = memoryStore()
+  await base.transaction((tx) => tx.advanceHead(IDENTITY, head(NOW - 300), NOW - 300))
+  let release
+  const held = new Promise((resolve) => { release = resolve })
+  let holdNext = true
+  const store = { ...base, transaction: async (fn) => { if (holdNext) { holdNext = false; await held } return base.transaction(fn) } }
+  const rp = relyingParty({ verifier: verifier(), store })
+  let runs = 0
+  const attacker = rp.acceptClaim(records(claim(NOW - 5, 'attacker'), head(NOW - 200)), CALL, () => runs++)
+  const { claim: _, ...d } = records(undefined, head(NOW - 100, { revoked: [DELEGATION_ID] }))
+  assert.equal((await rp.acceptDelegation({ ...d, delegation: delegation2 }, CALL)).ok, true, 'an honest request stores a head revoking the first delegation')
+  release()
+  assert.deepEqual(await attacker, refused('stale'))
+  assert.equal(runs, 0)
+})
+
+// Found by review: the records were read more than once, so an object returning different heads could bypass the
+// memory or store a head under another identity.
+test('the presented records are read once each', async () => {
+  const reads = { claim: 0, delegation: 0, root: 0, head: 0 }
+  const r = records()
+  const given = Object.defineProperties({}, Object.fromEntries(Object.keys(reads).map((k) => [k, { enumerable: true, get () { reads[k]++; return r[k] } }])))
+  assert.equal((await relyingParty({ verifier: verifier(), store: memoryStore() }).acceptClaim(given, CALL, () => 1)).ok, true)
+  assert.deepEqual(reads, { claim: 1, delegation: 1, root: 1, head: 1 })
+  const throwing = Object.defineProperty({}, 'head', { get () { throw new Error('boom') } })
+  assert.deepEqual(await relyingParty({ verifier: verifier(), store: memoryStore() }).acceptDelegation(throwing, CALL), refused('head'))
 })
 
 test('an action that fails leaves the claim consumed: the delegate makes a new claim', async () => {
@@ -116,7 +182,7 @@ test('concurrent requests in one process: exactly one runs the action', async ()
 test('a presented head that cannot be read is not looked up; the verifier refuses it', async () => {
   const store = memoryStore()
   let lookups = 0
-  const counting = { ...store, lastHead: async (i) => { lookups++; return store.lastHead(i) } }
+  const counting = { ...store, transaction: (fn) => store.transaction((tx) => fn({ ...tx, lastHead: (i) => { lookups++; return tx.lastHead(i) } })) }
   const rp = relyingParty({ verifier: verifier(), store: counting })
   const { envelope } = await import('../impl.mjs')
   const odd = (b) => envelope.wrap(envelope.seal('head', b).payload, { signature: 'x' })
@@ -131,16 +197,17 @@ test('a presented head that cannot be read is not looked up; the verifier refuse
 for (const [name, open] of [['memory', () => memoryStore()], ['sqlite', () => sqliteStore(join(tmp(), 'rp.db'))]]) {
   test(`${name} store: consume once; expire removes exactly the ids whose until has come; equal times keep the first head`, async () => {
     const s = open()
-    assert.equal(await s.consume('a', 10), true)
-    assert.equal(await s.consume('a', 10), false)
-    await s.consume('b', 11)
+    const consume = (id, until) => s.transaction((tx) => tx.consume(id, until))
+    assert.equal(await consume('a', 10), true)
+    assert.equal(await consume('a', 10), false)
+    await consume('b', 11)
     await s.expire(9)
-    assert.deepEqual([await s.consume('a', 10), await s.consume('b', 11)], [false, false], 'nothing before its until')
+    assert.deepEqual([await consume('a', 10), await consume('b', 11)], [false, false], 'nothing before its until')
     await s.expire(10)
-    assert.deepEqual([await s.consume('a', 10), await s.consume('b', 11)], [true, false], 'a at its until, b not yet')
-    await s.advanceHead('i', 'first', 5)
-    await s.advanceHead('i', 'second', 5)
-    assert.equal(await s.lastHead('i'), 'first', 'a head of the same time does not replace the one held')
+    assert.deepEqual([await consume('a', 10), await consume('b', 11)], [true, false], 'a at its until, b not yet')
+    await s.transaction((tx) => tx.advanceHead('i', 'first', 5))
+    await s.transaction((tx) => tx.advanceHead('i', 'second', 5))
+    assert.deepEqual(await s.lastHead('i'), { head: 'first', at: 5 }, 'a head of the same time does not replace the one held')
     assert.equal(await s.lastHead('unknown'), undefined)
   })
 }
@@ -153,7 +220,7 @@ test('sqlite store: closed, it refuses to work', async () => {
 
 test('anything other than a TypeError from the verifier propagates, with or without a stored head', async () => {
   const store = memoryStore()
-  await store.advanceHead(IDENTITY, head(NOW - 100), NOW - 100)
+  await store.transaction((tx) => tx.advanceHead(IDENTITY, head(NOW - 100), NOW - 100))
   const boom = { verifyClaim () { throw new Error('boom') }, verifyDelegation () { throw new Error('boom') } }
   await assert.rejects(relyingParty({ verifier: boom, store }).acceptClaim(records(), CALL, () => 1), /boom/)
   // Throwing only when given the stored head: still propagated, not mistaken for corrupt storage.
@@ -161,4 +228,12 @@ test('anything other than a TypeError from the verifier propagates, with or with
   const onlyWithLast = { verifyClaim (g, c) { if (c.lastHead !== undefined) throw new Error('boom'); return v.verifyClaim(g, c) } }
   await assert.rejects(relyingParty({ verifier: onlyWithLast, store }).acceptClaim(records(), CALL, () => 1), /boom/)
   await assert.rejects(relyingParty({ verifier: boom, store: memoryStore() }).acceptDelegation(records(), CALL), /boom/)
+})
+
+test('sqlite store: a transaction that fails is rolled back', async () => {
+  const s = sqliteStore(join(tmp(), 'rp.db'))
+  await assert.rejects(s.transaction((tx) => { tx.advanceHead('i', 'h', 5); tx.consume('c', 9); throw new Error('midway') }), /midway/)
+  assert.equal(await s.lastHead('i'), undefined)
+  assert.equal(await s.transaction((tx) => tx.consume('c', 9)), true, 'the claim was not consumed')
+  s.close()
 })

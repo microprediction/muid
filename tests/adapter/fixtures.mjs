@@ -23,10 +23,20 @@ const del = envelope.seal('delegation', { identity: IDENTITY, membership: IDENTI
 export const delegation = envelope.wrap(del.payload, { root: make({ covers: [del.id] }),
   subject: hex(ed25519.sign(Buffer.concat([Buffer.from('muid/v1/accept\n'), Buffer.from(del.id, 'hex')]), APP)) })
 
-export function head (at) {
-  const h = envelope.seal('head', { identity: IDENTITY, epoch: 1, memberships: [IDENTITY], authority: [ROOT], revoked: [], at })
-  return envelope.wrap(h.payload, { signature: hex(ed25519.sign(envelope.signedBytes(h.payload), W)), witness: WITNESS })
+export function head (at, { revoked = [], secret = W } = {}) {
+  const h = envelope.seal('head', { identity: IDENTITY, epoch: 1, memberships: [IDENTITY], authority: [ROOT], revoked, at })
+  return envelope.wrap(h.payload, { signature: hex(ed25519.sign(envelope.signedBytes(h.payload), secret)), witness: hex(ed25519.getPublicKey(secret)) })
 }
+export const DELEGATION_ID = del.id
+// A second delegation from the same root, to another app's key: an honest request alongside the first.
+const APP2 = Uint8Array.from({ length: 32 }, (_, i) => 100 + i)
+const del2 = envelope.seal('delegation', { identity: IDENTITY, membership: IDENTITY, root: ROOT, subject: hex(ed25519.getPublicKey(APP2)), aud: AUD,
+  scopes: ['forecast'], nbf: NOW - 10, exp: NOW + 86_000 })
+export const delegation2 = envelope.wrap(del2.payload, { root: make({ covers: [del2.id] }),
+  subject: hex(ed25519.sign(Buffer.concat([Buffer.from('muid/v1/accept\n'), Buffer.from(del2.id, 'hex')]), APP2)) })
+// A second witness key, for rotation: a configuration that pins only it.
+export const W2 = Uint8Array.from({ length: 32 }, (_, i) => 200 + i)
+export const verifierWithKey = (secret) => verifierModule.verifier({ ...CONFIG, witnessKeys: [{ key: hex(ed25519.getPublicKey(secret)), nbf: 0, exp: 1_900_000_000 }] })
 
 export function claim (at = NOW - 5, text = 'a forecast') {
   const { payload, id } = envelope.seal('claim', { delegation: del.id, scope: 'forecast', request: REQUEST, at, data: { text } })
