@@ -401,9 +401,10 @@ the network and the transparency log are the service's, and the signing key stay
 - `revoke(held, text, now, delegation)` admits a revocation (R9) signed by a root with authority, or by a delegate
   for its own key, given with the delegation that makes it a delegate of this identity under its settled or pending
   membership from a root with authority (verified by `checkDelegation` at `now`; R6); otherwise any fresh key could add entries until, past 64, no
-  head can be signed. One entry per target. Each entry records the effective membership when it was admitted and is
-  kept while that membership, or its successor while pending, has authority (decision 12 (a)); entries no longer
-  kept are dropped at the next admission.
+  head can be signed. One entry per target. An entry is kept for the life of the identity, except a root's
+  revocation of a delegation id given with that delegation, kept until its `exp` plus `skew` (decision 12: a
+  delegation can exist under a membership before it is anchored, W0, so no change of membership bounds what a
+  revocation can affect); entries that have lapsed are dropped at the next admission.
 - `head(held, now)` signs `headOf` of the state with the kept revocations, or nothing where `headOf` gives nothing.
 - A `sign` that does not give a valid signature under the configured key is a fault, thrown, so nothing it signs is
   published.

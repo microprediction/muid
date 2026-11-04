@@ -219,13 +219,15 @@ export function witness (config) {
   function head (held, now) {
     if (!isTime(now)) throw new TypeError('now must be a non-negative integer')
     const s = stateOf(held)
-    const body = headOf(s, now, kept(held, s).map((x) => x.target))
+    const body = headOf(s, now, kept(held, now).map((x) => x.target))
     return body === undefined ? undefined : make('head', body)
   }
 
-  // Decision 12 (a): a revocation is kept while the membership current when it was admitted, or that membership's
-  // successor while pending, has authority; R6 refuses every delegation under any other membership.
-  const kept = (held, s) => held.revocations.filter((x) => x.under === s.settled || x.under === s.membership)
+  // Decision 12, after review round 8: a revocation is kept for the life of the identity, since a delegation may be
+  // signed in advance under a membership not yet anchored (W0), so no change of membership bounds what it can affect;
+  // one of a delegation id given with that delegation is kept until its expiry plus skew, after which no record it
+  // names verifies. `until` is null for the first kind.
+  const kept = (held, now) => held.revocations.filter((x) => x.until === null || now < x.until)
 
   // R9's admission of a revocation `{ identity, target, at }`: signed by a root with authority, or by a delegate for
   // its own key, given with the delegation that makes it a delegate of this identity, so that no one else can add an
@@ -246,7 +248,7 @@ export function witness (config) {
     }
     const s = against(held, b)
     if (!s.ok) return s
-    const live = kept(held, s)
+    const live = kept(held, now)
     if (live.some((x) => x.target === b.target)) return accept({ held })
     if (live.length >= MAX_RECORDS) return refuse('full')
     if (bySelf) {
@@ -257,18 +259,28 @@ export function witness (config) {
       const k = rootKeys(held).get(r.sig.root)
       if (!checkRootAssertion(r.sig.assertion, { record: r.id, rpId, origin, key: k }).ok) return refuse('signature')
     }
-    const entry = freeze({ text, target: b.target, under: s.membership })
+    // A root's revocation of a delegation id may come with that delegation, so that it can lapse with it.
+    let until = null
+    if (!bySelf && delegation !== undefined) {
+      const d = named(delegation)
+      if (d === undefined || d.id !== b.target) return refuse('delegation')
+      until = d.body.exp + skew
+    }
+    const entry = freeze({ text, target: b.target, until })
     return accept({ held: freeze({ ...held, revocations: freeze([...live, entry]) }) })
+  }
+
+  // The delegation record a text holds, or undefined: its id is the hash of its payload, so its fields are the ones named.
+  function named (text) {
+    try {
+      return open(text, 'delegation')
+    } catch { /* not a delegation: undefined */ }
   }
 
   // Whether `delegation` verifies at `now`, is this identity's under its settled or pending membership, and is to `subject`.
   function delegates (held, s, delegation, now, subject) {
-    let d
-    try {
-      d = open(delegation, 'delegation').body
-    } catch {
-      return false
-    }
+    const d = named(delegation)?.body
+    if (d === undefined) return false
     const rootKey = rootKeys(held).get(d.root) // held: a root with authority is in a held membership
     // R6: its root has authority now, so no retired or proposed root can add entries.
     return has(s.authority, d.root) && d.identity === held.identity && (d.membership === s.settled || d.membership === s.membership) &&

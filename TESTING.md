@@ -455,8 +455,10 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
 - Revocations: by a root with authority (a delegation id and a subject key, carried in the head); refused from a
   root without authority (added, pending), a stranger, a forgery; a delegate's own, only with its delegation —
   refused without one, for another key, expired, under another membership or identity, with its root not held, or
-  signed by another key; under either name of a pending change; kept while the membership current at admission or
-  its pending successor has authority, dropped once a later one settles; one entry per target; form, identity,
+  signed by another key; under either name of a pending change; kept across a change of membership, and for a
+  delegation signed under a membership not yet anchored once it settles (review round 8); a root's revocation given
+  with its delegation lapsing at exp plus skew, not a second before, and only with the delegation it names; one
+  entry per target; form, identity,
   dead and unknown identities; more than 64 live gives no head; the list capped at 256 live entries, stale ones
   not counted; a foreign error refused.
 - A `sign` under another key is thrown, for anchors and heads.
@@ -489,7 +491,7 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   settlement inside the window; contests never anchored, anchored unchecked, or ignored at
   settlement; the witness's view counting contest anchors; a settlement ending the step; `sign` unchecked; heads
   without revocations; a revocation by a root without authority or by any key without its delegation, or unverified; revocations
-  kept for ever, kept under the settled membership while a change is pending, or duplicated; and in the service, a holding kept before the log took its records, changes to one identity
+  that never lapse, lapse a second late, or lapse with any delegation, or duplicated; and in the service, a holding kept before the log took its records, changes to one identity
   interleaved, a head kept after a change or for ever, a head unlogged, an unbounded body, and any type submitted; and in the log client, halves for the split, no full-tile fallback, a
   short tile used, unprefixed tile indices, any append answer taken, and the proof's order.
 

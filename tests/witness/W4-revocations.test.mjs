@@ -1,7 +1,7 @@
 // R9 and decision 12 on the witness's side: which revocations it admits, and how long heads carry them. A revocation
 // is admitted from a root with authority, or from a delegate for its own key with the delegation that makes it one,
-// so no one else can add entries; it is kept while the membership current when it was admitted, or that one's
-// successor while pending, has authority (R6 refuses every delegation under any other).
+// so no one else can add entries. It is kept for the life of the identity, or, for a delegation id given with its
+// delegation, until that delegation's expiry plus skew (decision 12, after review round 8).
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { ed25519 } from '@noble/curves/ed25519.js'
@@ -67,26 +67,51 @@ test('a delegate revokes its own key, with the delegation that makes it a delega
   assert.equal(refused(w.revoke(start(), bySelf(SUBJECT, OTHER), NOW, delegation())), 'signature', 'signed by another key')
 })
 
-test('decision 12 (a): kept while the membership current at admission, or its pending successor, has authority', () => {
-  const r = w.revoke(start(), byRoot(DEL_ID), NOW).held // under epoch 1
+test('kept for the life of the identity: a change of membership does not drop a revocation', () => {
+  const r = w.revoke(start(), byRoot(DEL_ID), NOW).held // epoch 1
   const withM = admitAll(r, [['membership', signed('membership', M2, 'a')], ['root', rootText('b')], ['membership', signed('membership', M2, 'b')]])
   const pending = w.advance(withM, NOW).held
-  assert.deepEqual(revokedIn(pending, NOW), [DEL_ID], 'kept while the successor is pending')
+  assert.deepEqual(revokedIn(pending, NOW), [DEL_ID])
   const settled = w.advance(pending, NOW + WINDOW).held
   assert.equal(state(settled).epoch, 2)
-  assert.deepEqual(revokedIn(settled, NOW + WINDOW), [], 'dropped once a later membership has settled: R6 refuses the old one')
-  // Admitted while M2 was pending: it is M2's, so it stays after M2 settles.
-  const late = w.advance(w.revoke(pending, byRoot(SUBJECT), NOW).held, NOW + WINDOW).held
-  assert.deepEqual(revokedIn(late, NOW + WINDOW), [SUBJECT])
-  assert.equal(w.revoke(late, byRoot(DEL_ID, 'b'), NOW + WINDOW).held.revocations.length, 2, 'entries no longer kept are dropped at the next admission')
-  assert.deepEqual(mId(M2), state(late).settled)
+  assert.deepEqual(revokedIn(settled, NOW + WINDOW), [DEL_ID])
+})
+
+// Found by review (round 8): decision 12 (a) dropped a revocation once a later membership settled, but W0 lets the
+// owner sign a change and delegations under it in one prompt, so a delegation can exist under a membership before it
+// is anchored, and become valid when it settles.
+test('a delegation signed under a membership not yet anchored stays revoked once that membership settles', () => {
+  const pre = delegation({ membership: mId(M2) }) // under M2, signed before M2 is anchored
+  const preId = envelope.open(pre, 'delegation').id
+  let h = admitAll(start(), [['membership', signed('membership', M2, 'a')], ['root', rootText('b')]])
+  h = w.revoke(h, byRoot(preId), NOW).held // M2 not yet valid: b has not signed
+  h = admitAll(h, [['membership', signed('membership', M2, 'b')]])
+  h = w.advance(w.advance(h, NOW).held, NOW + WINDOW).held
+  assert.equal(state(h).settled, mId(M2))
+  assert.deepEqual(revokedIn(h, NOW + WINDOW), [preId])
+})
+
+test("a root's revocation of a delegation id, given with that delegation, is dropped once the delegation has expired", () => {
+  const d = delegation({ exp: NOW + 1000 })
+  const id = envelope.open(d, 'delegation').id
+  const r = w.revoke(start(), byRoot(id), NOW, d)
+  assert.equal(r.ok, true)
+  assert.deepEqual(revokedIn(r.held, NOW + 1000 + 59), [id], 'kept until exp plus skew')
+  assert.deepEqual(revokedIn(r.held, NOW + 1000 + 60), [], 'then no delegation it names can verify')
+  // Dropped from what is held at the next admission after that; without the delegation, kept.
+  const later = w.revoke(r.held, byRoot(SUBJECT), NOW + 1060).held
+  assert.deepEqual(later.revocations.map((x) => x.target), [SUBJECT])
+  assert.deepEqual(revokedIn(w.revoke(start(), byRoot(id), NOW).held, NOW + 10 ** 6), [id])
+  // A delegation that is not the one named is refused.
+  assert.equal(refused(w.revoke(start(), byRoot(DEL_ID), NOW, d)), 'delegation')
+  assert.equal(refused(w.revoke(start(), byRoot(id), NOW, 'x')), 'delegation')
 })
 
 test('while a change is pending, a delegation under either name serves, and a revocation then is carried at once', () => {
   const pending = w.advance(withM2(), BASE).held
   assert.equal(w.revoke(pending, bySelf(), NOW, delegation()).ok, true, 'under the settled membership')
   assert.equal(w.revoke(pending, bySelf(), NOW, delegation({ membership: mId(M2) })).ok, true, 'under the pending one')
-  assert.deepEqual(revokedIn(w.revoke(pending, byRoot(DEL_ID), NOW).held), [DEL_ID], 'admitted while pending: kept while pending')
+  assert.deepEqual(revokedIn(w.revoke(pending, byRoot(DEL_ID), NOW).held), [DEL_ID])
 })
 
 test('one entry per target: a revocation already held, or another for the same target, is accepted unchanged', () => {
@@ -121,11 +146,11 @@ test('R9 fails closed: with more than 64 live revocations no head is signed; the
   assert.equal(h.revocations.length, 65)
   assert.equal(w.head(h, NOW), undefined)
   // Built directly: 256 live entries.
-  const entries = Array.from({ length: 256 }, (_, i) => Object.freeze({ text: `t${i}`, target: (i + 1).toString(16).padStart(64, '0'), under: IDENTITY }))
+  const entries = Array.from({ length: 256 }, (_, i) => Object.freeze({ text: `t${i}`, target: (i + 1).toString(16).padStart(64, '0'), until: null }))
   const full = Object.freeze({ ...start(), revocations: Object.freeze(entries) })
   assert.equal(refused(w.revoke(full, byRoot(DEL_ID), NOW)), 'full')
   assert.equal(w.revoke(full, byRoot(entries[0].target), NOW).ok, true, 'a target already held is accepted when full')
-  const stale = Object.freeze({ ...full, revocations: Object.freeze(entries.map((e) => ({ ...e, under: 'e'.repeat(64) }))) })
+  const stale = Object.freeze({ ...full, revocations: Object.freeze(entries.map((e) => ({ ...e, until: NOW }))) })
   assert.equal(w.revoke(stale, byRoot(DEL_ID), NOW).held.revocations.length, 1, 'entries no longer kept do not count')
 })
 

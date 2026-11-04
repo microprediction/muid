@@ -58,11 +58,12 @@ const TWINS = [
   ['own-view-with-contests', "the witness's view counts contest anchors, so a contested epoch never settles", [['anchors: held.anchors.filter((t, i) => !isContest(anchors[i]))', 'anchors: held.anchors']]],
   ['one-step', 'a held successor waits for the next step after a settlement', [['      sign1(\'settlement\', text) // a contested', '      sign1(\'settlement\', text); break // a contested']]],
   ['sign-unchecked', "a signature not under the witness's key is published", [["    if (!checkEd25519(signature, signedBytes(payload), key).ok) throw new Error('sign gave no valid signature under the witness key')\n", '']]],
-  ['head-without-revocations', 'the head leaves out the revocations held', [['headOf(s, now, kept(held, s).map((x) => x.target))', 'headOf(s, now, [])']]],
+  ['head-without-revocations', 'the head leaves out the revocations held', [['headOf(s, now, kept(held, now).map((x) => x.target))', 'headOf(s, now, [])']]],
   ['revoke-without-authority', 'any root of the identity can revoke', [["      if (!has(s.authority, r.sig.root)) return refuse('signer')\n", '']]],
   ['self-revoke-any-key', 'a key revokes itself without the delegation that makes it a delegate', [["      if (!delegates(held, s, delegation, now, b.target)) return refuse('delegation')\n", '']]],
-  ['revocations-kept-forever', 'a revocation outlives the membership it was admitted under', [['(x) => x.under === s.settled || x.under === s.membership)', '() => true)']]],
-  ['revocation-under-settled', 'a revocation admitted while a change is pending is dropped when it settles', [['under: s.membership })', 'under: s.settled })']]],
+  ['revocation-never-lapses', "a revocation outlives the delegation it names, given with it", [['(x) => x.until === null || now < x.until)', '() => true)']]],
+  ['revocation-lapses-late', 'a lapsed revocation is carried at its expiry plus skew', [['(x) => x.until === null || now < x.until)', '(x) => x.until === null || now <= x.until)']]],
+  ['revocation-any-delegation', 'any delegation sets when a revocation lapses', [["      if (d === undefined || d.id !== b.target) return refuse('delegation')\n", "      if (d === undefined) return refuse('delegation')\n"]]],
   ['revocation-duplicates', 'another revocation for a target already held adds an entry', [['    if (live.some((x) => x.target === b.target)) return accept({ held })\n', '']]],
 ]
 
@@ -114,7 +115,7 @@ test('witness broken twins', { timeout: 1_800_000 }, async (t) => {
       assert.ok(r.pass >= 25, `control: only ${r.pass} tests ran`)
     })
     const jobs = TWINS.map(([name, why, edits, file]) => [name, why, generate(name, edits, file)])
-    assert.equal(jobs.length, 46, 'twin count')
+    assert.equal(jobs.length, 47, 'twin count')
     const results = []
     const queue = [...jobs]
     const workers = Math.max(1, Math.floor(availableParallelism() / 4))
