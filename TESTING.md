@@ -404,6 +404,37 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   head not passed; an unreadable stored head locking its identity out, or its time ignored; the records read twice;
   heads regressing in either store.
 
+## 4i. Transparency-log verification (proposal; `research/witness-tlog.md`)
+
+**Merkle proofs (`src/merkle.js`, RFC 9162 §2.1.3.2, §2.1.4.2).**
+- Vectors: transparency-dev/merkle's 196 inclusion and consistency cases, each a valid proof and its corruptions,
+  pinned by hash (`tests/vectors/tlog-merkle/`); one stricter difference pinned (32-byte hashes everywhere).
+- An independent reference (MTH, PATH, PROOF by RFC 9162's recursions) over random trees: genuine proofs verify;
+  a flipped bit, a shorter or longer proof, another leaf, index or root does not.
+- Exhaustive: a consistency proof never verifies with its sizes swapped, for every pair up to 20 entries (the check
+  this needs was found by brute force, not assumed).
+- Trees past 2^31 entries, up to 2^53 − 1, from identical leaves, where a 32-bit shift would go wrong.
+- Totality: any input, of any type, is false; a hostile object (getter, Proxy, revoked Proxy) is refused, not thrown.
+- Twins (10): no node prefix, size order unchecked, trailing path accepted, index unbounded, first root unchecked,
+  empty tree or equal sizes with any root, short hashes, 32-bit halving, unbounded proofs.
+
+**Signed notes and checkpoints (`src/note.js`, C2SP signed-note, tlog-checkpoint, tlog-cosignature).**
+- Vectors: Go's sumdb/note tests and the Go checksum database's live checkpoint under the key in Go's source; one
+  stricter difference pinned (a repeated line from one key is refused).
+- Cosignatures built from the specifications' wording: the quorum, times from the future not counted, times sorted
+  as numbers, unknown keys ignored, every known signature checked, origin pinned, checkpoint and note form.
+- Configuration: one key under two names, the log's key as a cosigner, two keys with colliding 32-bit IDs (found by
+  search) are all programming errors; key names follow Unicode White_Space, as Go.
+- Totality, and any one-character change to a cosigned checkpoint is refused.
+- Twins (16).
+
+**Receipts (`src/receipt.js`, SPEC C2).**
+- Each refusal in order: envelope, shape, an unpinned key (before anything else), signature, checkpoint, inclusion,
+  receipt-time (after the quorum's time or after now), the key's window (holding `at` and the quorum's time, so a
+  retired key cannot backdate), the claim (its id and its delegation).
+- `existedBy` is the quorum-th earliest cosignature; configuration read once; a foreign error fails closed.
+- Twins (13).
+
 ## 5. Later layers (outline; each is expanded here before its code is written)
 
 1. **Envelope and record id:** expanded as §3.

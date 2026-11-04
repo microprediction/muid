@@ -6,3 +6,5 @@ d45384c2a2576afeaa469efd155d429721ad38c0:tests/test_validation.py:generic-api-ke
 85b2455bb47844df993e2fd37444b320f5c95033:tests/test_init.py:generic-api-key:4
 # A key for a service that has since shut down, in code removed long ago.
 eb174ebf9e0b697675ae5029f45c6236497450de:muid/mining.py:generic-api-key:14
+# A public test key from Go's sumdb/note tests (an upper-case key ID, which must be refused).
+130488b5b95a5cf7cf86b96123af8bd7a2cc70e0:tests/note/N-vectors.test.mjs:generic-api-key:36

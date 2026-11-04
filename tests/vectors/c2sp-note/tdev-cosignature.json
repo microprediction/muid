@@ -1,0 +1,14 @@
+{
+ "source": "github.com/transparency-dev/formats note/note_cosigv1_test.go",
+ "cosignerVkey": "remora.n621.de+da77ade7+BOvN63jn/bLvkieywe8R6UYAtVtNbZpXh34x7onlmtw2",
+ "badVkeys": [
+  "bananas.sigstore.dev+12344556",
+  "rekor.sigstore.dev+12345678+THIS_IS_NOT_BASE64!",
+  "rekor.sigstore.dev+12345678+AwEB"
+ ],
+ "cosignature": {
+  "base64": "ZGhGuQAAAABm/qTPeyKXD+R2rzyQsxPiP8mXum7qq/iF0u4vanlqJyocWODBt97w9uL+8qT7S5gxEHWWOworDcFiEBYJXORmnFBOBA==",
+  "keyId": "646846b9",
+  "time": 1727964367
+ }
+}

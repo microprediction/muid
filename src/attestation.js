@@ -21,11 +21,11 @@ const HEX128 = /^[0-9a-f]{128}$/
 const GITHUB = /^[1-9][0-9]{0,19}$/
 const GOOGLE = /^[\x21-\x7e]{1,255}$/
 
-const isHex = (re, x) => typeof x === 'string' && apply(exec, re, [x]) !== null
-const isTime = (x) => isSafeInteger(x) && x >= 0
+export const isHex = (re, x) => typeof x === 'string' && apply(exec, re, [x]) !== null
+export const isTime = (x) => isSafeInteger(x) && x >= 0
 
 // No keys but these, in canonical order (a decoded object lists its keys sorted); a missing key fails its field check.
-function onlyKeys (o, keys) {
+export function onlyKeys (o, keys) {
   let i = 0
   for (const k in o) if (k !== keys[i++]) return false
   return true
