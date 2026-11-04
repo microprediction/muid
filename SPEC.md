@@ -167,7 +167,7 @@ Research: [`encoding.md`](research/encoding.md).
 - **V1 VERSION:** `v` must equal 1. Any other value is rejected.
 - **V2 TYPE:** the verifier is told which `type` it expects; a mismatch is rejected. Types form a closed list:
   `root`, `delegation`, `attestation`, `membership`, `freeze`, `contest`, `anchor`, `settlement`, `head`, `claim`,
-  `revocation`. Asking
+  `revocation`, `receipt`. Asking
   for any other type is a programming error, not a reject.
 - **V3 ONE ALGORITHM PER TYPE:** the record type fixes the signature algorithm and the signer's role. Nothing in the
   record selects either.
@@ -449,6 +449,25 @@ is the text of the newest head the relying party has accepted for the identity, 
   so a store shared by every instance serving the audience keeps the id while `now < until`. A call whose `request`
   is not a string is a programming error. Every claim costs the full F5 check before its own signature; a relying
   party under load can rate-limit by delegation id. `data` is decoded data: frozen, with null prototypes.
+- **C2 RECEIPTS (proposal; research/witness-tlog.md §5a):** a claim proves authority only while its delegation is
+  live. A **receipt** `{ service, identity, delegation, claim, at }` makes an accepted claim attributable after that:
+  signed by the receiving service's Ed25519 key (`sig = { signature, service }`, `service` that key in hex), it states
+  that the service at origin `service` accepted the claim with record id `claim`, made under `delegation` for
+  `identity`, at the service's time `at`. The service appends the receipt's envelope text to a transparency log; the
+  log's entry is its UTF-8 bytes. `verifyReceipt({ receipt, checkpoint, proof, index, claim? }, ctx)` checks, in
+  order: V4's reasons; `receipt-shape` (keys other than the five, an id not 64 lowercase hex, `service` not a
+  canonical origin (O1), `at` not a non-negative integer, or `sig` not as above); `service` (the key is not one the
+  caller pins for that origin); K5's signature reasons; `checkpoint` (the checkpoint does not verify under the
+  caller's log configuration, with at least one cosigner); `inclusion` (the entry is not at `index` in the
+  checkpoint's tree); `receipt-time` (`at` is later than the quorum's time, or than `now`, plus `skew`: a receipt
+  cannot be accepted after it was logged, nor in the future); `service` (no pinned window for that key holds both `at` and the quorum's time, less
+  `skew`: a retired key cannot mint receipts by backdating); `claim` (a claim is given and its record id is not
+  `claim`, or it was made under another delegation). Within a key's window `at` is the service's word, bounded
+  above by the quorum's time. A receipt is therefore kept with the checkpoint and proof obtained when it was logged,
+  as a Sigstore bundle keeps its own: a checkpoint cosigned after the service key retired cannot vouch for it. It returns `{ service, identity, delegation, claim, at, existedBy }`, where `existedBy` is the
+  quorum-th earliest cosignature time: unless the quorum lies, the receipt existed by then. A receipt is the
+  service's statement, trusted as far as the caller trusts that service; it is not the identity owner's
+  endorsement (§10).
 
 The verifier needs no membership records: the head carries their result. The witness makes the head (R9); a delegate
 fetches a fresh one and presents it with its requests, as OCSP stapling does.
@@ -616,8 +635,9 @@ reputation layer.
 
 ## 11. Budget
 
-Trusted core ≤ 1,800 lines, so that it stays reviewable in one sitting. The budget is raised deliberately when
-clarity needs it, and never met by compressing comments.
+Trusted core ≤ 2,000 lines, so that it stays reviewable in one sitting. The budget is raised deliberately when
+clarity needs it, and never met by compressing comments. It was raised from 1,800 for the transparency-log checks
+(`src/merkle.js`, `src/note.js`), whose adoption is to delete decision 10's rule.
 
 ## 12. Automated assurance
 
