@@ -60,6 +60,7 @@ test('head: wrong type, wrong form, unpinned or out-of-window witness', () => {
     ['three memberships', headText({ memberships: [IDENTITY, '1'.repeat(64), '2'.repeat(64)] })],
     ['membership not an id', headText({ memberships: ['x'] })],
     ['the same membership twice', headText({ memberships: [IDENTITY, IDENTITY] })],
+    ['another membership twice', headText({ epoch: 3, memberships: ['5'.repeat(64), '5'.repeat(64)] })],
     ['revoked unsorted', headText({ revoked: ['f'.repeat(64), '0'.repeat(64)] })],
     ['revoked not ids', headText({ revoked: ['x'] })],
     ['revoked too long', headText({ revoked: Array.from({ length: 65 }, (_, i) => i.toString(16).padStart(64, '0')) })],
@@ -76,6 +77,11 @@ test('head: wrong type, wrong form, unpinned or out-of-window witness', () => {
     ['epoch 1 with another membership', headText({ memberships: ['5'.repeat(64)] })],
     ['epoch 2 with the identity as its membership', headText({ epoch: 2 })],
     ['epoch 0 with another membership', headText({ epoch: 0, memberships: ['5'.repeat(64)] })],
+    // Found by review: the identity id is epoch 1's membership, never a pending successor's; and the epoch stays far
+    // inside exact integer arithmetic (epoch + 2), which honest heads (at most MAX_RECORDS changes) never approach.
+    ['the identity as the pending successor', headText({ epoch: 3, memberships: ['5'.repeat(64), IDENTITY] })],
+    ['epoch 2^32', headText({ epoch: 2 ** 32, memberships: ['5'.repeat(64)] })],
+    ['epoch 2^53 - 1', headText({ epoch: Number.MAX_SAFE_INTEGER, memberships: ['5'.repeat(64)] })],
     ['identity not an id', headText({ identity: 'x' })],
     ['identity of 65 characters', headText({ identity: IDENTITY + '0' })],
     ['identity with a prefix', headText({ identity: 'x' + IDENTITY })],
@@ -89,6 +95,8 @@ test('head: wrong type, wrong form, unpinned or out-of-window witness', () => {
   assert.deepEqual(call({ head: headText({ authority: [ROOT, 'f'.repeat(64)] }) }), { ok: true }, 'two roots of authority, sorted')
   assert.deepEqual(call({ head: headText({ revoked: ['0'.repeat(64), 'f'.repeat(64)] }) }), { ok: true }, 'two revocations, sorted')
   assert.deepEqual(call({ head: headText({ at: 0 }) }), refused('stale'), 'at = 0 is a time, and long past')
+  assert.deepEqual(call({ head: headText({ epoch: 2 ** 32 - 1, memberships: ['5'.repeat(64)] }) }), refused('membership'),
+    'epoch 2^32 - 1 is a head\'s epoch')
   const edge = verifier({ ...CONFIG, witnessKeys: [{ key: WITNESS, nbf: 0, exp: NOW - 100 }] })
   const e = edge.verifyDelegation({ delegation: D.text, root: rootText, head: headText() }, { now: NOW, scope: 'post', revoked: [] })
   assert.deepEqual({ ...e }, refused('head'), 'the key\'s window ends at the head\'s at')

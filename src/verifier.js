@@ -69,9 +69,9 @@ function headBody (text, cfg, now) {
   const b = r.body
   let i = 0
   for (const k in b) if (k !== HEAD_KEYS[i++]) return undefined
-  if (!isId(b.identity) || !ids(b.memberships, 1, 2, false) || !ids(b.authority, 1, 5, true) ||
-    !ids(b.revoked, 0, MAX_REVOKED, true) || !isTime(b.at) || !(isTime(b.epoch) && b.epoch > 0) ||
-    (b.epoch === 1) !== (b.memberships[0] === b.identity)) return undefined
+  if (!isId(b.identity) || !ids(b.memberships, 1, 2, false) || !ids(b.authority, 1, 5, true) || !isTime(b.at) ||
+    !ids(b.revoked, 0, MAX_REVOKED, true) || !(isTime(b.epoch) && b.epoch > 0 && b.epoch < 2 ** 32) ||
+    (b.epoch === 1) !== (b.memberships[0] === b.identity) || b.memberships[1] === b.identity) return undefined
   // The key's window must hold both the head's time and now, whichever comes first.
   // Stryker disable next-line EqualityOperator: equivalent; at now === at both branches give the same value
   const from = now < b.at ? now : b.at

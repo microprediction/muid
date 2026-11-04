@@ -30,12 +30,14 @@ const TWINS = [
   ['authority-unchecked-same-epoch', 'authority may change while the memberships stand', [['  if (h.epoch === l.epoch) return within(h.authority, l.authority) || (hm.length === lm.length && within(l.authority, h.authority))\n', '  if (h.epoch === l.epoch) return false\n']]],
   ['authority-may-grow', 'authority may grow while the memberships stand or a successor turns pending', [['within(h.authority, l.authority) || (hm.length === lm.length && within(l.authority, h.authority))', 'hm.length === lm.length && within(l.authority, h.authority)']]],
   ['authority-may-shrink-at-settlement', 'authority may shrink when the pending successor settles', [['hm.length === 1 && within(l.authority, h.authority)', 'hm.length === 1 && false']]],
-  ['epoch-zero', 'a head of epoch 0 is accepted', [['!(isTime(b.epoch) && b.epoch > 0)', '!isTime(b.epoch)']]],
+  ['epoch-zero', 'a head of epoch 0 is accepted', [['(isTime(b.epoch) && b.epoch > 0 && b.epoch', '(isTime(b.epoch) && b.epoch']]],
+  ['epoch-unbounded', 'an epoch near 2^53 rounds in the equivocation check', [[' && b.epoch < 2 ** 32)', ')']]],
+  ['identity-as-pending', 'the identity id is accepted as a pending successor, reviving epoch 1', [[' || b.memberships[1] === b.identity) return', ') return']]],
   ['older-than-last-accepted', 'a head older than the last one accepted is accepted', [[' || (last && h.at < last.at)', '']]],
   ['last-identity-unchecked', 'a last head of another identity is compared as if it were this one\'s', [["    if (last && last.identity !== h.identity) return refuse('identity')\n", '']]],
   ['last-head-at-now', 'the last head must still be in its key\'s window now, so key rotation breaks callers', [['headBody(lastHead, cfg, undefined)', 'headBody(lastHead, cfg, now)']]],
   ['last-head-unverified', 'a last head that is not a pinned head is ignored', [[' || (lastHead !== undefined && last === undefined)', '']]],
-  ['epoch-form-unchecked', 'a head whose epoch disagrees with its memberships is accepted', [[' ||\n    (b.epoch === 1) !== (b.memberships[0] === b.identity)', '']]],
+  ['epoch-form-unchecked', 'a head whose epoch disagrees with its memberships is accepted', [['(b.epoch === 1) !== (b.memberships[0] === b.identity) || ', '']]],
   ['until-inclusive', 'a store that drops the claim id at until lets it replay once', [['until: b.at + cfg.maxClaimAge + 1 })', 'until: b.at + cfg.maxClaimAge })']]],
   ['claim-time-unchecked', 'a claim of any age is accepted', [['b.at < c.now - cfg.maxClaimAge || b.at > c.now + cfg.skew || ', '']]],
   ['claim-delegation-unchecked', 'a claim may name any delegation', [["    if (b.delegation !== d.id) return refuse('claim-delegation')\n", '']]],
@@ -97,7 +99,7 @@ test('verifier broken twins', { timeout: 600_000 }, async (t) => {
     })
 
     const jobs = TWINS.map(([name, why, edits]) => [name, why, generate(name, edits)])
-    assert.equal(jobs.length, 37, 'twin count')
+    assert.equal(jobs.length, 39, 'twin count')
     const results = []
     const queue = [...jobs]
     const workers = Math.max(1, Math.floor(availableParallelism() / 4))

@@ -328,7 +328,8 @@ one envelope each, so its `sig` names the signer: `{ root, assertion }`, where `
 - **R9 FRESH HEAD:** a **head** `{ identity, epoch, memberships, authority, revoked, at }` is signed by the
   membership witness (A4's `sig`): `membershipState` of every record the witness holds for the identity, at time
   `at`. `epoch` is the settled membership's epoch; `memberships` is the last settled membership id, followed by its
-  pending successor's if there is one, and its first entry is the identity id exactly when `epoch` is 1; `authority`
+  pending successor's if there is one; the identity id is the first entry exactly when `epoch` is 1, and never the
+  second (it is epoch 1's membership), and `epoch` is below 2^32, far inside exact arithmetic; `authority`
   is the sorted root ids with authority (R6); `revoked` is up to 64 sorted ids — delegation record ids or subject keys
   — revoked and not yet expired, so a revocation reaches verifiers as fast as a membership change, and revoking a
   subject key also revokes its renewals. The witness admits a revocation only when it is signed by a root with
@@ -585,7 +586,7 @@ test fails the build on any direct `indexedDB` or `localStorage` use outside the
    and one anchor per `prev` gives each epoch one membership, R1, R3); or when authority (R6), which the memberships
    fix, does not follow them: unchanged while they stand, shrinking (to the shared roots) when a successor turns
    pending, growing when it settles with none pending after it. Such a pair is refused as `equivocation`, and the two
-   signed heads are evidence; checked over every history of the model, an honest witness never produces one. Limits:
+   signed heads are evidence; checked over every history the model's explorer reaches, an honest witness never produces one. Limits:
    it catches a split only within what one relying party sees, and a witness that jumps two epochs ahead between
    that party's heads escapes it (committing to keep the fork going for that party); a public log closes the rest.
    A witness key is retired by its window, never removed from `witnessKeys` while a relying party may hold a last
