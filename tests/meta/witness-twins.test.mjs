@@ -21,10 +21,12 @@ const TWINS = [
   ['added-root-early', "an added root's signature is held before a majority signed", [['2 * signersOf(held, r.id, s.roots) > s.roots.length', 'true']]],
   ['contest-by-pending-roots', 'a contest signed by a root of the pending record is held', [['      roots = rootsOf(held, s.settled)\n', '      roots = s.roots\n']]],
   ['freeze-any-membership', 'a freeze of a membership outside the state is held', [["      if (b.membership !== s.settled && b.membership !== s.membership) return refuse('membership')\n", '']]],
-  ['signature-unchecked', "a root's signature is not verified on admission", [["    if (!checkRootAssertion(r.sig.assertion, { record: r.id, rpId, origin, key: k }).ok) return refuse('signature')\n", '']]],
+  ['signature-unchecked', "a root's signature is not verified on admission", [["return refuse('root-missing')\n    if (!checkRootAssertion(r.sig.assertion, { record: r.id, rpId, origin, key: k }).ok) return refuse('signature')\n", "return refuse('root-missing')\n"]]],
+  ['revocation-signature-unchecked', "a root's revocation is not verified", [["const k = rootKeys(held).get(r.sig.root)\n      if (!checkRootAssertion(r.sig.assertion, { record: r.id, rpId, origin, key: k }).ok) return refuse('signature')\n", 'const k = rootKeys(held).get(r.sig.root)\n']]],
+  ['self-revocation-unsigned', "a delegate's revocation of itself is not verified", [["      if (!checkEd25519(r.sig.signature, signedBytes(r.payload), b.target).ok) return refuse('signature')\n", '']]],
   ['no-cap', 'a list grows past MAX_RECORDS', [["    if (held[list].length >= MAX_RECORDS) return refuse('full')\n", '']]],
   ['root-unnamed', 'any root record is held', [["      return refuse('root-unnamed')", '      return accept({ held: add(held, \'roots\', text) })']]],
-  ['dead-admits', 'records are held for a dead identity', [["    if (s.dead) return refuse('dead')\n", '']]],
+  ['dead-admits', 'records are held for a dead identity', [["return s.dead ? refuse('dead') : s", 'return s']]],
   ['identity-unchecked', "another identity's record is held", [["    if (b.identity !== held.identity) return refuse('identity')\n", '']]],
   ['shape-unchecked', 'a record of the wrong form is held', [["    if (!SHAPES[type](b) || !onlyKeys(r.sig, ['assertion', 'root'])) return refuse('shape')\n", '']]],
   ['anchor-unchecked', 'a successor is anchored without verifiers following it', [['if (stateOf(add(own, \'anchors\', text)).membership === x)', 'if (true)']]],
@@ -37,7 +39,12 @@ const TWINS = [
   ['own-view-with-contests', "the witness's view counts contest anchors, so a contested epoch never settles", [['anchors: held.anchors.filter((t, i) => !isContest(anchors[i]))', 'anchors: held.anchors']]],
   ['one-step', 'a held successor waits for the next step after a settlement', [['      sign1(\'settlement\', text) // a contested', '      sign1(\'settlement\', text); break // a contested']]],
   ['sign-unchecked', "a signature not under the witness's key is published", [["    if (!checkEd25519(signature, signedBytes(payload), key).ok) throw new Error('sign gave no valid signature under the witness key')\n", '']]],
-  ['head-without-revocations', "the head leaves out the revocations it is given", [['headOf(stateOf(held), now, revoked)', 'headOf(stateOf(held), now, [])']]],
+  ['head-without-revocations', 'the head leaves out the revocations held', [['headOf(s, now, kept(held, s).map((x) => x.target))', 'headOf(s, now, [])']]],
+  ['revoke-without-authority', 'any root of the identity can revoke', [["      if (!has(s.authority, r.sig.root)) return refuse('signer')\n", '']]],
+  ['self-revoke-any-key', 'a key revokes itself without the delegation that makes it a delegate', [["      if (!delegates(held, s, delegation, now, b.target)) return refuse('delegation')\n", '']]],
+  ['revocations-kept-forever', 'a revocation outlives the membership it was admitted under', [['(x) => x.under === s.settled || x.under === s.membership)', '() => true)']]],
+  ['revocation-under-settled', 'a revocation admitted while a change is pending is dropped when it settles', [['under: s.membership })', 'under: s.settled })']]],
+  ['revocation-duplicates', 'another revocation for a target already held adds an entry', [['    if (live.some((x) => x.target === b.target)) return accept({ held })\n', '']]],
 ]
 
 function run (dir) {
@@ -86,7 +93,7 @@ test('witness broken twins', { timeout: 1_800_000 }, async (t) => {
       assert.ok(r.pass >= 25, `control: only ${r.pass} tests ran`)
     })
     const jobs = TWINS.map(([name, why, edits]) => [name, why, generate(name, edits)])
-    assert.equal(jobs.length, 22, 'twin count')
+    assert.equal(jobs.length, 29, 'twin count')
     const results = []
     const queue = [...jobs]
     const workers = Math.max(1, Math.floor(availableParallelism() / 4))

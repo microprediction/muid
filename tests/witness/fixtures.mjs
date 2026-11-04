@@ -11,7 +11,7 @@ export { rootText, rootId, rootSigned, identityFor, BASE, CTX_BASE, WITNESS }
 export const WINDOW = 3600
 export const sign = (bytes) => hex(ed25519.sign(bytes, WITNESS_SECRET))
 export const CONFIG = Object.freeze({ rpId: CTX_BASE.rpId, origin: CTX_BASE.origin, witnessKeys: CTX_BASE.witnessKeys, key: WITNESS, sign,
-  contestWindow: WINDOW })
+  contestWindow: WINDOW, skew: 60, maxLifetime: 2_592_000 })
 export const w = witness(CONFIG)
 export const IDENTITY = identityFor('a')
 export const CTX = Object.freeze({ ...CTX_BASE, identity: IDENTITY })

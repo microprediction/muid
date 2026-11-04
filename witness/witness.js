@@ -7,6 +7,7 @@ import { open, seal, wrap, signedBytes, EnvelopeError } from '../src/envelope.js
 import { checkRoot, identityOf } from '../src/root.js'
 import { checkRootAssertion } from '../src/assertion.js'
 import { membershipState, headOf, MAX_RECORDS } from '../src/membership.js'
+import { checkDelegation } from '../src/delegation.js'
 import { checkEd25519 } from '../src/ed25519.js'
 import { readWitnessKeys, onlyKeys, isHex } from '../src/attestation.js'
 import { refuse, accept } from '../src/bytes.js'
@@ -39,11 +40,11 @@ const { includes } = Array.prototype
 const has = (list, x) => includes.call(list, x) // decoded arrays have no prototype
 
 export function witness (config) {
-  const { rpId, origin, witnessKeys, key, sign, contestWindow } = config // null or undefined throws a TypeError here
+  const { rpId, origin, witnessKeys, key, sign, contestWindow, skew, maxLifetime } = config // null or undefined throws here
   const keys = readWitnessKeys(witnessKeys)
   if (typeof rpId !== 'string' || typeof origin !== 'string' || !keys?.some((k) => k.key === key) ||
-    typeof sign !== 'function' || !isSafeInteger(contestWindow) || contestWindow < 1) {
-    throw new TypeError('configuration must hold rpId, origin, witnessKeys, a key among them, sign and a positive contestWindow')
+    typeof sign !== 'function' || !isSafeInteger(contestWindow) || contestWindow < 1 || !isTime(skew) || !isTime(maxLifetime)) {
+    throw new TypeError('configuration must hold rpId, origin, witnessKeys, a key among them, sign, a positive contestWindow, skew and maxLifetime')
   }
   const stateOf = (held) => membershipState(held, { identity: held.identity, rpId, origin, witnessKeys: keys })
 
@@ -77,7 +78,7 @@ export function witness (config) {
   function empty (identity) {
     if (!isHex(ID, identity)) throw new TypeError('identity must be an id')
     const none = freeze([])
-    return freeze({ identity, roots: none, memberships: none, contests: none, freezes: none, anchors: none, settlements: none })
+    return freeze({ identity, roots: none, memberships: none, contests: none, freezes: none, anchors: none, settlements: none, revocations: none })
   }
 
   // R8's admission: { ok, held } with the record added (or already held), or a refusal; the holding is not changed.
@@ -98,10 +99,8 @@ export function witness (config) {
     }
     const b = r.body
     if (!SHAPES[type](b) || !onlyKeys(r.sig, ['assertion', 'root'])) return refuse('shape')
-    if (b.identity !== held.identity) return refuse('identity')
-    const s = stateOf(held)
+    const s = against(held, b)
     if (!s.ok) return s
-    if (s.dead) return refuse('dead')
     const signer = r.sig.root
     let roots
     if (type === 'membership') {
@@ -122,6 +121,14 @@ export function witness (config) {
     if (k === undefined) return refuse('root-missing')
     if (!checkRootAssertion(r.sig.assertion, { record: r.id, rpId, origin, key: k }).ok) return refuse('signature')
     return accept({ held: add(held, list, text) })
+  }
+
+  // The state a submitted record is admitted against; a refusal for another identity's record, or an unknown or
+  // dead identity.
+  function against (held, b) {
+    if (b.identity !== held.identity) return refuse('identity')
+    const s = stateOf(held)
+    return s.dead ? refuse('dead') : s // a refusal (an unknown identity) is passed on as it is
   }
 
   // A root record: the identity's first root, or one a held membership record names.
@@ -197,11 +204,63 @@ export function witness (config) {
   }
 
   // R9: the head for what the witness holds at `now`, signed; undefined where headOf gives none.
-  function head (held, now, revoked) {
+  function head (held, now) {
     if (!isTime(now)) throw new TypeError('now must be a non-negative integer')
-    const body = headOf(stateOf(held), now, revoked)
+    const s = stateOf(held)
+    const body = headOf(s, now, kept(held, s).map((x) => x.target))
     return body === undefined ? undefined : make('head', body)
   }
 
-  return freeze({ empty, admit, advance, head })
+  // Decision 12 (a): a revocation is kept while the membership current when it was admitted, or that membership's
+  // successor while pending, has authority; R6 refuses every delegation under any other membership.
+  const kept = (held, s) => held.revocations.filter((x) => x.under === s.settled || x.under === s.membership)
+
+  // R9's admission of a revocation `{ identity, target, at }`: signed by a root with authority, or by a delegate for
+  // its own key, given with the delegation that makes it a delegate of this identity, so that no one else can add an
+  // entry (past 64, no head is signed). One entry per target; entries no longer kept are dropped.
+  function revoke (held, text, now, delegation) {
+    if (!isTime(now)) throw new TypeError('now must be a non-negative integer')
+    let r
+    try {
+      r = open(text, 'revocation')
+    } catch (e) {
+      return refuse(isRefusal(e) ? e.reason : 'envelope-encoding')
+    }
+    const b = r.body
+    const bySelf = hasOwn(r.sig, 'signature')
+    if (!onlyKeys(b, ['at', 'identity', 'target']) || !isHex(ID, b.target) || !isTime(b.at) ||
+      !(bySelf ? onlyKeys(r.sig, ['signature']) && typeof r.sig.signature === 'string' : onlyKeys(r.sig, ['assertion', 'root']) && hasOwn(r.sig, 'root'))) {
+      return refuse('shape')
+    }
+    const s = against(held, b)
+    if (!s.ok) return s
+    const live = kept(held, s)
+    if (live.some((x) => x.target === b.target)) return accept({ held })
+    if (live.length >= MAX_RECORDS) return refuse('full')
+    if (bySelf) {
+      if (!delegates(held, s, delegation, now, b.target)) return refuse('delegation')
+      if (!checkEd25519(r.sig.signature, signedBytes(r.payload), b.target).ok) return refuse('signature')
+    } else {
+      if (!has(s.authority, r.sig.root)) return refuse('signer')
+      const k = rootKeys(held).get(r.sig.root)
+      if (!checkRootAssertion(r.sig.assertion, { record: r.id, rpId, origin, key: k }).ok) return refuse('signature')
+    }
+    const entry = freeze({ text, target: b.target, under: s.membership })
+    return accept({ held: freeze({ ...held, revocations: freeze([...live, entry]) }) })
+  }
+
+  // Whether `delegation` verifies at `now`, is this identity's under its settled or pending membership, and is to `subject`.
+  function delegates (held, s, delegation, now, subject) {
+    let d
+    try {
+      d = open(delegation, 'delegation').body
+    } catch {
+      return false
+    }
+    const rootKey = rootKeys(held).get(d.root)
+    return rootKey !== undefined && d.identity === held.identity && (d.membership === s.settled || d.membership === s.membership) &&
+      d.subject === subject && checkDelegation(delegation, { rootKey, rpId, origin, now, skew, maxLifetime }).ok
+  }
+
+  return freeze({ empty, admit, advance, head, revoke })
 }

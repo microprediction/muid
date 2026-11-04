@@ -94,20 +94,19 @@ test('nothing is signed for a dead identity, or a holding without the first root
 
 test('R9: a head is the core\'s headOf of what the witness holds, signed; none where headOf gives none', () => {
   const h = w.advance(withM2(), BASE).held
-  const text = w.head(h, BASE + 5, ['e'.repeat(64)])
+  const text = w.head(h, BASE + 5)
   const r = envelope.open(text, 'head')
-  assert.equal(r.payload, envelope.seal('head', membership.headOf(state(h), BASE + 5, ['e'.repeat(64)])).payload)
+  assert.equal(r.payload, envelope.seal('head', membership.headOf(state(h), BASE + 5, [])).payload)
   assert.ok(ed25519.verify(Buffer.from(r.sig.signature, 'hex'), envelope.signedBytes(envelope.seal('head', r.body).payload), Buffer.from(WITNESS, 'hex')))
   assert.equal(r.sig.witness, WITNESS)
   const frozen = admitAll(start(), [['freeze', signed('freeze', { identity: IDENTITY, membership: IDENTITY }, 'a')]])
-  assert.equal(w.head(frozen, BASE, []), undefined)
-  assert.equal(w.head(start(), BASE, Array.from({ length: 65 }, (_, i) => i.toString(16).padStart(64, '0'))), undefined)
-  assert.equal(w.head(w.empty(IDENTITY), BASE, []), undefined)
+  assert.equal(w.head(frozen, BASE), undefined)
+  assert.equal(w.head(w.empty(IDENTITY), BASE), undefined)
 })
 
 test('configuration is checked at construction; a time that is not a non-negative integer is a programming error', () => {
   for (const bad of [{ key: 'x' }, { sign: undefined }, { contestWindow: 0 }, { contestWindow: 1.5 }, { witnessKeys: [] }, { witnessKeys: 'x' },
-    { rpId: 1 }, { origin: undefined }]) {
+    { rpId: 1 }, { origin: undefined }, { skew: -1 }, { skew: undefined }, { maxLifetime: 1.5 }, { maxLifetime: undefined }]) {
     assert.throws(() => witness({ ...CONFIG, ...bad }), { name: 'TypeError', message: /^configuration must hold/ }, JSON.stringify(bad))
   }
   assert.throws(() => witness(null), TypeError)
@@ -115,15 +114,15 @@ test('configuration is checked at construction; a time that is not a non-negativ
   assert.doesNotThrow(() => witness({ ...CONFIG, contestWindow: 1 }))
   for (const t of [-1, 1.5, '1']) {
     assert.throws(() => w.advance(start(), t), { name: 'TypeError', message: /now must be a non-negative integer/ })
-    assert.throws(() => w.head(start(), t, []), { name: 'TypeError', message: /now must be a non-negative integer/ })
+    assert.throws(() => w.head(start(), t), { name: 'TypeError', message: /now must be a non-negative integer/ })
   }
   assert.deepEqual(w.advance(start(), 0).signed, [])
-  assert.equal(typeof w.head(start(), 0, []), 'string')
+  assert.equal(typeof w.head(start(), 0), 'string')
 })
 
 test('a signing function that signs with another key is caught: nothing it signs is kept', () => {
   const other = Uint8Array.from({ length: 32 }, (_, i) => 7 + i)
   const liar = witness({ ...CONFIG, sign: (bytes) => Buffer.from(ed25519.sign(bytes, other)).toString('hex') })
   assert.throws(() => liar.advance(withM2(), BASE), /signature/)
-  assert.throws(() => liar.head(start(), BASE, []), /signature/)
+  assert.throws(() => liar.head(start(), BASE), /signature/)
 })

@@ -378,8 +378,8 @@ Residuals:
   — and a thief holding a retired root could mint new delegations under it. The guarantees above hold for a verifier
   that requires a head no older than `maxStaleness`; the residual is that window.
 
-**The witness's own decisions (`witness/`, not core).** `witness(config)` gives `empty`, `admit`, `advance` and
-`head`, pure functions over the records the witness holds for one identity, grouped as R8's `records`; storage,
+**The witness's own decisions (`witness/`, not core).** `witness(config)` gives `empty`, `admit`, `advance`,
+`revoke` and `head`, pure functions over the records the witness holds for one identity, grouped as R8's `records`; storage,
 the network and the transparency log are the service's, and the signing key stays behind `config.sign`.
 - `admit(held, type, text)` applies R8's admission to a submitted root, membership, contest or freeze, against the
   state of what is held: a membership record must name the effective membership as `prev` and be one epoch past it
@@ -394,7 +394,13 @@ the network and the transparency log are the service's, and the signing key stay
   anchors a held contest only if verifiers would then see the identity end; once `CONTEST_WINDOW` has passed, it
   settles, as `contested` if a contest is anchored. A settlement can make a held successor anchorable in the same
   step. Its own view leaves out contest anchors, as the model's does.
-- `head(held, now, revoked)` signs `headOf` of the state, or nothing where `headOf` gives nothing.
+- `revoke(held, text, now, delegation)` admits a revocation (R9) signed by a root with authority, or by a delegate
+  for its own key, given with the delegation that makes it a delegate of this identity under its settled or pending
+  membership (verified by `checkDelegation` at `now`); otherwise any fresh key could add entries until, past 64, no
+  head can be signed. One entry per target. Each entry records the effective membership when it was admitted and is
+  kept while that membership, or its successor while pending, has authority (decision 12 (a)); entries no longer
+  kept are dropped at the next admission.
+- `head(held, now)` signs `headOf` of the state with the kept revocations, or nothing where `headOf` gives nothing.
 - A `sign` that does not give a valid signature under the configured key is a fault, thrown, so nothing it signs is
   published.
 Tested against `model/settled.mjs`'s `witness` on random histories of owner and thief moves and passing time: each

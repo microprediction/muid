@@ -453,15 +453,24 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   not anchored; a successor held while its predecessor was pending anchored in the settling step; of three valid
   successors, the lowest id; a contest inside the window anchored and settled as contested; one first seen after it
   ignored; a minority contest not anchored; heads equal to `headOf`, signed, none where `headOf` gives none.
+- Revocations: by a root with authority (a delegation id and a subject key, carried in the head); refused from a
+  root without authority (added, pending), a stranger, a forgery; a delegate's own, only with its delegation —
+  refused without one, for another key, expired, under another membership or identity, with its root not held, or
+  signed by another key; under either name of a pending change; kept while the membership current at admission or
+  its pending successor has authority, dropped once a later one settles; one entry per target; form, identity,
+  dead and unknown identities; more than 64 live gives no head; the list capped at 256 live entries, stale ones
+  not counted; a foreign error refused.
 - A `sign` under another key is thrown, for anchors and heads.
 - The model (`W3-model.test.mjs`): random owner and thief histories in three scenarios, admitted record by record;
   the witness's anchors and settlements equal the model witness's translated texts after every step; every refused
   record leaves the model's witness and verifier unchanged. The walks reach settled, pending, frozen and dead states
   and up to two settled changes.
-- Twins (`tests/meta/witness-twins.test.mjs`, 21): each admission rule dropped in turn; the anchor kept unchecked;
+- Twins (`tests/meta/witness-twins.test.mjs`, 29): each admission rule dropped in turn; the anchor kept unchecked;
   the highest id anchored; settlement inside the window; contests never anchored, anchored unchecked, or ignored at
   settlement; the witness's view counting contest anchors; a settlement ending the step; `sign` unchecked; heads
-  without revocations.
+  without revocations; a revocation by a root without authority or by any key without its delegation, or unverified; revocations
+  kept for ever, kept under the settled membership while a change is pending, or duplicated; the first held
+  successor anchored.
 
 ## 5. Later layers (outline; each is expanded here before its code is written)
 
