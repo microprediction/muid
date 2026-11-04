@@ -8,11 +8,13 @@ import { tmpdir, availableParallelism } from 'node:os'
 import { join } from 'node:path'
 
 const DIR = new URL('../../witness/', import.meta.url)
-const FILES = ['witness.js', 'service.js']
+const FILES = ['witness.js', 'service.js', 'log.js']
 const SUITE_DIR = new URL('../witness/', import.meta.url).pathname
 const SUITE = readdirSync(SUITE_DIR).filter((f) => f.endsWith('.test.mjs')).map((f) => join(SUITE_DIR, f))
 // The witness's imports of the core, made absolute because a twin lives outside the repository.
 const CORE = ["from '../" + 'src/', "from '" + new URL('../../src/', import.meta.url).href]
+// And its one package import, resolved from here.
+const NOBLE = ["from '@noble/hashes/sha2.js'", `from '${import.meta.resolve('@noble/hashes/sha2.js')}'`]
 
 // [name, bug class, [find, replace] pairs, file (witness.js unless named)]
 const TWINS = [
@@ -30,6 +32,12 @@ const TWINS = [
   ['head-unlogged', 'a head is served that the log did not take', [['      await append([text])\n', '']], 'service.js'],
   ['body-unbounded', 'a request body of any size is read', [["    if (text.length > MAX_BODY) return { error: refusal(413, 'too-large') }\n", '']], 'service.js'],
   ['type-unfiltered', 'a type that may not be submitted reaches the witness', [["      if (!SUBMITTED.includes(b.type)) return refusal(422, 'type')\n", '']], 'service.js'],
+  ['log-split-halves', 'a tree is split in halves, not at the largest power of two below its size', [['  let k = 1\n  while (k * 2 < n) k *= 2\n  return k', '  return Math.floor(n / 2)']], 'log.js'],
+  ['log-no-full-fallback', 'a partial tile no longer served is not read from its full tile', [['(await get(`${path}.p/${width}`)) ?? (await get(path))', '(await get(`${path}.p/${width}`))']], 'log.js'],
+  ['log-short-tile', 'a tile shorter than its width is used', [["        if (b.length < width * 32) throw new Error(`log tile short: ${path}`)\n", '']], 'log.js'],
+  ['log-index-unprefixed', 'tile indices without the x prefix', [["(i < groups.length - 1 ? 'x' + g : g)", 'g']], 'log.js'],
+  ['log-append-any-body', 'whatever the log answers is taken as an index', [['if (!res.ok || !/^(?:0|[1-9][0-9]*)$/.test(body))', 'if (!res.ok)']], 'log.js'],
+  ['log-proof-order', 'the proof lists the sibling before the path below it', [['[...await path(m, a, a + k), await mth(a + k, b)]', '[await mth(a + k, b), ...await path(m, a, a + k)]']], 'log.js'],
   ['self-revocation-unsigned', "a delegate's revocation of itself is not verified", [["      if (!checkEd25519(r.sig.signature, signedBytes(r.payload), b.target).ok) return refuse('signature')\n", '']]],
   ['no-cap', 'a list grows past MAX_RECORDS', [["    if (held[list].length >= MAX_RECORDS) return refuse('full')\n", '']]],
   ['root-unnamed', 'any root record is held', [["      return refuse('root-unnamed')", '      return accept({ held: add(held, \'roots\', text) })']]],
@@ -83,7 +91,7 @@ function generate (name, edits, file = 'witness.js') {
   const dir = join(root, name)
   mkdirSync(dir)
   for (const f of FILES) {
-    let text = sources[f].split(CORE[0]).join(CORE[1])
+    let text = sources[f].split(CORE[0]).join(CORE[1]).split(NOBLE[0]).join(NOBLE[1])
     for (const [find, replace] of f === file ? edits : []) {
       const n = text.split(find).length - 1
       assert.equal(n, 1, `twin ${name}: target must occur exactly once in witness/${f}, found ${n}: ${JSON.stringify(find)}`)
@@ -102,7 +110,7 @@ test('witness broken twins', { timeout: 1_800_000 }, async (t) => {
       assert.ok(r.pass >= 25, `control: only ${r.pass} tests ran`)
     })
     const jobs = TWINS.map(([name, why, edits, file]) => [name, why, generate(name, edits, file)])
-    assert.equal(jobs.length, 36, 'twin count')
+    assert.equal(jobs.length, 42, 'twin count')
     const results = []
     const queue = [...jobs]
     const workers = Math.max(1, Math.floor(availableParallelism() / 4))

@@ -8,7 +8,8 @@
   },
   "mutate": [
     "witness/witness.js",
-    "witness/service.js"
+    "witness/service.js",
+    "witness/log.js"
   ],
   "coverageAnalysis": "perTest",
   "thresholds": {

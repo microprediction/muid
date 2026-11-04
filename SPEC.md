@@ -410,8 +410,11 @@ and `GET /v1/identities/{id}/head` (a head, reused for `headInterval` seconds wh
 advances every identity, settling once windows pass. Each identity's changes are serialised by its store, and every
 record the witness signs is appended to the log before the holding that contains it is kept, so nothing is served
 that the log did not take; a failing log or store is 503 and nothing is kept. Refusals are 422 with the witness's
-reason; malformed requests are 400, 404, 405 or 413 (bodies past 131,072 characters). The log is the transparency
-log's (Tessera); an in-memory log and store stand in for tests.
+reason; malformed requests are 400, 404, 405 or 413 (bodies past 131,072 characters). The log is Tessera's own
+POSIX server (`log/go.mod` pins it; no Go code of muid's), which signs C2SP checkpoints and serves C2SP tiles;
+`witness/log.js` appends to it and builds RFC 9162 inclusion proofs from its tiles for any entry against any
+checkpoint, which the core's `verifyCheckpoint` and `verifyInclusion` then check. Anyone can read the tiles; only the
+witness service appends (the server listens on a private address). An in-memory log and store stand in for tests.
 
 Tested against `model/settled.mjs`'s `witness` on random histories of owner and thief moves and passing time: each
 record goes through admission, the model is given what was admitted, and the anchors and settlements signed are the

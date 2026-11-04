@@ -471,13 +471,21 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   the witness's anchors and settlements equal the model witness's translated texts after every step; every refused
   record leaves the model's witness and verifier unchanged. The walks reach settled, pending, frozen and dead states
   and up to two settled changes.
-- Twins (`tests/meta/witness-twins.test.mjs`, 36): each admission rule dropped in turn; the anchor kept unchecked;
+- The log client (`W5-log.test.mjs`), against tiles laid out from the C2SP wording by the test: proofs equal RFC
+  9162's PATH for every entry of trees of 1 to 1,000 entries and at a level-2 tile (65,836); an older tree's partial
+  tiles; a partial tile no longer served read from its full tile; each tile read once, at the right path; a missing
+  or short tile, a failing server, an index outside the tree; append's answer read strictly; the checkpoint.
+- Tessera itself (`tests/log/L1-tessera.test.mjs`, runs `go tool posix` from `log/`): 300 entries appended
+  concurrently, the checkpoint verified by the core under the log's key, an inclusion proof from Tessera's tiles
+  verified for every entry, and again after 21 more; another entry's hash refused.
+- Twins (`tests/meta/witness-twins.test.mjs`, 42): each admission rule dropped in turn; the anchor kept unchecked;
   the highest id anchored; settlement inside the window; contests never anchored, anchored unchecked, or ignored at
   settlement; the witness's view counting contest anchors; a settlement ending the step; `sign` unchecked; heads
   without revocations; a revocation by a root without authority or by any key without its delegation, or unverified; revocations
   kept for ever, kept under the settled membership while a change is pending, or duplicated; the first held
   successor anchored; and in the service, a holding kept before the log took its records, changes to one identity
-  interleaved, a head kept after a change or for ever, a head unlogged, an unbounded body, and any type submitted.
+  interleaved, a head kept after a change or for ever, a head unlogged, an unbounded body, and any type submitted; and in the log client, halves for the split, no full-tile fallback, a
+  short tile used, unprefixed tile indices, any append answer taken, and the proof's order.
 
 ## 5. Later layers (outline; each is expanded here before its code is written)
 
