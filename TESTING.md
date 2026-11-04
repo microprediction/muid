@@ -389,6 +389,21 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   last accepted; the last head's identity unchecked, checked at `now`, or not verified; the head's epoch unchecked
   against its memberships, or 0 allowed.
 
+## 4h. The relying-party adapter (`adapter/`, not core): issue #21
+
+- Atomicity: twenty concurrent requests in one process, and eight worker threads on one SQLite file released by a
+  barrier, present one claim: exactly one runs the action. A request whose transaction waits behind one that stores
+  a head revoking its delegation is refused as stale.
+- Memory: the head only moves forward, in both stores and under a late writer; an older head is then refused; a
+  stored head the verifier cannot read (corrupt, or signed by a removed witness key) bounds rollback by its time.
+- Failure: a failing transaction or any of its operations is refused as `storage`, and the action does not run; a
+  SQLite transaction that fails is rolled back; a malformed call still throws.
+- Boundaries: claim ids expire exactly at `until`, when the verifier already refuses the claim by its time.
+- Broken twins (`tests/meta/adapter-twins.test.mjs`): the memory not read in the transaction; a memory read failure
+  taken for a verifier error; a consumed claim accepted again; a failed transaction taken as success; the stored
+  head not passed; an unreadable stored head locking its identity out, or its time ignored; the records read twice;
+  heads regressing in either store.
+
 ## 5. Later layers (outline; each is expanded here before its code is written)
 
 1. **Envelope and record id:** expanded as §3.

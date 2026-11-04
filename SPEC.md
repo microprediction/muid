@@ -606,7 +606,8 @@ rotation and the expiry boundary.
    it catches a split only within what one relying party sees, and a witness that jumps two epochs ahead between
    that party's heads escapes it (committing to keep the fork going for that party); a public log closes the rest.
    A witness key is retired by its window, never removed from `witnessKeys` while a relying party may hold a last
-   head it signed (that head would become a programming error). Bounding backdated anchors needs time from outside the witness: a public log with at least one outside
+   head it signed (that head would become a programming error); when one must be removed, as after a compromise, the
+   relying-party adapter (§7) keeps the remembered head's time as `minHeadAt` instead. Bounding backdated anchors needs time from outside the witness: a public log with at least one outside
    cosigner, the contest window starting at the cosigned time of the first checkpoint that includes the anchor.
 
 ## 10. What the reputation layer consumes (not core)
