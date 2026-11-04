@@ -2,6 +2,8 @@
 // origin, signatures, the cosigner quorum and its times.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
+import { ed25519 } from '@noble/curves/ed25519.js'
 import { note } from '../impl.mjs'
 import { keyPair, logLine, cosignLine, checkpointText, keyId, ORIGIN, ROOT, b64 } from './helpers.mjs'
 
@@ -159,4 +161,37 @@ test('verifier keys: name rules, key length and type byte are checked, not just 
     assert.throws(asKeys(k), /not a verifier key/, label)
   }
   assert.equal(note.verifyNote('x\n\n— a AAAAAAA=\n', { keys: [make('n'.repeat(255), 1, pub)] }).reason, 'unverified', 'a 255-byte name is a name')
+})
+
+// Found by review: the Ed25519 cosignature message does not commit to the cosigner's name (C2SP tlog-cosignature), so
+// one key under two names would let one cosignature count twice.
+test('one public key configured as two cosigners is a programming error', () => {
+  const same = keyPair('witness.example/again', 4, 2) // the seed of C[0]: the same key, another name
+  assert.equal(Buffer.from(same.pub).equals(Buffer.from(C[0].pub)), true)
+  assert.throws(() => verifyCheckpoint(signed(), { ...CTX, cosigners: [C[0].vkey, same.vkey] }), /listed twice/)
+})
+
+// Found by review: key names exclude Unicode White_Space (as Go's unicode.IsSpace), not JavaScript's \s.
+test('key names: U+0085 is a space and is refused; U+FEFF is not a space and is allowed', () => {
+  const pub = keyPair('x', 1, 1).pub
+  const make = (name) => `${name}+${keyId(name, 1, pub).toString('hex')}+${b64(Buffer.concat([Buffer.from([1]), pub]))}`
+  assert.throws(() => note.verifyNote('x\n\n— a AAAAAAA=\n', { keys: [make('bad\u0085name')] }), /not a verifier key/)
+  assert.throws(() => note.verifyNote('x\n\n— a AAAAAAA=\n', { keys: [make('a\u3000b')] }), /not a verifier key/)
+  assert.equal(note.verifyNote('x\n\n— a AAAAAAA=\n', { keys: [make('ok\ufeffname')] }).reason, 'unverified')
+  assert.deepEqual(plain(verifyCheckpoint(signed() + '— bad\u0085name AAAAAAA=\n', CTX)), refused('note-form'), 'nor in a signature line')
+})
+
+// Two different keys whose 32-bit key IDs collide under one name (found by a birthday search over SHA-256 seeds): a
+// signature line could belong to either, so the configuration is ambiguous, as in Go's VerifierList.
+test('two different keys with the same name and key ID are a programming error', () => {
+  const name = 'witness.example/collide'
+  const vkey = (i) => {
+    const pub = ed25519.getPublicKey(createHash('sha256').update('collide ' + i).digest())
+    return `${name}+${keyId(name, 4, pub).toString('hex')}+${b64(Buffer.concat([Buffer.from([4]), pub]))}`
+  }
+  const [a, b] = [vkey(12946), vkey(59819)]
+  assert.equal(a.split('+')[1], 'b40db076')
+  assert.equal(b.split('+')[1], 'b40db076')
+  assert.notEqual(a, b)
+  assert.throws(() => verifyCheckpoint(signed(), { ...CTX, cosigners: [a, b], quorum: 0 }), /listed twice/)
 })

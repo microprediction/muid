@@ -58,12 +58,15 @@ export function verifyReceipt (given, ctx) {
   if (!onlyKeys(b, BODY_KEYS) || !isHex(HEX64, b.identity) || !isHex(HEX64, b.delegation) || !isHex(HEX64, b.claim) ||
     !isCanonicalOrigin(b.service) || !isTime(b.at) || !onlyKeys(sig, SIG_KEYS) || !isHex(HEX128, sig.signature) ||
     !isHex(HEX64, sig.service)) return refuse('receipt-shape')
-  let pinned = false
+  // The latest expiry among the windows pinned for this origin and key that hold `at`; none means unpinned, refused
+  // before the signature is tried (keys are named, never found by trying, as A4).
+  let exp = -1
   for (let i = 0; i < c.pinned.length; i++) {
     const s = c.pinned[i]
-    if (s.origin === b.service && s.key === sig.service && s.nbf <= b.at && b.at <= s.exp) pinned = true
+    // Stryker disable next-line EqualityOperator: equivalent for s.exp > exp; an equal expiry gives the same value
+    if (s.origin === b.service && s.key === sig.service && s.nbf <= b.at && b.at <= s.exp && s.exp > exp) exp = s.exp
   }
-  if (!pinned) return refuse('service')
+  if (exp < 0) return refuse('service')
   const k = checkEd25519(sig.signature, signedBytes(r.payload), sig.service)
   if (!k.ok) return k
   const cp = verifyCheckpoint(checkpoint, c.checkpoint)
@@ -72,6 +75,8 @@ export function verifyReceipt (given, ctx) {
   if (!verifyInclusion({ leafHash: entry, index, size: cp.size, proof, root: fromHex(cp.root) })) return refuse('inclusion')
   const existedBy = cp.times[c.quorum - 1] // the quorum-th earliest: unless the quorum lies, logged by then
   if (b.at > existedBy + c.skew) return refuse('receipt-time')
+  // That window also holds, within skew, the time the receipt was logged by: a retired key cannot backdate.
+  if (existedBy > exp + c.skew) return refuse('service')
   if (claim !== undefined) {
     let named
     try {
@@ -79,7 +84,7 @@ export function verifyReceipt (given, ctx) {
     } catch {
       return refuse('claim')
     }
-    if (named.id !== b.claim) return refuse('claim')
+    if (named.id !== b.claim || named.body.delegation !== b.delegation) return refuse('claim')
   }
   return accept({ service: b.service, identity: b.identity, delegation: b.delegation, claim: b.claim, at: b.at, existedBy })
 }

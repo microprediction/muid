@@ -20,7 +20,8 @@ const IMPORTS = [
 // [name, bug class, [find, replace] pairs]
 const TWINS = [
   ['service-origin-unchecked', 'a key pinned for one service vouches for receipts naming another', [['if (s.origin === b.service && s.key === sig.service', 'if (s.key === sig.service']]],
-  ['window-unchecked', 'a service key outside its window is accepted', [[' && s.nbf <= b.at && b.at <= s.exp) pinned = true', ') pinned = true']]],
+  ['window-unchecked', 'a service key outside its window is accepted', [[' && s.nbf <= b.at && b.at <= s.exp && s.exp > exp)', ' && s.exp > exp)']]],
+  ['retired-key-backdates', 'a retired key mints receipts by backdating into its old window', [["  if (existedBy > exp + c.skew) return refuse('service')\n", '']]],
   ['signature-unchecked', 'the service signature is not checked', [['  if (!k.ok) return k\n', '']]],
   ['entry-is-payload', 'the logged entry is taken to be the payload, not the envelope as logged', [['[receipt]))', '[r.payload]))']]],
   ['inclusion-skipped', 'a receipt need not be in the log', [["root: fromHex(cp.root) })) return refuse('inclusion')", "root: fromHex(cp.root) })) {}"]]],
@@ -28,7 +29,8 @@ const TWINS = [
   ['latest-time', 'existedBy is the latest cosignature, which one cosigner alone controls', [['cp.times[c.quorum - 1]', 'cp.times[cp.times.length - 1]']]],
   ['time-unchecked', 'a receipt may claim acceptance after it was logged', [["  if (b.at > existedBy + c.skew) return refuse('receipt-time')\n", '']]],
   ['quorum-zero', 'receipts are accepted with no time from outside the service', [["  if (log.quorum < 1) throw", "  if (false) throw"]]],
-  ['claim-unchecked', 'a given claim is not compared with the one named', [["    if (named.id !== b.claim) return refuse('claim')\n", '']]],
+  ['claim-unchecked', 'a given claim is not compared with the one named', [["    if (named.id !== b.claim || named.body.delegation !== b.delegation) return refuse('claim')\n", '']]],
+  ['claim-delegation-unchecked', 'a given claim under another delegation is accepted', [[' || named.body.delegation !== b.delegation', '']]],
 ]
 
 function run (implPath) {
@@ -72,7 +74,7 @@ test('receipt broken twins', { timeout: 600_000 }, async (t) => {
     })
 
     const jobs = TWINS.map(([name, why, edits]) => [name, why, generate(name, edits)])
-    assert.equal(jobs.length, 10, 'twin count')
+    assert.equal(jobs.length, 12, 'twin count')
     const results = []
     const queue = [...jobs]
     const workers = Math.max(1, Math.floor(availableParallelism() / 4))

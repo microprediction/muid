@@ -97,6 +97,44 @@ test('claim: when the claim is given, it must be the one the receipt names', () 
   assert.equal(verifyReceipt({ ...given(named), claim }, CTX).ok, true)
   assert.deepEqual(plain(verifyReceipt({ ...given(), claim }, CTX)), refused('claim'), 'another claim')
   assert.deepEqual(plain(verifyReceipt({ ...given(named), claim: 'x' }, CTX)), refused('claim'), 'not a claim')
+  // Found by review: the claim must be made under the delegation the receipt names, not just carry its id.
+  const other = envelope.seal('claim', { delegation: id('a'), scope: 'post', request: 'POST /x', at: NOW - 101, data: {} })
+  const otherClaim = envelope.wrap(other.payload, { signature: Buffer.from(ed25519.sign(envelope.signedBytes(other.payload), sk)).toString('hex') })
+  assert.deepEqual(plain(verifyReceipt({ ...given(receiptText({ ...BODY, claim: other.id })), claim: otherClaim }, CTX)), refused('claim'), 'another delegation')
+})
+
+// Found by review: a key's window must hold the time the quorum vouches for, or a retired key could mint receipts by
+// backdating `at` into its old window.
+test('service: the key window must also hold existedBy, so a retired key cannot backdate', () => {
+  const retired = { ...CTX, services: [{ origin: SERVICE, key: SERVICE_KEY, nbf: 0, exp: NOW - 365 * 86_400 }] }
+  const backdated = receiptText({ ...BODY, at: NOW - 400 * 86_400 })
+  assert.deepEqual(plain(verifyReceipt(given(backdated), retired)), refused('service'))
+  // A receipt at NOW - 200, well inside each window, so only existedBy (NOW - 40) decides.
+  const early = given(receiptText({ ...BODY, at: NOW - 200 }))
+  const edge = (exp) => verifyReceipt(early, { ...CTX, services: [{ origin: SERVICE, key: SERVICE_KEY, nbf: 0, exp }] })
+  assert.equal(edge(NOW - 40 - 60).ok, true, 'existedBy within skew of exp')
+  assert.deepEqual(plain(edge(NOW - 40 - 61)), refused('service'), 'existedBy past exp + skew')
+  const two = { ...CTX, services: [{ origin: SERVICE, key: SERVICE_KEY, nbf: 0, exp: NOW - 150 }, { origin: SERVICE, key: SERVICE_KEY, nbf: NOW - 300, exp: NOW }] }
+  assert.equal(verifyReceipt(early, two).ok, true, 'of two windows holding at, the later expiry counts')
+  assert.equal(verifyReceipt(early, { ...two, services: [two.services[1], two.services[0]] }).ok, true, 'in either order')
+})
+
+test('service: a window must hold the receipt time itself, and a window ending at time 0 is a window', () => {
+  // Logged at its own time, so only the window's end decides: exp one second before at.
+  const prompt = given(undefined, 2, [NOW - 100, NOW - 100])
+  const w = (exp) => ({ ...CTX, services: [{ origin: SERVICE, key: SERVICE_KEY, nbf: 0, exp }] })
+  assert.equal(verifyReceipt(prompt, w(NOW - 100)).ok, true)
+  assert.deepEqual(plain(verifyReceipt(prompt, w(NOW - 101))), refused('service'), 'exp before at')
+  const zero = given(receiptText({ ...BODY, at: 0 }), 2, [0, 0])
+  assert.equal(verifyReceipt(zero, w(0)).ok, true, 'a window [0, 0] holds a receipt at 0 logged by 0')
+})
+
+test('an unpinned key is refused before anything else is checked', () => {
+  const other = Uint8Array.from({ length: 32 }, (_, i) => 90 + i)
+  const g = given(receiptText(BODY, { secret: other }))
+  assert.deepEqual(plain(verifyReceipt({ ...g, checkpoint: 'x' }, CTX)), refused('service'), 'not the checkpoint')
+  const notYet = { ...CTX, services: [{ origin: SERVICE, key: SERVICE_KEY, nbf: NOW - 99, exp: NOW }] }
+  assert.deepEqual(plain(verifyReceipt({ ...given(), checkpoint: 'x' }, notYet)), refused('service'), 'a window that does not hold at')
 })
 
 test('configuration errors are programming errors', () => {

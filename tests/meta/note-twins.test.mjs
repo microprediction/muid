@@ -32,6 +32,8 @@ const TWINS = [
   ['first-blank-line', 'the text is split at the first blank line, not the last', [["apply(lastIndexOf, note, ['\\n\\n'])", "apply(indexOf, note, ['\\n\\n'])"]]],
   ['key-id-unchecked', 'a verifier key is accepted whatever its key ID', [['    keyId(name, type, key.subarray(1)) !== id) throw', '    false) throw']]],
   ['repeated-cosigner', 'a cosigner listed twice counts twice', [["throw new TypeError('a key is listed twice')", '{}']]],
+  ['same-key-two-names', 'one key configured under two cosigner names counts twice', [[' || out[j].key === out[i].key', '']]],
+  ['js-whitespace-names', "key names use JavaScript's \\s, which misses U+0085", [['const NAME = /^[^\\p{White_Space}+', 'const NAME = /^[^\\s+']]],
   ['leading-zeros', 'a size with leading zeros is accepted', [['const DECIMAL = /^(?:0|[1-9][0-9]*)$/', 'const DECIMAL = /^[0-9]+$/']]],
 ]
 
@@ -76,7 +78,7 @@ test('note broken twins', { timeout: 600_000 }, async (t) => {
     })
 
     const jobs = TWINS.map(([name, why, edits]) => [name, why, generate(name, edits)])
-    assert.equal(jobs.length, 13, 'twin count')
+    assert.equal(jobs.length, 15, 'twin count')
     const results = []
     const queue = [...jobs]
     const workers = Math.max(1, Math.floor(availableParallelism() / 4))

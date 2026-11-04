@@ -457,11 +457,13 @@ is the text of the newest head the relying party has accepted for the identity, 
   log's entry is its UTF-8 bytes. `verifyReceipt({ receipt, checkpoint, proof, index, claim? }, ctx)` checks, in
   order: V4's reasons; `receipt-shape` (keys other than the five, an id not 64 lowercase hex, `service` not a
   canonical origin (O1), `at` not a non-negative integer, or `sig` not as above); `service` (the key is not one the
-  caller pins for that origin, or its window does not hold `at`); K5's signature reasons; `checkpoint` (the
-  checkpoint does not verify under the caller's log configuration, with at least one cosigner); `inclusion` (the
-  entry is not at `index` in the checkpoint's tree); `receipt-time` (`at` is later than the quorum's time plus
-  `skew`: a receipt cannot be accepted after it was logged); `claim` (a claim is given and its record id is not
-  `claim`). It returns `{ service, identity, delegation, claim, at, existedBy }`, where `existedBy` is the
+  caller pins for that origin); K5's signature reasons; `checkpoint` (the checkpoint does not verify under the
+  caller's log configuration, with at least one cosigner); `inclusion` (the entry is not at `index` in the
+  checkpoint's tree); `receipt-time` (`at` is later than the quorum's time plus `skew`: a receipt cannot be accepted
+  after it was logged); `service` (no pinned window for that key holds both `at` and the quorum's time, less
+  `skew`: a retired key cannot mint receipts by backdating); `claim` (a claim is given and its record id is not
+  `claim`, or it was made under another delegation). Within a key's window `at` is the service's word, bounded
+  above by the quorum's time. It returns `{ service, identity, delegation, claim, at, existedBy }`, where `existedBy` is the
   quorum-th earliest cosignature time: unless the quorum lies, the receipt existed by then. A receipt is the
   service's statement, trusted as far as the caller trusts that service; it is not the identity owner's
   endorsement (§10).

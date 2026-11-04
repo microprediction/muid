@@ -22,7 +22,8 @@ const COSIGNATURE = 0x04
 const MAX_NOTE = 65536 // characters
 const MAX_SIGNATURES = 64 // C2SP signed-note: at least 16
 const CONTROL = /[\u0000-\u0009\u000b-\u001f]/ // eslint-disable-line no-control-regex
-const NAME = /^[^\s+\u0000-\u001f]+$/u // eslint-disable-line no-control-regex
+// No Unicode White_Space (as Go's unicode.IsSpace; JavaScript's \s differs at U+0085 and U+FEFF), plus or control.
+const NAME = /^[^\p{White_Space}+\u0000-\u001f]+$/u // eslint-disable-line no-control-regex
 const LINE = /^— ([^ ]+) ([A-Za-z0-9+/=]+)$/
 const BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/
 const DECIMAL = /^(?:0|[1-9][0-9]*)$/
@@ -134,7 +135,8 @@ function signatures (p, keys) {
   return { at, time }
 }
 
-// Verifier keys of one type, none listed twice: a repeated cosigner would otherwise count twice towards a quorum.
+// Verifier keys of one type, none listed twice, by name and ID or by public key: an Ed25519 cosignature does not
+// commit to its cosigner's name, so one key under two names would otherwise count twice towards a quorum.
 function keyList (list, type) {
   if (!isArray(list)) throw new TypeError('keys must be a list of verifier keys')
   // Stryker disable next-line ArrayDeclaration: equivalent; every element is assigned below
@@ -142,7 +144,7 @@ function keyList (list, type) {
   for (let i = 0; i < list.length; i++) {
     out[i] = vkey(list[i], type)
     // Stryker disable next-line ConditionalExpression: equivalent for the name; equal IDs under different names would need a SHA-256 collision
-    for (let j = 0; j < i; j++) if (out[j].name === out[i].name && out[j].id === out[i].id) throw new TypeError('a key is listed twice')
+    for (let j = 0; j < i; j++) if ((out[j].name === out[i].name && out[j].id === out[i].id) || out[j].key === out[i].key) throw new TypeError('a key is listed twice')
   }
   return out
 }
