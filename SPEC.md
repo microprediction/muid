@@ -616,8 +616,9 @@ reputation layer.
 
 ## 11. Budget
 
-Trusted core ≤ 1,800 lines, so that it stays reviewable in one sitting. The budget is raised deliberately when
-clarity needs it, and never met by compressing comments.
+Trusted core ≤ 2,000 lines, so that it stays reviewable in one sitting. The budget is raised deliberately when
+clarity needs it, and never met by compressing comments. It was raised from 1,800 for the transparency-log checks
+(`src/merkle.js`, `src/note.js`), whose adoption is to delete decision 10's rule.
 
 ## 12. Automated assurance
 

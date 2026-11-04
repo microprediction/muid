@@ -118,6 +118,14 @@ vectors but one, a pinned difference (it requires 32-byte hashes where upstream 
 length). Checking it found one precondition that is not redundant: without `size1 > size2` refused, a genuine proof
 from 6 to 11 also verifies from 11 to 6. Trees up to 2^53 − 1 entries are tested with identical leaves.
 
+`src/note.js` (204 lines) implements §2's step 1: C2SP signed notes with Ed25519 log signatures and timestamped
+Ed25519 cosignatures, checkpoints with a configured origin, and a k-of-n cosigner quorum whose times are returned.
+Keys are configured as standard verifier keys. It verifies the Go checksum database's live checkpoint under the key
+published in Go's source, matches Go's note-package vectors with one pinned difference (a repeated line from one key
+is refused, where Go skips it; the checkpoint format forbids such lines), and is at 100% coverage and mutation score
+with thirteen broken twins. Deviations kept: extension lines are refused; a cosignature time of 2^53 or more cannot
+be checked and is refused; signature lines are capped at 64 and notes at 65,536 characters.
+
 ## 9. Order of work (approved 2026-11-04: integration first)
 
 The owner approved judging progress by a working integration: a minimal witness (log, heads, receipts,

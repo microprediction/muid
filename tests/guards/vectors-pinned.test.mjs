@@ -18,7 +18,7 @@ function listFiles (dir) {
 const sets = readdirSync(ROOT).filter((name) => statSync(join(ROOT, name)).isDirectory()).sort()
 
 test('the vector sets are the expected ones', () => {
-  assert.deepEqual(sets, ['cavp-sha256', 'ed25519-speccheck', 'jcs', 'rfc8032', 'tlog-merkle', 'webauthn-l3', 'wycheproof'])
+  assert.deepEqual(sets, ['c2sp-note', 'cavp-sha256', 'ed25519-speccheck', 'jcs', 'rfc8032', 'tlog-merkle', 'webauthn-l3', 'wycheproof'])
 })
 
 for (const set of sets) {
