@@ -27,8 +27,9 @@ const TWINS = [
   ['inclusion-skipped', 'a receipt need not be in the log', [["root: fromHex(cp.root) })) return refuse('inclusion')", "root: fromHex(cp.root) })) {}"]]],
   ['checkpoint-ignored', "the checkpoint's verdict is ignored", [["  if (!cp.ok) return refuse('checkpoint')\n", '']]],
   ['latest-time', 'existedBy is the latest cosignature, which one cosigner alone controls', [['cp.times[c.quorum - 1]', 'cp.times[cp.times.length - 1]']]],
-  ['time-unchecked', 'a receipt may claim acceptance after it was logged', [["  if (b.at > existedBy + c.skew) return refuse('receipt-time')\n", '']]],
-  ['quorum-zero', 'receipts are accepted with no time from outside the service', [["  if (log.quorum < 1) throw", "  if (false) throw"]]],
+  ['time-unchecked', 'a receipt may claim acceptance after it was logged', [['b.at > existedBy + c.skew || ', '']]],
+  ['future-receipt', 'a receipt dated after now is accepted', [[' || b.at > c.now + c.skew) return refuse', ') return refuse']]],
+  ['quorum-zero', 'receipts are accepted with no time from outside the service', [["  if (quorum < 1) throw", "  if (false) throw"]]],
   ['claim-unchecked', 'a given claim is not compared with the one named', [["    if (named.id !== b.claim || named.body.delegation !== b.delegation) return refuse('claim')\n", '']]],
   ['claim-delegation-unchecked', 'a given claim under another delegation is accepted', [[' || named.body.delegation !== b.delegation', '']]],
 ]
@@ -74,7 +75,7 @@ test('receipt broken twins', { timeout: 600_000 }, async (t) => {
     })
 
     const jobs = TWINS.map(([name, why, edits]) => [name, why, generate(name, edits)])
-    assert.equal(jobs.length, 12, 'twin count')
+    assert.equal(jobs.length, 13, 'twin count')
     const results = []
     const queue = [...jobs]
     const workers = Math.max(1, Math.floor(availableParallelism() / 4))

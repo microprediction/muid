@@ -145,7 +145,7 @@ test('configuration errors are programming errors', () => {
     ['a service origin not canonical', { ...CTX, services: [{ origin: SERVICE + '/', key: SERVICE_KEY, nbf: 0, exp: 1 }] }, /services/],
     ['a negative window', { ...CTX, services: [{ origin: SERVICE, key: SERVICE_KEY, nbf: -1, exp: 1 }] }, /services/],
     ['a null service', { ...CTX, services: [null] }, /services/], ['a string service', { ...CTX, services: ['x'] }, /services/],
-    ['no log', { ...CTX, log: undefined }, /log/], ['a null log', { ...CTX, log: null }, /log configuration/],
+    ['no log', { ...CTX, log: undefined }, /log configuration/], ['a null log', { ...CTX, log: null }, /log configuration/],
     ['a malformed log key', { ...CTX, log: { ...CTX.log, log: 'x' } }, /verifier key/], ['no now', { ...CTX, now: undefined }, /now and skew/],
   ]) {
     assert.throws(() => verifyReceipt(g, ctx), (e) => e instanceof TypeError && message.test(e.message), name)
@@ -167,4 +167,20 @@ test('a foreign error from opening (patched built-ins in the hash library) fails
   let out
   try { out = plain(verifyReceipt(presented, CTX)) } catch (e) { out = { threw: String(e) } } finally { Uint8Array.prototype.fill = original }
   assert.deepEqual(out, refused('envelope-encoding'))
+})
+
+// Found by review: nothing compared a receipt's time with now; within skew is allowed, as everywhere else.
+test('receipt-time: a receipt dated later than now plus skew is refused', () => {
+  const future = (at) => verifyReceipt(given(receiptText({ ...BODY, at }), 2, [NOW + 60, NOW + 60]), CTX)
+  assert.equal(future(NOW + 60).ok, true)
+  assert.deepEqual(plain(future(NOW + 61)), refused('receipt-time'))
+})
+
+// Found by review: the log configuration's fields were read more than once, so a getter could change the quorum
+// between the check and its use.
+test('the log configuration is read once', () => {
+  const reads = {}
+  const log = new Proxy({ ...CTX.log }, { get (t, k) { reads[k] = (reads[k] ?? 0) + 1; return t[k] } })
+  assert.equal(verifyReceipt(given(), { ...CTX, log }).ok, true)
+  for (const k of ['origin', 'log', 'cosigners', 'quorum']) assert.equal(reads[k], 1, k)
 })

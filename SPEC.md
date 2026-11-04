@@ -459,8 +459,8 @@ is the text of the newest head the relying party has accepted for the identity, 
   canonical origin (O1), `at` not a non-negative integer, or `sig` not as above); `service` (the key is not one the
   caller pins for that origin); K5's signature reasons; `checkpoint` (the checkpoint does not verify under the
   caller's log configuration, with at least one cosigner); `inclusion` (the entry is not at `index` in the
-  checkpoint's tree); `receipt-time` (`at` is later than the quorum's time plus `skew`: a receipt cannot be accepted
-  after it was logged); `service` (no pinned window for that key holds both `at` and the quorum's time, less
+  checkpoint's tree); `receipt-time` (`at` is later than the quorum's time, or than `now`, plus `skew`: a receipt
+  cannot be accepted after it was logged, nor in the future); `service` (no pinned window for that key holds both `at` and the quorum's time, less
   `skew`: a retired key cannot mint receipts by backdating); `claim` (a claim is given and its record id is not
   `claim`, or it was made under another delegation). Within a key's window `at` is the service's word, bounded
   above by the quorum's time. A receipt is therefore kept with the checkpoint and proof obtained when it was logged,

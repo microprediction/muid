@@ -33,11 +33,12 @@ function readContext (ctx) {
     pinned[i] = { origin, key, nbf, exp }
   }
   if (typeof log !== 'object' || log === null) throw new TypeError('context must hold the log configuration')
-  const checkpoint = { origin: log.origin, log: log.log, cosigners: log.cosigners, quorum: log.quorum, now, skew }
+  const { origin, log: key, cosigners, quorum } = log // each read once
+  const checkpoint = { origin, log: key, cosigners, quorum, now, skew }
   // Stryker disable next-line StringLiteral: equivalent; any note serves, since only the configuration is checked
   verifyCheckpoint('', checkpoint) // throws for a malformed configuration
-  if (log.quorum < 1) throw new TypeError('a receipt needs at least one cosigner: its time must come from outside the service')
-  return { pinned, checkpoint, quorum: log.quorum, skew }
+  if (quorum < 1) throw new TypeError('a receipt needs at least one cosigner: its time must come from outside the service')
+  return { pinned, checkpoint, quorum, now, skew }
 }
 
 // { receipt, checkpoint, proof, index, claim? }: the receipt's envelope text, a checkpoint of the log holding it, the
@@ -74,7 +75,7 @@ export function verifyReceipt (given, ctx) {
   const entry = leafHash(apply(encodeText, UTF8, [receipt]))
   if (!verifyInclusion({ leafHash: entry, index, size: cp.size, proof, root: fromHex(cp.root) })) return refuse('inclusion')
   const existedBy = cp.times[c.quorum - 1] // the quorum-th earliest: unless the quorum lies, logged by then
-  if (b.at > existedBy + c.skew) return refuse('receipt-time')
+  if (b.at > existedBy + c.skew || b.at > c.now + c.skew) return refuse('receipt-time')
   // That window also holds, within skew, the time the receipt was logged by: a retired key cannot backdate.
   if (existedBy > exp + c.skew) return refuse('service')
   if (claim !== undefined) {
