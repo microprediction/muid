@@ -167,8 +167,9 @@ function checkpointConfig (ctx) {
   if (typeof ctx !== 'object' || ctx === null) throw new TypeError('context must be an object')
   const { origin, log, cosigners, quorum, now, skew } = ctx
   if (typeof origin !== 'string' || origin === '') throw new TypeError('context must hold the log origin')
-  // The log's key cannot share a key ID with a cosigner's: the ID covers the signature type.
+  // Nor may a cosigner's key be the log's own, under another type: the log alone could then meet the quorum.
   const keys = [vkey(log, LOG), ...keyList(cosigners, COSIGNATURE)]
+  for (let i = 1; i < keys.length; i++) if (keys[i].key === keys[0].key) throw new TypeError('a key is listed twice')
   if (!isSafeInteger(quorum) || quorum < 0 || quorum > keys.length - 1) throw new TypeError('quorum must be 0 to the number of cosigners')
   if (!isSafeInteger(now) || now < 0 || !isSafeInteger(skew) || skew < 0) throw new TypeError('context must hold non-negative now and skew')
   return { origin, keys, quorum, now, skew }

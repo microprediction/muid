@@ -463,7 +463,8 @@ is the text of the newest head the relying party has accepted for the identity, 
   after it was logged); `service` (no pinned window for that key holds both `at` and the quorum's time, less
   `skew`: a retired key cannot mint receipts by backdating); `claim` (a claim is given and its record id is not
   `claim`, or it was made under another delegation). Within a key's window `at` is the service's word, bounded
-  above by the quorum's time. It returns `{ service, identity, delegation, claim, at, existedBy }`, where `existedBy` is the
+  above by the quorum's time. A receipt is therefore kept with the checkpoint and proof obtained when it was logged,
+  as a Sigstore bundle keeps its own: a checkpoint cosigned after the service key retired cannot vouch for it. It returns `{ service, identity, delegation, claim, at, existedBy }`, where `existedBy` is the
   quorum-th earliest cosignature time: unless the quorum lies, the receipt existed by then. A receipt is the
   service's statement, trusted as far as the caller trusts that service; it is not the identity owner's
   endorsement (§10).

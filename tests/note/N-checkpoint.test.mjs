@@ -195,3 +195,11 @@ test('two different keys with the same name and key ID are a programming error',
   assert.notEqual(a, b)
   assert.throws(() => verifyCheckpoint(signed(), { ...CTX, cosigners: [a, b], quorum: 0 }), /listed twice/)
 })
+
+// Found by review: the log's own key as a cosigner would let the log alone meet the quorum, with any time it chose.
+// C2SP signed-note: one public key should not serve two signature types.
+test("the log's own public key as a cosigner is a programming error", () => {
+  const asCosigner = keyPair(ORIGIN, 4, 1) // the seed of LOG: its key, as a type 0x04 cosigner
+  assert.equal(Buffer.from(asCosigner.pub).equals(Buffer.from(LOG.pub)), true)
+  assert.throws(() => verifyCheckpoint(signed(), { ...CTX, cosigners: [asCosigner.vkey, C[1].vkey] }), /listed twice/)
+})
