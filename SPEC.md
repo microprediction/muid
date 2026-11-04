@@ -504,15 +504,18 @@ test fails the build on any direct `indexedDB` or `localStorage` use outside the
 
 **Relying-party adapter (`adapter/`, not core).** The verifier is pure; the state a relying party keeps around it is
 replay and head memory, and the adapter makes both atomic with the established mechanism for each. `acceptClaim`
-reads the presented records once, then in one store transaction verifies them against the identity's last head as
-it stands there, advances that head, and consumes the claim id; only then does it run the protected action, once.
+reads the presented records and the call's fields once, refuses before any transaction whatever the verifier refuses
+without memory (so refused requests never wait for or hold the lock), then in one store transaction verifies them
+against the identity's last head as it stands there, advances that head, and consumes the claim id; only then does it run the protected action, once.
 Consumption is an insert-if-absent (a unique key, as DPoP's `jti` store), the head moves only to a later `at` (a
 conditional update, as TUF's stored metadata), and the transaction serialises requests (`BEGIN IMMEDIATE` for the
 database store, which holds its write lock for one verification), so of any number of instances receiving one claim
 exactly one runs the action, and none is verified against memory another has since moved on. A stored head the
 verifier can no longer read (corrupt, or signed by a witness key since removed from the configuration) still
 bounds rollback: its stored time becomes `minHeadAt`. Storage that fails is refused as `storage`, and the action does
-not run; an action that fails leaves its claim consumed, and the delegate makes a new claim. `memoryStore` serves one
+not run; an action that fails leaves its claim consumed, and the delegate makes a new claim. A claim id is kept a
+grace period past its `until` (60 s by default; set it to the largest clock difference between instances), so an
+instance whose clock is behind the one that expired it still refuses the replay. `memoryStore` serves one
 process; `sqliteStore` serves processes sharing one database file. Tests: a race of eight instances on one file,
 a transaction held behind one that revokes, restart, rollback, storage failure, corrupt storage, a witness key
 rotation and the expiry boundary.

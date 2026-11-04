@@ -32,7 +32,11 @@ const TWINS = [
   ['time-floor-ignored', "an unreadable stored head's time is not kept as a floor", 'relying-party.js',
     [['      return verifier[method](given, { ...call, minHeadAt: Math.max(call.minHeadAt ?? 0, stored.at) })', '      return verifier[method](given, call)']]],
   ['records-read-twice', 'the head is read again from the presented records', 'relying-party.js',
-    [['const fields = headFields(given?.head)', 'const fields = headFields(records?.head)']]],
+    [["const fields = open(given.head, 'head').body", "const fields = open(records.head, 'head').body"]]],
+  ['call-spread', "the call is copied with a spread, dropping inherited fields", 'relying-party.js', [['const call = readCall(rawCall)', 'const call = { ...rawCall }']]],
+  ['no-precheck', 'refused records still take the transaction', 'relying-party.js', [['    if (!pre.ok) return refusal(pre.reason)\n', '']]],
+  ['memory-no-grace', 'the memory store expires claim ids at until', 'stores.js', [['if (until + grace <= now) consumed.delete(id)', 'if (until <= now) consumed.delete(id)']]],
+  ['sqlite-no-grace', 'the database store expires claim ids at until', 'stores.js', [['remove.run(now - grace)', 'remove.run(now)']]],
   ['memory-head-regresses', 'the memory store replaces a head with an older one', 'stores.js', [['if (old === undefined || at > old.at) heads.set', 'heads.set']]],
   ['sqlite-head-regresses', 'the database store replaces a head with an older one', 'stores.js', [[' WHERE excluded.at > heads.at', '']]],
 ]
@@ -81,7 +85,7 @@ test('adapter broken twins', { timeout: 900_000 }, async (t) => {
       assert.ok(r.pass >= 20, `control: only ${r.pass} tests ran`)
     })
     const jobs = TWINS.map(([name, why, file, edits]) => [name, why, generate(name, file, edits)])
-    assert.equal(jobs.length, 10, 'twin count')
+    assert.equal(jobs.length, 14, 'twin count')
     const results = []
     const queue = [...jobs]
     const workers = Math.max(1, Math.floor(availableParallelism() / 4))

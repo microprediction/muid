@@ -201,9 +201,9 @@ for (const [name, open] of [['memory', () => memoryStore()], ['sqlite', () => sq
     assert.equal(await consume('a', 10), true)
     assert.equal(await consume('a', 10), false)
     await consume('b', 11)
-    await s.expire(9)
+    await s.expire(9 + 60) // the default grace: 60 s past until
     assert.deepEqual([await consume('a', 10), await consume('b', 11)], [false, false], 'nothing before its until')
-    await s.expire(10)
+    await s.expire(10 + 60)
     assert.deepEqual([await consume('a', 10), await consume('b', 11)], [true, false], 'a at its until, b not yet')
     await s.transaction((tx) => tx.advanceHead('i', 'first', 5))
     await s.transaction((tx) => tx.advanceHead('i', 'second', 5))
@@ -236,4 +236,52 @@ test('sqlite store: a transaction that fails is rolled back', async () => {
   assert.equal(await s.lastHead('i'), undefined)
   assert.equal(await s.transaction((tx) => tx.consume('c', 9)), true, 'the claim was not consumed')
   s.close()
+})
+
+// Found by review: an instance whose clock is behind another's (within skew) could accept a claim the other had already
+// expired. Claim ids are kept a grace period past `until`: 60 s by default, a deployment's largest clock difference.
+for (const [name, open] of [['memory', (o) => memoryStore(o)], ['sqlite', (o) => sqliteStore(join(tmp(), 'rp.db'), o)]]) {
+  test(`${name}: claim ids are kept a grace period past until, so a slower clock cannot replay one`, async () => {
+    const store = open()
+    const b = relyingParty({ verifier: verifier(), store })
+    const r = await b.acceptClaim(records(), CALL, () => 1)
+    await store.expire(r.until + 6) // another instance, 6 s ahead
+    assert.deepEqual(await b.acceptClaim(records(), { ...CALL, now: r.until - 10 }, () => 1), refused('replay'))
+    const consume = (id, until) => store.transaction((tx) => tx.consume(id, until))
+    await store.expire(r.until + 59)
+    assert.equal(await consume(r.id, r.until), false, 'kept until until + 60')
+    await store.expire(r.until + 60)
+    assert.equal(await consume(r.id, r.until), true, 'removed at until + 60')
+    const strict = open({ grace: 0 })
+    await strict.transaction((tx) => tx.consume('x', 10))
+    await strict.expire(10)
+    assert.equal(await strict.transaction((tx) => tx.consume('x', 10)), true, 'grace 0: removed at until')
+  })
+}
+
+// Found by review: the call's fields were copied with a spread, which drops inherited ones; now read once.
+test('call fields are read once, including inherited ones', async () => {
+  const store = memoryStore()
+  const rp = relyingParty({ verifier: verifier(), store })
+  assert.equal((await rp.acceptClaim(records(claim(NOW - 5, 'a'), head(NOW - 100)), CALL, () => 1)).ok, true)
+  const inherited = Object.assign(Object.create({ minHeadAt: NOW - 50 }), CALL)
+  assert.deepEqual(await rp.acceptClaim(records(claim(NOW - 4, 'b'), head(NOW - 80)), inherited, () => 1), refused('stale'))
+  const reads = {}
+  const counting = new Proxy({ ...CALL }, { get (t, k) { reads[k] = (reads[k] ?? 0) + 1; return t[k] } })
+  await rp.acceptClaim(records(claim(NOW - 3, 'c'), head(NOW - 70)), counting, () => 1)
+  for (const k of ['now', 'scope', 'request', 'revoked', 'minHeadAt']) assert.equal(reads[k], 1, k)
+  await assert.rejects(rp.acceptClaim(records(), null, () => 1), TypeError)
+})
+
+// Found by review: every request whose head parsed held the database lock for a full verification. Records the
+// verifier refuses without memory are refused before the transaction.
+test('a request refused without memory never takes the transaction', async () => {
+  const base = memoryStore()
+  let transactions = 0
+  const store = { ...base, transaction: (fn) => { transactions++; return base.transaction(fn) } }
+  const rp = relyingParty({ verifier: verifier(), store })
+  assert.deepEqual(await rp.acceptClaim(records(), { ...CALL, scope: 'read' }, () => 1), refused('claim-scope'))
+  assert.equal(transactions, 0)
+  assert.equal((await rp.acceptClaim(records(), CALL, () => 1)).ok, true)
+  assert.equal(transactions, 1)
 })

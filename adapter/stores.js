@@ -4,8 +4,11 @@
 // a serialising transaction), not read-then-write in the adapter.
 import { DatabaseSync } from 'node:sqlite'
 
+// A claim id is kept `grace` seconds past its `until`, so an instance whose clock is behind the one expiring it (by
+// up to the verifier's skew) still refuses a replay. 60 s by default: set it to the largest clock difference allowed.
+
 // One process: JavaScript runs fn to completion, with no await inside it.
-export function memoryStore () {
+export function memoryStore ({ grace = 60 } = {}) {
   const consumed = new Map()
   const heads = new Map()
   const tx = {
@@ -24,14 +27,14 @@ export function memoryStore () {
     async lastHead (identity) { return tx.lastHead(identity) },
     async transaction (fn) { return fn(tx) },
     async expire (now) {
-      for (const [id, until] of consumed) if (until <= now) consumed.delete(id)
+      for (const [id, until] of consumed) if (until + grace <= now) consumed.delete(id)
     },
   }
 }
 
 // Several processes or threads sharing one SQLite file: BEGIN IMMEDIATE takes the write lock, so transactions run
 // one at a time across them; WAL and a busy timeout let each wait for the others.
-export function sqliteStore (file) {
+export function sqliteStore (file, { grace = 60 } = {}) {
   const db = new DatabaseSync(file)
   db.exec(`PRAGMA busy_timeout = 10000; PRAGMA journal_mode = WAL;
     CREATE TABLE IF NOT EXISTS consumed (id TEXT PRIMARY KEY, until INTEGER NOT NULL);
@@ -63,7 +66,7 @@ export function sqliteStore (file) {
         throw e
       }
     },
-    async expire (now) { remove.run(now) },
+    async expire (now) { remove.run(now - grace) },
     close () { db.close() },
   }
 }

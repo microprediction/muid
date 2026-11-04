@@ -11,6 +11,13 @@ import { open } from '../src/envelope.js'
 
 const refusal = (reason) => Object.freeze({ ok: false, reason })
 
+// The call's fields, each read once (inherited ones too, as the verifier reads them), into a plain object to which
+// the adapter adds what it remembers. A call that is not an object is a programming error.
+function readCall (call) {
+  const { now, scope, request, revoked, minHeadAt } = call
+  return { now, scope, request, revoked, minHeadAt }
+}
+
 // The presented records, each read once: what is verified is what is remembered. Undefined if reading throws.
 function readGiven (given) {
   try {
@@ -20,38 +27,30 @@ function readGiven (given) {
   return undefined
 }
 
-// The identity and time a presented head claims, for looking up and advancing the memory. Unverified until the
-// verifier accepts the records; undefined if the head cannot be read.
-function headFields (text) {
-  try {
-    const { identity, at } = open(text, 'head').body
-    if (typeof identity === 'string' && Number.isSafeInteger(at)) return { identity, at }
-  } catch { /* unreadable: not looked up */ }
-  return undefined
-}
-
 export function relyingParty ({ verifier, store }) {
   // Verify against the remembered { head, at }, if any. A stored head the verifier cannot read (corrupt, or signed
   // by a witness key since removed from its configuration) still bounds rollback: its time becomes minHeadAt. A
-  // malformed call throws without the stored head too, and that programming error propagates, as does anything the
-  // verifier throws other than a TypeError.
+  // malformed call has already thrown in the check before the transaction; anything the verifier throws other than a
+  // TypeError propagates.
   function verifyWith (method, given, call, stored) {
     if (stored === undefined) return verifier[method](given, call)
     try {
       return verifier[method](given, { ...call, lastHead: stored.head })
     } catch (e) {
       if (!(e instanceof TypeError)) throw e
-      verifier[method](given, call)
       if (!Number.isSafeInteger(stored.at) || stored.at < 0) return refusal('storage')
       return verifier[method](given, { ...call, minHeadAt: Math.max(call.minHeadAt ?? 0, stored.at) }) // call checked above
     }
   }
 
-  async function accept (method, records, call) {
+  async function accept (method, records, rawCall) {
+    const call = readCall(rawCall)
     const given = readGiven(records)
-    const fields = headFields(given?.head)
-    // A head that cannot be read has no memory to consult, and the verifier refuses it.
-    if (fields === undefined) return refusal(verifier[method](given, call).reason)
+    // Records refused without memory are refused before the transaction, so they never wait for or hold its lock.
+    // Memory only adds refusals; what passes here is verified again inside, against the memory as it stands there.
+    const pre = verifier[method](given, call)
+    if (!pre.ok) return refusal(pre.reason)
+    const fields = open(given.head, 'head').body // { identity, at }: a head the verifier has just accepted
     let outcome
     try {
       outcome = await store.transaction((tx) => {
