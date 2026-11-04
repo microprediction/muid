@@ -12,6 +12,7 @@ Background research behind the draft spec in [`../SPEC.md`](../SPEC.md). Sources
 | [oidc-witness.md](oidc-witness.md) | Binding provider accounts to keys (Fulcio, DPoP, PKCE, nonce), GitHub/Google/ORCID identifiers, device flow |
 | [witness.md](witness.md) | Witness equivocation and backdating in CT, checksum databases, KERI, key transparency, did:plc; revocation lag; several witnesses |
 | [prior-art.md](prior-art.md) | The established mechanism behind each rule (TUF, KERI, did:plc, Delay/Candide/Argent, KEYTRANS, C2SP, UCAN, DPoP, Fulcio), and each deviation kept |
+| [witness-tlog.md](witness-tlog.md) | Proposal: the witness as a C2SP transparency log, with checkpoints, inclusion and consistency proofs and cosigners |
 | [assurance.md](assurance.md) | Mutation testing, property testing, fuzzing, linters, known-answer vectors, supply chain, anti-vacuity |
 
 ## Structure of each topic file

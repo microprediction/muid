@@ -167,7 +167,7 @@ Research: [`encoding.md`](research/encoding.md).
 - **V1 VERSION:** `v` must equal 1. Any other value is rejected.
 - **V2 TYPE:** the verifier is told which `type` it expects; a mismatch is rejected. Types form a closed list:
   `root`, `delegation`, `attestation`, `membership`, `freeze`, `contest`, `anchor`, `settlement`, `head`, `claim`,
-  `revocation`. Asking
+  `revocation`, `receipt`. Asking
   for any other type is a programming error, not a reject.
 - **V3 ONE ALGORITHM PER TYPE:** the record type fixes the signature algorithm and the signer's role. Nothing in the
   record selects either.
@@ -459,6 +459,25 @@ is the text of the newest head the relying party has accepted for the identity, 
   so a store shared by every instance serving the audience keeps the id while `now < until`. A call whose `request`
   is not a string is a programming error. Every claim costs the full F5 check before its own signature; a relying
   party under load can rate-limit by delegation id. `data` is decoded data: frozen, with null prototypes.
+- **C2 RECEIPTS (proposal; research/witness-tlog.md §5a):** a claim proves authority only while its delegation is
+  live. A **receipt** `{ service, identity, delegation, claim, at }` makes an accepted claim attributable after that:
+  signed by the receiving service's Ed25519 key (`sig = { signature, service }`, `service` that key in hex), it states
+  that the service at origin `service` accepted the claim with record id `claim`, made under `delegation` for
+  `identity`, at the service's time `at`. The service appends the receipt's envelope text to a transparency log; the
+  log's entry is its UTF-8 bytes. `verifyReceipt({ receipt, checkpoint, proof, index, claim? }, ctx)` checks, in
+  order: V4's reasons; `receipt-shape` (keys other than the five, an id not 64 lowercase hex, `service` not a
+  canonical origin (O1), `at` not a non-negative integer, or `sig` not as above); `service` (the key is not one the
+  caller pins for that origin); K5's signature reasons; `checkpoint` (the checkpoint does not verify under the
+  caller's log configuration, with at least one cosigner); `inclusion` (the entry is not at `index` in the
+  checkpoint's tree); `receipt-time` (`at` is later than the quorum's time, or than `now`, plus `skew`: a receipt
+  cannot be accepted after it was logged, nor in the future); `service` (no pinned window for that key holds both `at` and the quorum's time, less
+  `skew`: a retired key cannot mint receipts by backdating); `claim` (a claim is given and its record id is not
+  `claim`, or it was made under another delegation). Within a key's window `at` is the service's word, bounded
+  above by the quorum's time. A receipt is therefore kept with the checkpoint and proof obtained when it was logged,
+  as a Sigstore bundle keeps its own: a checkpoint cosigned after the service key retired cannot vouch for it. It returns `{ service, identity, delegation, claim, at, existedBy }`, where `existedBy` is the
+  quorum-th earliest cosignature time: unless the quorum lies, the receipt existed by then. A receipt is the
+  service's statement, trusted as far as the caller trusts that service; it is not the identity owner's
+  endorsement (§10).
 
 The verifier needs no membership records: the head carries their result. The witness makes the head (R9); a delegate
 fetches a fresh one and presents it with its requests, as OCSP stapling does.
@@ -603,20 +622,22 @@ test fails the build on any direct `indexedDB` or `localStorage` use outside the
    A witness key is retired by its window, never removed from `witnessKeys` while a relying party may hold a last
    head it signed (that head would become a programming error). Bounding backdated anchors needs time from outside the witness: a public log with at least one outside
    cosigner, the contest window starting at the cosigned time of the first checkpoint that includes the anchor.
-11. **Freezes by incoming roots — open.** R2 lets any root of a pending record, new ones included, freeze it. None
-   of the established systems ([`prior-art.md`](research/prior-art.md)) lets an incoming key lock anything. The case
-   for it: an owner whose new device sees an unexpected change can stop it. The case against: a root that has never
-   held authority can freeze a change it was added by. Recommendation: keep it, since a freeze only removes trust,
-   and pin the reason here; or limit a pending record's freeze to the roots of its `prev`.
-12. **Retaining subject-key revocations — open.** `exp − nbf` is bounded, but `nbf` is not, so a delegation signed
-   today may become valid long after it was signed. A witness that drops a subject-key revocation once the
-   delegations it knows of expire can therefore drop it too early: it may not know every delegation to that key.
-   Options: (a) keep a subject-key revocation for as long as the membership current when it was revoked, or its
-   pending successor, has authority, since R6 refuses every delegation under a membership that has neither, and a
-   delegation under a later membership is a new signature by a root the owner kept; (b) keep it until the identity
-   ends, failing closed at the 64-entry cap (R9); (c) have the witness log every delegation it learns of, as
-   certificate transparency logs every certificate, and accept only logged ones, so the witness knows them all.
-   Recommendation: (a) now, and (c) with the transparency log. No witness drops a revocation before this is decided.
+11. **Freezes by incoming roots — decided: kept.** R2 lets any root of a pending record, new ones included, freeze it.
+   None of the established systems ([`prior-art.md`](research/prior-art.md)) lets an incoming key lock anything. It is
+   kept because a freeze only removes trust: it stops a change, never makes one, so the worst an incoming root can do
+   is hold up the change that added it, and the owner who added it can supersede that change. In return an owner whose
+   new device sees an unexpected change can stop it. The alternative, limiting a pending record's freeze to the roots
+   of its `prev`, stays available if a case against this appears.
+12. **Retaining subject-key revocations — decided: (a) now, (c) with the transparency log.** `exp − nbf` is
+   bounded, but `nbf` is not, so a delegation signed today may become valid long after it was signed. A witness that
+   drops a subject-key revocation once the delegations it knows of expire can therefore drop it too early: it may not
+   know every delegation to that key. (a) The witness keeps a subject-key revocation for as long as the membership
+   current when it was revoked, or its pending successor, has authority: R6 refuses every delegation under a
+   membership that has neither, and a delegation under a later membership is a new signature by a root the owner
+   kept. (c) Once the witness is a transparency log, it logs every delegation it learns of, as certificate
+   transparency logs every certificate, and relying parties may require a delegation to be logged, so the witness
+   knows them all. The rejected option, (b), keeps every revocation until the identity ends and fails closed at the
+   64-entry cap (R9).
 
 ## 10. What the reputation layer consumes (not core)
 
@@ -647,8 +668,9 @@ reputation layer.
 
 ## 11. Budget
 
-Trusted core ≤ 1,800 lines, so that it stays reviewable in one sitting. The budget is raised deliberately when
-clarity needs it, and never met by compressing comments.
+Trusted core ≤ 2,000 lines, so that it stays reviewable in one sitting. The budget is raised deliberately when
+clarity needs it, and never met by compressing comments. It was raised from 1,800 for the transparency-log checks
+(`src/merkle.js`, `src/note.js`), whose adoption is to delete decision 10's rule.
 
 ## 12. Automated assurance
 

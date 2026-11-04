@@ -52,6 +52,9 @@ jobs:
           - encoding-twins.test.mjs
           - envelope-twins.test.mjs
           - membership-twins.test.mjs
+          - merkle-twins.test.mjs
+          - note-twins.test.mjs
+          - receipt-twins.test.mjs
           - origin-twins.test.mjs
           - p256-twins.test.mjs
           - root-twins.test.mjs
@@ -78,6 +81,9 @@ jobs:
           - stryker.envelope.config.json
           - stryker.ed25519.config.json
           - stryker.p256.config.json
+          - stryker.merkle.config.json
+          - stryker.note.config.json
+          - stryker.receipt.config.json
           - stryker.assertion.config.json
           - stryker.origin.config.json
           - stryker.delegation.config.json
