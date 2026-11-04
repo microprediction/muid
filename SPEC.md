@@ -502,6 +502,17 @@ Research: [`webauthn.md`](research/webauthn.md).
 `get(key)` returns `{ value }` or `{ absent: true }`, or throws. A failed read is never reported as absence. A guard
 test fails the build on any direct `indexedDB` or `localStorage` use outside the one adapter.
 
+**Relying-party adapter (`adapter/`, not core).** The verifier is pure; the state a relying party keeps around it is
+replay and head memory, and the adapter makes both atomic with the established mechanism for each. `acceptClaim`
+verifies with the identity's stored last head, advances that head, consumes the claim id, and only then runs the
+protected action, once. Consumption is one atomic insert-if-absent (a unique key, as DPoP's `jti` store), so of
+any number of instances receiving one claim exactly one runs the action; the head only moves to a later `at` (a
+conditional update, as TUF's stored metadata), so concurrent requests cannot move it back. Storage that fails, or
+reads back a head the verifier cannot read, is refused as `storage`, and the action does not run. An action that
+fails leaves its claim consumed: the delegate makes a new claim. `memoryStore` serves one process; `sqliteStore`
+serves processes sharing one database file. Tests: a race of eight instances on one file, restart, storage
+failure, corrupt storage and the expiry boundary.
+
 ## 8. The id origin and machine onboarding (not core)
 
 - The id origin is a dedicated host serving nothing else, with no subdomains. `rp_id` and the exact origin are

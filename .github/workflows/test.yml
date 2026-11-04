@@ -34,7 +34,7 @@ jobs:
         run: npm audit signatures
       - name: Tests with full coverage of the core
         run: >-
-          node --test --experimental-test-coverage --test-coverage-include='src/**'
+          node --test --experimental-test-coverage --test-coverage-include='src/**' --test-coverage-include='adapter/**'
           --test-coverage-lines=100 --test-coverage-branches=100 --test-coverage-functions=100
           "tests/!(meta)/*.test.mjs"
 
@@ -44,6 +44,7 @@ jobs:
       fail-fast: false
       matrix:
         suite:
+          - adapter-twins.test.mjs
           - assertion-twins.test.mjs
           - attestation-twins.test.mjs
           - bytes-twins.test.mjs
@@ -78,6 +79,7 @@ jobs:
           - stryker.envelope.config.json
           - stryker.ed25519.config.json
           - stryker.p256.config.json
+          - stryker.adapter.config.json
           - stryker.assertion.config.json
           - stryker.origin.config.json
           - stryker.delegation.config.json
