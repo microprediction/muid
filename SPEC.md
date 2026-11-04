@@ -433,6 +433,11 @@ is the text of the newest head the relying party has accepted for the identity, 
   a `revoked` that is not an array of ids, is a programming error (ignoring a malformed entry would fail open on
   revocation).
 
+- **F6 THE HEAD ALONE:** `v.verifyHead(head, call)`, with a call as for `verifyDelegation`, applies F5's head checks
+  only — `head`, `stale`, `identity`, `equivocation`, under `now`, `minHeadAt` and `lastHead` — and returns
+  `{ ok: true, identity, at }` or exactly the refusal `verifyDelegation` would give for that head. A relying party
+  may remember any head that verifies, whatever else a request carries, as a TUF client keeps any metadata that
+  verifies: a head that revokes a delegation is remembered even from the request it refuses (§7).
 - **C1 CLAIMS (decision 1: ephemeral):** a **claim** `{ delegation, scope, request, at, data }` is a record signed by
   the delegation's subject key: its `sig` is `{ signature }`, an Ed25519 signature over the claim's signed bytes
   (K7). `delegation` is the id of the delegation it is made under; `scope` and `request` are the scope and the

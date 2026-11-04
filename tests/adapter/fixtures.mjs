@@ -23,8 +23,8 @@ const del = envelope.seal('delegation', { identity: IDENTITY, membership: IDENTI
 export const delegation = envelope.wrap(del.payload, { root: make({ covers: [del.id] }),
   subject: hex(ed25519.sign(Buffer.concat([Buffer.from('muid/v1/accept\n'), Buffer.from(del.id, 'hex')]), APP)) })
 
-export function head (at, { revoked = [], secret = W } = {}) {
-  const h = envelope.seal('head', { identity: IDENTITY, epoch: 1, memberships: [IDENTITY], authority: [ROOT], revoked, at })
+export function head (at, { revoked = [], secret = W, epoch = 1, memberships = [IDENTITY] } = {}) {
+  const h = envelope.seal('head', { identity: IDENTITY, epoch, memberships, authority: [ROOT], revoked, at })
   return envelope.wrap(h.payload, { signature: hex(ed25519.sign(envelope.signedBytes(h.payload), secret)), witness: hex(ed25519.getPublicKey(secret)) })
 }
 export const DELEGATION_ID = del.id

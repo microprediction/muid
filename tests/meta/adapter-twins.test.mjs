@@ -17,28 +17,30 @@ const IMPORTS = [["from '../" + "src/envelope.js'", "from '" + new URL('../../sr
 // [name, bug class, file, [find, replace] pairs]
 const TWINS = [
   ['memory-not-read-in-transaction', 'the transaction verifies without the memory as it stands there', 'relying-party.js',
-    [['const stored = tx.lastHead(fields.identity)', 'const stored = undefined']]],
-  ['storage-read-in-verifier-guard', 'a failing memory read is taken for a verifier error and escapes', 'relying-party.js',
-    [['        const stored = tx.lastHead(fields.identity) // the store\'s: a failure here is refused as storage\n        let r\n        try {\n          r = verifyWith(method, given, call, stored)',
-      '        let r\n        try {\n          r = verifyWith(method, given, call, tx.lastHead(fields.identity))']]],
+    [['const stored = tx.lastHead(seen.identity)', 'const stored = undefined']]],
   ['consume-ignored', 'a claim already consumed is accepted again', 'relying-party.js',
     [["if (method === 'verifyClaim' && !tx.consume(r.id, r.until)) return refusal('replay')", "if (method === 'verifyClaim') tx.consume(r.id, r.until)"]]],
   ['storage-failure-ignored', 'a failed transaction is taken as success', 'relying-party.js',
-    [["      })\n    } catch {\n      return refusal('storage')", "      })\n    } catch {\n      return verifier[method](given, call)"]]],
+    [["      })\n    } catch {\n      return refusal('storage')", "      })\n    } catch {\n      return pre"]]],
   ['no-head-memory', 'the stored head is not passed to the verifier', 'relying-party.js',
-    [['return verifier[method](given, { ...call, lastHead: stored.head })', 'return verifier[method](given, call)']]],
+    [['return check({ ...call, lastHead: stored.head })', 'return check(call)']]],
   ['rotation-locks-out', 'a stored head the verifier cannot read locks its identity out', 'relying-party.js',
-    [['      return verifier[method](given, { ...call, minHeadAt: Math.max(call.minHeadAt ?? 0, stored.at) })', "      return refusal('storage')"]]],
+    [['      return check({ ...call, minHeadAt: Math.max(call.minHeadAt ?? 0, stored.at) })', "      return refusal('storage')"]]],
   ['time-floor-ignored', "an unreadable stored head's time is not kept as a floor", 'relying-party.js',
-    [['      return verifier[method](given, { ...call, minHeadAt: Math.max(call.minHeadAt ?? 0, stored.at) })', '      return verifier[method](given, call)']]],
-  ['records-read-twice', 'the head is read again from the presented records', 'relying-party.js',
-    [["const fields = open(given.head, 'head').body", "const fields = open(records.head, 'head').body"]]],
-  ['call-spread', "the call is copied with a spread, dropping inherited fields", 'relying-party.js', [['const call = readCall(rawCall)', 'const call = { ...rawCall }']]],
-  ['no-precheck', 'refused records still take the transaction', 'relying-party.js', [['    if (!pre.ok) return refusal(pre.reason)\n', '']]],
-  ['memory-no-grace', 'the memory store expires claim ids at until', 'stores.js', [['if (until + grace <= now) consumed.delete(id)', 'if (until <= now) consumed.delete(id)']]],
-  ['sqlite-no-grace', 'the database store expires claim ids at until', 'stores.js', [['remove.run(now - grace)', 'remove.run(now)']]],
+    [['      return check({ ...call, minHeadAt: Math.max(call.minHeadAt ?? 0, stored.at) })', '      return check(call)']]],
+  ['refused-head-forgotten', "a refused request's verified head is not remembered", 'relying-party.js',
+    [['        if (head.ok) tx.advanceHead(seen.identity, given.head, seen.at)\n        if (!r.ok) return refusal(r.reason)', '        if (!r.ok) return refusal(r.reason)\n        if (head.ok) tx.advanceHead(seen.identity, given.head, seen.at)']]],
+  ['equivocating-head-remembered', 'a head refused against the memory is remembered anyway', 'relying-party.js',
+    [['        if (head.ok) tx.advanceHead', '        if (true) tx.advanceHead']]],
+  ['refused-always-locks', 'every refused request whose head verifies takes the lock', 'relying-party.js',
+    [['      if (stored !== undefined && stored.at >= seen.at) return refusal(pre.reason)\n', '']]],
+  ['call-lastHead-accepted', "a caller's lastHead is silently dropped", 'relying-party.js',
+    [["  if (lastHead !== undefined) throw new TypeError('the adapter supplies lastHead from its memory')\n", '']]],
+  ['call-spread', 'the call is copied with a spread, dropping inherited fields', 'relying-party.js', [['const call = readCall(rawCall)', 'const call = { ...rawCall }']]],
   ['memory-head-regresses', 'the memory store replaces a head with an older one', 'stores.js', [['if (old === undefined || at > old.at) heads.set', 'heads.set']]],
   ['sqlite-head-regresses', 'the database store replaces a head with an older one', 'stores.js', [[' WHERE excluded.at > heads.at', '']]],
+  ['memory-no-grace', 'the memory store expires claim ids at until', 'stores.js', [['if (until + grace <= now) consumed.delete(id)', 'if (until <= now) consumed.delete(id)']]],
+  ['sqlite-no-grace', 'the database store expires claim ids at until', 'stores.js', [['remove.run(now - grace)', 'remove.run(now)']]],
 ]
 
 function run (dir) {
@@ -85,7 +87,7 @@ test('adapter broken twins', { timeout: 900_000 }, async (t) => {
       assert.ok(r.pass >= 20, `control: only ${r.pass} tests ran`)
     })
     const jobs = TWINS.map(([name, why, file, edits]) => [name, why, generate(name, file, edits)])
-    assert.equal(jobs.length, 14, 'twin count')
+    assert.equal(jobs.length, 15, 'twin count')
     const results = []
     const queue = [...jobs]
     const workers = Math.max(1, Math.floor(availableParallelism() / 4))

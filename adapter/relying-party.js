@@ -7,14 +7,14 @@
 // The records are verified inside one store transaction, against the memory as it stands there, which then advances
 // the head and consumes the claim: a database store holds its write lock for one verification. Storage that fails is
 // refused as `storage`, and the protected action does not run.
-import { open } from '../src/envelope.js'
-
 const refusal = (reason) => Object.freeze({ ok: false, reason })
 
 // The call's fields, each read once (inherited ones too, as the verifier reads them), into a plain object to which
-// the adapter adds what it remembers. A call that is not an object is a programming error.
+// the adapter adds what it remembers. A call that is not an object, or that brings its own lastHead, is a programming
+// error: the adapter supplies lastHead from its memory.
 function readCall (call) {
-  const { now, scope, request, revoked, minHeadAt } = call
+  const { now, scope, request, revoked, minHeadAt, lastHead } = call
+  if (lastHead !== undefined) throw new TypeError('the adapter supplies lastHead from its memory')
   return { now, scope, request, revoked, minHeadAt }
 }
 
@@ -28,41 +28,51 @@ function readGiven (given) {
 }
 
 export function relyingParty ({ verifier, store }) {
-  // Verify against the remembered { head, at }, if any. A stored head the verifier cannot read (corrupt, or signed
-  // by a witness key since removed from its configuration) still bounds rollback: its time becomes minHeadAt. A
-  // malformed call has already thrown in the check before the transaction; anything the verifier throws other than a
-  // TypeError propagates.
-  function verifyWith (method, given, call, stored) {
-    if (stored === undefined) return verifier[method](given, call)
+  // `check(call)` under the remembered { head, at }, if any. A stored head the verifier cannot read (corrupt, or
+  // signed by a witness key since removed from its configuration) still bounds rollback: its time becomes
+  // minHeadAt. A malformed call has already thrown in the checks before the transaction; anything the verifier throws
+  // other than a TypeError propagates.
+  function withMemory (check, call, stored) {
+    if (stored === undefined) return check(call)
     try {
-      return verifier[method](given, { ...call, lastHead: stored.head })
+      return check({ ...call, lastHead: stored.head })
     } catch (e) {
       if (!(e instanceof TypeError)) throw e
       if (!Number.isSafeInteger(stored.at) || stored.at < 0) return refusal('storage')
-      return verifier[method](given, { ...call, minHeadAt: Math.max(call.minHeadAt ?? 0, stored.at) }) // call checked above
+      return check({ ...call, minHeadAt: Math.max(call.minHeadAt ?? 0, stored.at) })
     }
   }
 
   async function accept (method, records, rawCall) {
     const call = readCall(rawCall)
     const given = readGiven(records)
-    // Records refused without memory are refused before the transaction, so they never wait for or hold its lock.
-    // Memory only adds refusals; what passes here is verified again inside, against the memory as it stands there.
+    // Without memory first, outside the lock. Memory only adds refusals, so a request refused here is refused; it
+    // takes the lock only to remember its head, when that head verifies and is newer than the memory (F6).
     const pre = verifier[method](given, call)
-    if (!pre.ok) return refusal(pre.reason)
-    const fields = open(given.head, 'head').body // { identity, at }: a head the verifier has just accepted
+    const seen = verifier.verifyHead(given?.head, call)
+    if (!seen.ok) return refusal(pre.reason)
+    if (!pre.ok) {
+      let stored
+      try {
+        stored = await store.lastHead(seen.identity)
+      } catch {
+        return refusal('storage')
+      }
+      if (stored !== undefined && stored.at >= seen.at) return refusal(pre.reason)
+    }
     let outcome
     try {
       outcome = await store.transaction((tx) => {
-        const stored = tx.lastHead(fields.identity) // the store's: a failure here is refused as storage
-        let r
+        const stored = tx.lastHead(seen.identity) // the store's: a failure here is refused as storage
+        let head, r
         try {
-          r = verifyWith(method, given, call, stored)
+          head = withMemory((c) => verifier.verifyHead(given.head, c), call, stored)
+          r = withMemory((c) => verifier[method](given, c), call, stored)
         } catch (e) {
           return { thrown: e } // the verifier's, not the store's: rethrown below
         }
+        if (head.ok) tx.advanceHead(seen.identity, given.head, seen.at)
         if (!r.ok) return refusal(r.reason)
-        tx.advanceHead(fields.identity, given.head, fields.at)
         if (method === 'verifyClaim' && !tx.consume(r.id, r.until)) return refusal('replay')
         return r
       })
