@@ -27,6 +27,7 @@ const stringify = JSON.stringify
 const parse = JSON.parse
 const ObjectPrototype = Object.prototype
 const ArrayPrototype = Array.prototype
+const toStringTag = Symbol.toStringTag
 const sort = Array.prototype.sort
 const charCodeAt = String.prototype.charCodeAt
 const isWellFormed = String.prototype.isWellFormed
@@ -156,9 +157,16 @@ class Writer {
     const proto = getPrototypeOf(v)
     const plain = proto === null || proto === (array ? ArrayPrototype : ObjectPrototype)
     if (array && top) fail('top-level')
-    if (!plain || (!array && hasInternalSlot(v))) fail(top ? 'top-level' : 'non-plain')
+    if (!plain) fail(top ? 'top-level' : 'non-plain')
+    // Object.prototype.toString consults an own Symbol.toStringTag, including an accessor.  Symbols are forbidden
+    // shape anyway, so reject this one before the cheap internal-slot check can invoke untrusted user code.
+    const keys = array ? null : ownKeys(v)
+    if (!array) {
+      for (let i = 0; i < keys.length; i++) if (keys[i] === toStringTag) fail('symbol-key')
+    }
+    if (!array && hasInternalSlot(v)) fail(top ? 'top-level' : 'non-plain')
     if (array) this.array(v, depth)
-    else this.object(v, depth)
+    else this.object(v, depth, keys)
     apply(setDelete, this.path, [v])
   }
 
@@ -186,8 +194,8 @@ class Writer {
     this.emit(']')
   }
 
-  object (o, depth) {
-    const keys = ownKeys(o) // every own key, enumerable or not, strings and symbols, in one read
+  object (o, depth, keys) {
+    // `keys` was read on container entry, before the internal-slot check (which must not invoke Symbol.toStringTag).
     // At least `"a":0` per member, the commas between them and the braces. The bound is never attained for more than
     // 26 keys, which cannot all be one letter, so > and >= (or ±1) cannot be told apart by any value.
     // Stryker disable next-line EqualityOperator,ArithmeticOperator: equivalent; see the line above.
