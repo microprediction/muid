@@ -279,8 +279,8 @@ Records the witness signs about membership (V3: witness key; checked against tha
 `{ identity, membership }` complete the set. A membership, contest or freeze record may be signed by several roots,
 one envelope each, so its `sig` names the signer: `{ root, assertion }`, where `assertion` is W0–W6's object.
 
-- **R1 CHANGE BY MAJORITY:** a membership record is valid only if signed by a strict majority of `prev`'s roots and by
-  every root it adds. A root is retired by leaving it out.
+- **R1 CHANGE BY MAJORITY:** a membership record is valid only if signed by a strict majority of `prev`'s roots
+  (⌊n/2⌋ + 1 of n) and by every root it adds. A root is retired by leaving it out.
 - **R2 FREEZE BY ANY:** a freeze signed by any one root of the membership it names freezes it: delegations under it
   fail, and so do delegations under a pending successor of it. A freeze of the pending record itself, by any of its
   roots (new ones included), freezes the identity; once that record settles, the freeze holds on it as the settled
@@ -305,6 +305,16 @@ one envelope each, so its `sig` names the signer: `{ root, assertion }`, where `
   contests and freezes the verifier holds, never of their order. The only time used is the witness's `at`. Because
   only one record per `prev` is ever anchored, a verifier holding fewer records can be behind, never on another
   branch.
+- **Prior art** ([`prior-art.md`](research/prior-art.md)). R1–R6 combine three established mechanisms: rotation
+  signed by thresholds of the old and the new keys (TUF root rotation, KERI); one successor per predecessor through a
+  sequencer whose clock is the only time (did:plc's `prev` with serialised writes); and a queued change that is
+  finalized after a delay unless cancelled (Zodiac Delay, Candide's recovery module, Argent's recovery period), with
+  any one key able to lock (Argent). Four deviations are kept. Every added root signs, rather than a threshold of the
+  new set, so that each new key proves possession (as D6, and Fulcio). A freeze never expires, since a thief can wait
+  out an expiring lock. A contest ends the identity instead of reverting the change: established cancels assume the
+  canceller is not the thief, and here a thief may hold every root the owner holds, so a reverting cancel would allow
+  an endless propose-and-cancel loop. Keys are not ranked (as did:plc's are), since any one root may be stolen (§1)
+  and a top-ranked key would be a single point of failure.
 
 - **R8 STATE, AS A FUNCTION:** `membershipState(records, ctx)`, with `records` grouped by type (`roots`,
   `memberships`, `contests`, `freezes`, `anchors`, `settlements`, each a list of envelope texts) and
@@ -593,6 +603,20 @@ test fails the build on any direct `indexedDB` or `localStorage` use outside the
    A witness key is retired by its window, never removed from `witnessKeys` while a relying party may hold a last
    head it signed (that head would become a programming error). Bounding backdated anchors needs time from outside the witness: a public log with at least one outside
    cosigner, the contest window starting at the cosigned time of the first checkpoint that includes the anchor.
+11. **Freezes by incoming roots — open.** R2 lets any root of a pending record, new ones included, freeze it. None
+   of the established systems ([`prior-art.md`](research/prior-art.md)) lets an incoming key lock anything. The case
+   for it: an owner whose new device sees an unexpected change can stop it. The case against: a root that has never
+   held authority can freeze a change it was added by. Recommendation: keep it, since a freeze only removes trust,
+   and pin the reason here; or limit a pending record's freeze to the roots of its `prev`.
+12. **Retaining subject-key revocations — open.** `exp − nbf` is bounded, but `nbf` is not, so a delegation signed
+   today may become valid long after it was signed. A witness that drops a subject-key revocation once the
+   delegations it knows of expire can therefore drop it too early: it may not know every delegation to that key.
+   Options: (a) keep a subject-key revocation for as long as the membership current when it was revoked, or its
+   pending successor, has authority, since R6 refuses every delegation under a membership that has neither, and a
+   delegation under a later membership is a new signature by a root the owner kept; (b) keep it until the identity
+   ends, failing closed at the 64-entry cap (R9); (c) have the witness log every delegation it learns of, as
+   certificate transparency logs every certificate, and accept only logged ones, so the witness knows them all.
+   Recommendation: (a) now, and (c) with the transparency log. No witness drops a revocation before this is decided.
 
 ## 10. What the reputation layer consumes (not core)
 
