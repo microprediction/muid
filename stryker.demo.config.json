@@ -1,0 +1,29 @@
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "testRunner": "tap",
+  "tap": {
+    "testFiles": [
+      "tests/demo/D2-forecasts.test.mjs", "tests/demo/D3-history.test.mjs"
+    ]
+  },
+  "mutate": [
+    "demo/forecasts.js",
+    "demo/history.js"
+  ],
+  "coverageAnalysis": "perTest",
+  "thresholds": {
+    "high": 100,
+    "low": 95,
+    "break": 95
+  },
+  "reporters": [
+    "clear-text",
+    "progress",
+    "json"
+  ],
+  "jsonReporter": {
+    "fileName": "reports/mutation/demo.json"
+  },
+  "tempDirName": ".stryker-tmp",
+  "concurrency": 4
+}

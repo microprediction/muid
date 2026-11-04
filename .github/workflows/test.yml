@@ -41,7 +41,7 @@ jobs:
         run: npm audit signatures
       - name: Tests with full coverage of the core
         run: >-
-          node --test --experimental-test-coverage --test-coverage-include='src/**' --test-coverage-include='adapter/**' --test-coverage-include='witness/**' --test-coverage-include='id/records.js'
+          node --test --experimental-test-coverage --test-coverage-include='src/**' --test-coverage-include='adapter/**' --test-coverage-include='witness/**' --test-coverage-include='id/records.js' --test-coverage-include='demo/**'
           --test-coverage-lines=100 --test-coverage-branches=100 --test-coverage-functions=100
           "tests/!(meta)/*.test.mjs"
 
@@ -69,6 +69,7 @@ jobs:
           - verifier-twins.test.mjs
           - witness-twins.test.mjs
           - id-twins.test.mjs
+          - demo-twins.test.mjs
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -97,6 +98,7 @@ jobs:
           - stryker.adapter.config.json
           - stryker.witness.config.json
           - stryker.id.config.json
+          - stryker.demo.config.json
           - stryker.assertion.config.json
           - stryker.origin.config.json
           - stryker.delegation.config.json

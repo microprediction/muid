@@ -509,6 +509,21 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   lifetime, an unchecked audience, an edit that keeps the review, a late signature kept, verification preferred,
   any passkey, a credential that is not resident, inline scripts allowed, hidden parts shown.
 
+## 4l. The two-application demo (`demo/`, not core)
+
+- The four scenarios end to end (`tests/demo/D1-scenarios.test.mjs`): the witness service, Tessera with
+  omniwitness cosigning, Forecasts accepting claims through the relying-party adapter, History reading receipts.
+  Limited authority (a replay, another audience and a missing scope refused); continuity (a replaced worker key,
+  one contributor in History); lasting attribution (a year after the delegations expire the claims no longer
+  verify, the receipts do; an unpinned service and another identity refused); revocation (an honest request
+  carrying the newer head moves Forecasts' memory, so the revoked worker is refused at once as stale, and as revoked
+  with the newer head; its earlier contribution stays attributed).
+- Forecasts and History against an in-memory log whose checkpoints are signed and cosigned per C2SP (`D2`, `D3`):
+  the bundle verified by `verifyReceipt`; replay; each refusal with its reason; the body limit at and one past it;
+  a failing log (503, nothing kept, the claim consumed); a checkpoint waited for, and one cosigned in the future
+  never counted; each broken bundle refused with its reason, by index.
+- Mutation 100%; twins (`tests/meta/demo-twins.test.mjs`, 10).
+
 ## 5. Later layers (outline; each is expanded here before its code is written)
 
 1. **Envelope and record id:** expanded as §3.

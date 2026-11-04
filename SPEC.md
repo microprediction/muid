@@ -653,6 +653,15 @@ Not yet: rotation, freezes and contests, the I1–I3 window protocol for apps, a
 - The witness hard-codes its issuers and their signing-key endpoints, follows no discovery redirect, and uses a
   distinct redirect URI per provider (GitHub returns no `iss`).
 
+## 8a. The two-application demo (`demo/`, not core)
+
+**Forecasts** accepts contributions: a worker POSTs a claim (C1, its forecast in `data`) with its delegation, the
+delegation's root record and a fresh head; the relying-party adapter verifies and consumes it, and only then is the
+forecast kept and a receipt (C2) signed, appended to the log and kept with the cosigned checkpoint that holds it and
+the inclusion proof, as a bundle. **History** verifies an identity's bundles under its own pinned services and log.
+Four scenarios run end to end in CI: limited authority, continuity across a replaced worker key, attribution that
+lasts past the delegations' expiry, and revocation that takes effect at once through the relying party's memory.
+
 ## 9. Open decisions
 
 1. **Claims and time — decided: ephemeral in version 1.** A claim a delegate signs is verified on receipt against
