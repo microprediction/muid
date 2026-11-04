@@ -122,13 +122,21 @@ export function witness (config) {
     const k = rootKeys(held).get(signer)
     if (k === undefined) return refuse('root-missing')
     if (!checkRootAssertion(r.sig.assertion, { record: r.id, rpId, origin, key: k }).ok) return refuse('signature')
-    // W0: one prompt cannot both propose a change and end the identity by contesting it.
+    // W0: one prompt cannot both propose a change and end the identity by contesting it — the record itself, or the
+    // pending record it would follow.
     const covers = r.sig.assertion.covers
-    if (has(covers, type === 'contest' ? b.record : contestOf(held.identity, r.id))) return refuse('covers')
+    const shared = type === 'contest'
+      ? has(covers, b.record) || held.memberships.some((t) => { const x = open(t, 'membership'); return x.body.prev === b.record && has(covers, x.id) })
+      : type === 'membership' && (has(covers, contestOf(held.identity, r.id)) || has(covers, contestOf(held.identity, b.prev)))
+    if (shared) return refuse('covers')
     if (type !== 'membership') return accept({ held: add(held, list, text) })
-    // One proposal per root and prev: a root's later proposal replaces its earlier one, so no root can fill the list.
+    // One proposal per root and prev: a root's later proposal replaces its earlier one, so no root can fill the list;
+    // root records only a replaced proposal named go with it (the first root, and every held record's roots, stay).
     const others = held.memberships.filter((t) => { const x = open(t, 'membership'); return x.sig.root !== signer || x.body.prev !== b.prev })
-    return accept({ held: freeze({ ...held, memberships: freeze([...others, text]) }) })
+    const memberships = freeze([...others, text])
+    const named = (id) => identityOf(id) === held.identity || memberships.some((t) => has(open(t, 'membership').body.roots, id))
+    const kept = freeze(held.roots.filter((t) => named(checkRoot(t, { rpId }).id)))
+    return accept({ held: freeze({ ...held, memberships, roots: kept }) })
   }
 
   // The id of the contest of membership record `record`: the same for every signer.

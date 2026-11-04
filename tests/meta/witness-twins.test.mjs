@@ -40,7 +40,10 @@ const TWINS = [
   ['log-proof-order', 'the proof lists the sibling before the path below it', [['[...await path(m, a, a + k), await mth(a + k, b)]', '[await mth(a + k, b), ...await path(m, a, a + k)]']], 'log.js'],
   ['envelopes-per-signer', 'every envelope of one record by one root is held', [["    if (held[list].some((t) => { const x = open(t, type); return x.id === r.id && x.sig.root === signer })) return accept({ held })\n", '']]],
   ['proposals-accumulate', "a root's later proposal is held beside its earlier one", [["return x.sig.root !== signer || x.body.prev !== b.prev })", 'return true })']]],
-  ['covers-unchecked', 'one assertion may propose a change and contest it', [["    if (has(covers, type === 'contest' ? b.record : contestOf(held.identity, r.id))) return refuse('covers')\n", '']]],
+  ['replaced-roots-kept', 'root records a replaced proposal named stay held', [['memberships, roots: kept })', 'memberships })']]],
+  ['w0-pending-unchecked', "a successor's assertion may cover the pending record's contest", [[' || has(covers, contestOf(held.identity, b.prev))', '']]],
+  ['w0-successor-unchecked', "a contest's assertion may cover a successor of the record it contests", [[" || held.memberships.some((t) => { const x = open(t, 'membership'); return x.body.prev === b.record && has(covers, x.id) })", '']]],
+  ['covers-unchecked', 'one assertion may propose a change and contest it', [["    if (shared) return refuse('covers')\n", '']]],
   ['revocation-by-retired-root', "a delegation from a root without authority serves a self-revocation", [['return has(s.authority, d.root) && d.identity', 'return d.identity']]],
   ['outbox-skipped', 'records signed before a lost log answer are not appended again first', [['    if (entry?.outbox === undefined) return entry\n    await append(entry.outbox.texts)\n', '    if (entry?.outbox === undefined) return entry\n']], 'service.js'],
   ['body-read-in-full', 'the body is read in full before its size is checked', [['    n += r.value.length\n    if (n > max) {', '    n += r.value.length\n    if (false) {']], 'service.js'],
@@ -115,7 +118,7 @@ test('witness broken twins', { timeout: 1_800_000 }, async (t) => {
       assert.ok(r.pass >= 25, `control: only ${r.pass} tests ran`)
     })
     const jobs = TWINS.map(([name, why, edits, file]) => [name, why, generate(name, edits, file)])
-    assert.equal(jobs.length, 47, 'twin count')
+    assert.equal(jobs.length, 50, 'twin count')
     const results = []
     const queue = [...jobs]
     const workers = Math.max(1, Math.floor(availableParallelism() / 4))

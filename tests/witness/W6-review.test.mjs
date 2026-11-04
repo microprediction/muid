@@ -92,3 +92,46 @@ test("a self-revocation counts only under a delegation from a root with authorit
   assert.equal(refused(w.revoke(settled, rev, now, delegationBy('a'))), 'delegation')
   assert.equal(w.revoke(settled, rev, now, delegationBy('b')).ok, true)
 })
+
+// Found by review (round 9): root records named only by a replaced proposal stayed held, so one root could fill the
+// roots list and block every later root addition; and W0 was applied to a record's own contest only.
+test('a root record named only by a replaced proposal is dropped with it, so the roots list stays bounded', () => {
+  const { M, held } = settledABC()
+  let h = held
+  // The thief (root c) cycles proposals, each naming a fresh root whose record it submits.
+  for (const l of ['d', 'e', 'o', 't']) {
+    const P = mBody(3, ['c', l], mId(M))
+    h = admitAll(h, [['membership', signed('membership', P, 'c')], ['root', rootText(l)]])
+  }
+  assert.equal(h.roots.length, held.roots.length + 1, 'only the root its last proposal names')
+  assert.deepEqual(h.roots.slice(held.roots.length), [rootText('t')])
+  // The owner can still add a root.
+  const R = mBody(3, ['a', 'b', 'd'], mId(M))
+  h = admitAll(h, [['membership', signed('membership', R, 'a')], ['membership', signed('membership', R, 'b')], ['root', rootText('d')],
+    ['membership', signed('membership', R, 'd')]])
+  assert.deepEqual(w.advance(h, BASE + 2 * WINDOW).signed.map((x) => envelope.open(x.text, 'anchor').body.record), [mId(R)])
+  // Roots of settled memberships, and the first root, are never dropped.
+  assert.ok(h.roots.includes(rootText('a')) && h.roots.includes(rootText('c')))
+})
+
+test('W0, as SPEC states it: one assertion cannot propose a successor and contest the pending record, either way', () => {
+  const pending = w.advance(admitAll(start(), [['membership', signed('membership', M2, 'a')], ['root', rootText('b')],
+    ['membership', signed('membership', M2, 'b')]]), BASE).held
+  const M3 = mBody(3, ['a', 'b'], mId(M2))
+  // A successor of the pending record whose assertion also covers the pending record's contest: refused.
+  assert.equal(refused(w.admit(pending, 'membership', covering('membership', M3, 'a', [contestId(mId(M2))]))), 'covers')
+  // A contest whose assertion also covers a held successor of the record it contests: refused.
+  const withM3 = admitAll(pending, [['membership', covering('membership', M3, 'b', [junk(1)])]])
+  assert.equal(refused(w.admit(withM3, 'contest', covering('contest', { identity: IDENTITY, record: mId(M2) }, 'a', [mId(M3)]))), 'covers')
+  // A contest whose assertion covers other records, a held successor among them only if named, is admitted.
+  assert.equal(w.admit(withM3, 'contest', covering('contest', { identity: IDENTITY, record: mId(M2) }, 'a', [junk(1)])).ok, true)
+  // And a held membership that is not a successor of the contested record may be covered too.
+  const { M, held } = settledABC()
+  const R = mBody(3, ['a', 'b'], mId(M))
+  const pendingR = w.advance(admitAll(held, [['membership', signed('membership', R, 'a')], ['membership', signed('membership', R, 'b')]]), BASE + 2 * WINDOW).held
+  assert.equal(w.admit(pendingR, 'contest', covering('contest', { identity: IDENTITY, record: mId(R) }, 'a', [mId(M)])).ok, true)
+  // And the other order: a held contest whose assertion covers a successor refuses that successor's envelope.
+  const withContest = admitAll(pending, [['contest', covering('contest', { identity: IDENTITY, record: mId(M2) }, 'a', [mId(M3)])]])
+  assert.equal(refused(w.admit(withContest, 'membership', covering('membership', M3, 'a', [contestId(mId(M2))]))), 'covers')
+  assert.equal(w.admit(withContest, 'membership', signed('membership', M3, 'b')).ok, true, "b's own assertion is not shared")
+})
