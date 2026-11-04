@@ -72,3 +72,17 @@ test('a real plain object and a null-prototype object still encode', () => {
   assert.equal(encode({ a: { b: 1 } }), '{"a":{"b":1}}')
   assert.equal(encode({ a: Object.assign(Object.create(null), { b: 1 }) }), '{"a":{"b":1}}')
 })
+
+// Object.prototype.toString reads Symbol.toStringTag before answering, and an object can carry its own, even as an
+// accessor that would run. An object that can reach one is not shown plain, and the tag is never read. Found by
+// automated review.
+test('an own Symbol.toStringTag makes an object non-plain, and an accessor for it is never invoked', () => {
+  let calls = 0
+  const tagged = (o) => Object.defineProperty(o, Symbol.toStringTag, { enumerable: true, get () { calls++; return 'Object' } })
+  refuses(() => encode({ a: tagged({ b: 1 }) }), 'non-plain', 'accessor, plain prototype')
+  refuses(() => encode({ a: tagged(Object.create(null)) }), 'non-plain', 'accessor, null prototype')
+  refuses(() => encode(tagged({ b: 1 })), 'top-level', 'accessor, top level')
+  assert.equal(calls, 0)
+  const date = Object.defineProperty(asPlain(new Date(0)), Symbol.toStringTag, { value: 'Object', enumerable: true })
+  refuses(() => encode({ a: date }), 'non-plain', 'a Date with a plain prototype, tagged Object')
+})

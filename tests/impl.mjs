@@ -1,9 +1,33 @@
-// The only module through which tests reach the implementation (TESTING.md §4).
-// MUID_ENCODING_IMPL names a broken twin to run the whole suite against instead of src/encode.js.
+// The only module through which tests reach the implementation (TESTING.md §6).
+// MUID_ENCODING_IMPL, MUID_ENVELOPE_IMPL and MUID_ED25519_IMPL name a broken twin to run a suite against instead of
+// the real module. A module not written yet fails its own tests on first use without breaking the other suites.
 import { pathToFileURL } from 'node:url'
 import { resolve } from 'node:path'
+import { existsSync } from 'node:fs'
 
-const override = process.env.MUID_ENCODING_IMPL
-const url = override ? pathToFileURL(resolve(override)).href : new URL('../src/encode.js', import.meta.url).href
+async function load (variable, path) {
+  const override = process.env[variable]
+  if (override) return import(pathToFileURL(resolve(override)).href)
+  const url = new URL(path, import.meta.url)
+  if (existsSync(url)) return import(url.href)
+  // `then` is probed by await; every other property access fails the test that makes it.
+  return new Proxy({}, {
+    get (_, k) {
+      if (k === 'then') return undefined
+      throw new Error(`${path} is not written yet (${String(k)})`)
+    },
+  })
+}
 
-export const encoding = await import(url)
+export const encoding = await load('MUID_ENCODING_IMPL', '../src/encode.js')
+export const envelope = await load('MUID_ENVELOPE_IMPL', '../src/envelope.js')
+export const ed25519 = await load('MUID_ED25519_IMPL', '../src/ed25519.js')
+export const p256 = await load('MUID_P256_IMPL', '../src/p256.js')
+export const assertion = await load('MUID_ASSERTION_IMPL', '../src/assertion.js')
+export const origin = await load('MUID_ORIGIN_IMPL', '../src/origin.js')
+export const delegation = await load('MUID_DELEGATION_IMPL', '../src/delegation.js')
+export const root = await load('MUID_ROOT_IMPL', '../src/root.js')
+export const bytes = await load('MUID_BYTES_IMPL', '../src/bytes.js')
+export const attestation = await load('MUID_ATTESTATION_IMPL', '../src/attestation.js')
+export const membership = await load('MUID_MEMBERSHIP_IMPL', '../src/membership.js')
+export const verifier = await load('MUID_VERIFIER_IMPL', '../src/verifier.js')

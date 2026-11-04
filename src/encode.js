@@ -13,8 +13,9 @@
 //
 // Domain: plain objects (keys ^[a-z][a-z0-9_]{0,31}$), dense plain arrays, well-formed strings, safe integers (no -0),
 // true, false. No null, no floats. The top level is a plain object. "Plain" means a prototype of Object.prototype or
-// null (Array.prototype or null for arrays) and no internal slots. A Proxy cannot be detected in a browser; E3, E4
-// and E6 make one harmless, and it can choose only what is encoded, as any caller can.
+// null (Array.prototype or null for arrays), no internal slots, and no Symbol.toStringTag the slot check could read.
+// A Proxy cannot be detected in a browser; E3, E4 and E6 make one harmless, and it can choose only what is encoded,
+// as any caller can.
 
 // E7: captured at load.
 // Object.defineProperty and Object.setPrototypeOf throw on failure; their Reflect versions return false silently.
@@ -40,12 +41,12 @@ const setDelete = Set.prototype.delete
 const NO_ARGS = freeze([])
 
 // Internal slots (E3). Object.prototype.toString reports the slot of a Number, String or Boolean wrapper, Date, RegExp,
-// Error or arguments object whatever its prototype, and isView finds typed arrays and DataView; both are cheap and
-// never throw for an ordinary object. Symbol and BigInt wrappers, Map, Set, WeakMap, WeakSet, WeakRef, ArrayBuffer,
-// SharedArrayBuffer and Promise can only be told from {} by brand checks that throw — about a thousand times slower on
-// every plain object — so one of those given a plain prototype by code in the page encodes as its own properties
-// (SPEC §3, residual; pinned by tests/encoding/H3-exotic-objects.test.mjs).
+// Error or arguments object whatever its prototype, and isView finds typed arrays and DataView. toString first reads
+// Symbol.toStringTag, which page code can define (an accessor would run), so an object that can reach one is not
+// shown plain. Other slots need brand checks that throw, about a thousand times slower on every plain object (SPEC §3,
+// residual; pinned by tests/encoding/H3-exotic-objects.test.mjs).
 const toString = Object.prototype.toString
+const toStringTag = Symbol.toStringTag
 
 export const MAX_BYTES = 65536
 export const MAX_DEPTH = 16
@@ -73,13 +74,14 @@ function fail (reason) {
   throw new EncodingError(reason)
 }
 
-// UTF-8 length of a string. A lone surrogate (only possible in decode input) counts as 3 bytes. Past the end of the
-// string charCodeAt returns NaN, which fails the low-surrogate range test, so a final high surrogate counts as 3.
-function utf8Length (s) {
+// UTF-8 length of a string, or with `json` of its JSON escaping: `"`, `\\`, \b \t \n \f \r take 2 bytes, other controls 6.
+// A lone surrogate (only possible in decode input) counts as 3 bytes. Past the end of the string charCodeAt returns
+// NaN, which fails the low-surrogate range test, so a final high surrogate counts as 3.
+function utf8Length (s, json) {
   let n = 0
   for (let i = 0; i < s.length; i++) {
     const c = apply(charCodeAt, s, [i])
-    if (c < 0x80) n += 1
+    if (c < 0x80) n += !json || (c >= 0x20 && c !== 0x22 && c !== 0x5c) ? 1 : c === 0x22 || c === 0x5c || (c > 7 && c < 14 && c !== 11) ? 2 : 6
     else if (c < 0x800) n += 2
     else if (c >= 0xd800 && c <= 0xdbff) {
       const d = apply(charCodeAt, s, [i + 1])
@@ -89,7 +91,8 @@ function utf8Length (s) {
   return n
 }
 
-function hasInternalSlot (v) {
+function hasInternalSlot (v, proto) {
+  if (hasOwn(v, toStringTag) || (proto !== null && hasOwn(ObjectPrototype, toStringTag))) return true
   return isView(v) || apply(toString, v, NO_ARGS) !== '[object Object]'
 }
 
@@ -109,22 +112,26 @@ class Writer {
     this.path = new SetCtor()
   }
 
-  emit (s) {
-    this.bytes += utf8Length(s)
+  emit (s, n = utf8Length(s)) { // n: the UTF-8 length of s, when already measured
+    this.bytes += n
     if (this.bytes > MAX_BYTES) fail('size')
     this.out += s
   }
 
   value (x, depth) {
     switch (typeof x) {
-      case 'string':
+      case 'string': {
         if (!apply(isWellFormed, x, NO_ARGS)) fail('surrogate')
         // A string encodes in at least its length plus two quotes, and a value is always followed by at least one
-        // byte (a comma or a closing bracket), so this refuses nothing that fits — and copies nothing that cannot.
-        // Stryker disable next-line ArithmeticOperator: a weaker bound only defers the refusal to emit().
+        // byte (a comma or a closing bracket), so this refuses nothing that fits. It bounds the scan below, which
+        // measures the escaped text exactly before it is built, so nothing that cannot fit is copied.
+        // Stryker disable next-line ArithmeticOperator: a weaker bound only defers the refusal to the exact one.
         if (this.bytes + x.length + 3 > MAX_BYTES) fail('size')
-        this.emit(stringify(x))
+        const n = utf8Length(x, true) + 2 // its JSON text, quotes included, measured before the text is built
+        if (this.bytes + n + 1 > MAX_BYTES) fail('size')
+        this.emit(stringify(x), n)
         return
+      }
       case 'number':
         if (!isFinite(x)) fail('non-finite')
         if (is(x, -0)) fail('negative-zero')
@@ -156,7 +163,7 @@ class Writer {
     const proto = getPrototypeOf(v)
     const plain = proto === null || proto === (array ? ArrayPrototype : ObjectPrototype)
     if (array && top) fail('top-level')
-    if (!plain || (!array && hasInternalSlot(v))) fail(top ? 'top-level' : 'non-plain')
+    if (!plain || (!array && hasInternalSlot(v, proto))) fail(top ? 'top-level' : 'non-plain')
     if (array) this.array(v, depth)
     else this.object(v, depth)
     apply(setDelete, this.path, [v])

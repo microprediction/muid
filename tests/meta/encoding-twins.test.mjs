@@ -1,4 +1,4 @@
-// TESTING.md §2.4 and §4: the encoding suite must fail against every broken twin, and pass against the real encoder
+// TESTING.md §2.4 and §6: the encoding suite must fail against every broken twin, and pass against the real encoder
 // run through the same harness. Twins are generated from src/encode.js by one targeted change each, so no buggy copy
 // of trust-path code is committed and the twins follow the source as it changes. Each change must match the source
 // exactly once; if a refactor removes the target, this test fails until the twin is updated.
@@ -31,7 +31,7 @@ const TWINS = [
   ['count-only-array-check', 'an array hole hidden by an extra property passes the shape check', [
     ["      if (d === undefined) fail('array-shape')\n", '']]],
   ['utf16-size', 'size counted in UTF-16 code units instead of UTF-8 bytes', [
-    ['this.bytes += utf8Length(s)', 'this.bytes += s.length'],
+    ['emit (s, n = utf8Length(s))', 'emit (s, n = s.length)'],
     [' || utf8Length(text) > MAX_BYTES', '']]],
   ['getter-invoked', 'an accessor is read instead of refused', [
     ["if (!hasOwn(d, 'value')) fail('accessor')", "if (!hasOwn(d, 'value')) return d.get ? d.get() : undefined"]]],
@@ -56,7 +56,7 @@ const TWINS = [
   ['foreign-throws-escape', 'a throw from a trap or exotic object leaves encode as itself', [
     ["    throw new EncodingError('exotic')", '    throw e']]],
   ['no-slot-check', 'an object with internal slots and a plain prototype is encoded as {}', [
-    ['(!array && hasInternalSlot(v))', 'false']]],
+    ['(!array && hasInternalSlot(v, proto))', 'false']]],
   ['live-builtins', 'built-ins are looked up when called, so patching them later changes results', [
     ['const stringify = JSON.stringify', 'const stringify = (x) => JSON.stringify(x)'],
     ['apply(exec, KEY, [k]) === null', '!KEY.test(k)']]],
@@ -66,6 +66,15 @@ const TWINS = [
     ['    for (let i = 0; i < length; i++) {\n      const d', '    for (let i = 0; i < a.length; i++) {\n      const d']]],
   ['descriptor-read-twice', 'a property descriptor is read twice', [
     ['const x = dataValue(getOwnPropertyDescriptor(o, k))', 'getOwnPropertyDescriptor(o, k); const x = dataValue(getOwnPropertyDescriptor(o, k))']]],
+  // Found by automated review.
+  ['own-tag-read', 'the slot check reads an own Symbol.toStringTag, running an accessor', [
+    ['if (hasOwn(v, toStringTag) || (proto', 'if ((proto']]],
+  ['inherited-tag-read', 'the slot check reads a Symbol.toStringTag defined on Object.prototype after loading', [
+    [' || (proto !== null && hasOwn(ObjectPrototype, toStringTag))', '']]],
+  ['escapes-uncounted', 'a string is escaped and copied before its escaped size is checked', [
+    ["        if (this.bytes + n + 1 > MAX_BYTES) fail('size')\n", '']]],
+  ['controls-two-bytes', 'every escape is counted as two bytes, so \\u00XX controls are copied past the limit', [
+    ['c === 0x22 || c === 0x5c || (c > 7 && c < 14 && c !== 11) ? 2 : 6', '2']]],
 ]
 
 function run (implPath) {
@@ -115,7 +124,7 @@ test('broken twins', { timeout: 600_000 }, async (t) => {
         new URL('../twins/encoding/stringify.js', import.meta.url).pathname],
       ...TWINS.map(([name, why, edits]) => [name, why, generate(name, edits)]),
     ]
-    assert.equal(jobs.length, 24, 'twin count')
+    assert.equal(jobs.length, 28, 'twin count')
 
     // Each suite run already runs its files in parallel, so run only a few suites at a time.
     const results = []

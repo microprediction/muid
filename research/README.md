@@ -10,12 +10,13 @@ Background research behind the draft spec in [`../SPEC.md`](../SPEC.md). Sources
 | [passkeys-and-recovery.md](passkeys-and-recovery.md) | Related Origin Requests, iframes vs popups, passkey-rooted wallet designs, sync-provider risk, recovery |
 | [delegation.md](delegation.md) | UCAN, ZCAP, Biscuit, did:plc, KERI, NIP-26, RFC 8693, X.509: scope, audience, depth, time, revocation |
 | [oidc-witness.md](oidc-witness.md) | Binding provider accounts to keys (Fulcio, DPoP, PKCE, nonce), GitHub/Google/ORCID identifiers, device flow |
+| [witness.md](witness.md) | Witness equivocation and backdating in CT, checksum databases, KERI, key transparency, did:plc; revocation lag; several witnesses |
 | [assurance.md](assurance.md) | Mutation testing, property testing, fuzzing, linters, known-answer vectors, supply chain, anti-vacuity |
 
 ## Structure of each topic file
 
 - `## Findings`: numbered. Each carries its source URL(s) inline.
-- `## Consequences for the spec`: each line starts with the SPEC.md rule label (E1–E5, V1–V3, K1–K3, D1–D6, A1–A3, R1–R5, F1–F4, W0–W5, I1–I5, U1–U3) or
+- `## Consequences for the spec`: each line starts with the SPEC.md rule label (E1–E8, V1–V5, K1–K7, D1–D7, A1–A4, O1, R1–R9, F1–F4, W0–W6, I1–I5, U1–U3) or
   section (§N, §N.M) it informs, or "not yet in spec".
 - `## Unverified`: claims that lack a primary source. Secondary or informal sources are given where one exists. Treat
   these as leads, not citations.

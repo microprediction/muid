@@ -17,7 +17,7 @@ when its whole section here passes, including the anti-vacuity checks. Rule labe
   - every vector suite asserts the exact number of cases it ran;
   - every property asserts, from fast-check statistics, that most generated inputs exercised the accept path (or the
     reject path, for a reject property);
-  - every guard has a broken twin (§4) that the suite must fail against;
+  - every guard has a broken twin (§6) that the suite must fail against;
   - a skipped or `todo` test fails CI.
 - **Rejects are specific.** A reject test asserts the reason code, so a case rejected for the wrong reason fails.
 
@@ -93,7 +93,7 @@ Generators cover deep and wide nesting, every string class in §2.2, and integer
 
 ### 2.4 Broken twins (each must make the suite fail)
 
-The meta-test generates 23 twins from `src/encode.js` (one targeted change each) plus one standalone
+The meta-test generates 27 twins from `src/encode.js` (one targeted change each) plus one standalone
 `JSON.stringify` twin; the list below is the original set, and the meta-test file is the authoritative one.
 
 1. `JSON.stringify` with sorted keys and no domain checks.
@@ -112,20 +112,291 @@ The meta-test generates 23 twins from `src/encode.js` (one targeted change each)
 - Semgrep: `JSON.parse` is allowed only in `src/encode.js`. No `async`, `await`, `Date`, `Math.random` or imports
   other than `@noble/*` anywhere in `src/`.
 
-## 3. Later layers (outline; each is expanded here before its code is written)
+## 3. Layer 2 — envelope and record id (`src/envelope.js`): V1–V4
 
-1. **Envelope and record id** (V1–V3): signed-bytes vectors by hand; a record id never changes when only `sig` changes;
-   wrong `v`, wrong `type` and swapped-type replay are rejected with their reason codes; SHA-256 checked against NIST
-   CAVP (65 short and 64 long messages). A twin that re-serialises the payload before verifying cannot be caught by
-   any vector while E2 holds, so a structural test pins that the bytes verified are the bytes received.
-2. **Keys and Ed25519** (K1, K2, K4): RFC 8032 §7.1 (5); Wycheproof `ed25519_test.json` (210: 117 valid, 64 invalid,
-   29 acceptable — all 29 expected **rejects**); ed25519-speccheck `cases.json` (12, all rejects); ACVP EdDSA SigVer (5).
-   Measured: noble with `zip215: false` and Node's WebCrypto both accept all 21 mixed-order acceptable cases, so the
-   torsion check is load-bearing; the identity point passes `isTorsionFree()`, so `!isSmallOrder()` is too; and noble
-   defaults to ZIP-215, so a twin that omits the option is caught only by dedicated vectors (two are hand-built). A
-   small-order component added to R is accepted by noble and rejected by WebCrypto (K4). Twins: `zip215: true`, no
-   torsion check, no small-order check, no K4 check.
-3. **Root assertions** (W0–W5): Wycheproof P-256 DER (all 484, with `lowS: false`; a broken twin with the default
+Interface under test:
+- `open(text, type)` → frozen `{ id, type, body, sig, payload }`, or throws `EnvelopeError` with a V4 reason code.
+- `seal(type, body)` → frozen `{ payload, id }`: the payload text a signer signs, and its record id.
+- `wrap(payload, sig)` → envelope text; `sig` is omitted for a root.
+- `signedBytes(payload)` → a new `Uint8Array` of `UTF-8("muid/v1\n") ‖ UTF-8(payload)`.
+
+Signatures are not checked here; layers 3 and 4 check them over `signedBytes(payload)` of the payload `open` returned.
+
+### 3.1 Known answers
+
+- **NIST CAVP SHA-256** (`tests/vectors/cavp-sha256/`, pinned): all 65 short and 64 long messages through the
+  `@noble/hashes` function the layer uses, with the count asserted. This checks the dependency, not our code.
+- **Hand vectors:** for three payloads (empty body; a body with non-ASCII text and an escaped control character; a
+  body near the size limit) the signed bytes and record id are written as literals, computed outside the project with
+  `printf … | shasum -a 256`.
+- **Oracle:** for generated bodies, `seal(...).id` equals `node:crypto` SHA-256 of the signed bytes (a second,
+  independent SHA-256).
+
+### 3.2 Refusals (every one asserts its reason)
+
+| Input | Reason |
+|---|---|
+| not a string; whitespace; keys out of order; a duplicate key; trailing newline | `envelope-encoding` |
+| extra key; missing `payload`; `payload` not a string; `sig` an array, string or number; a root with `sig`; a non-root without `sig` | `envelope-shape` |
+| `payload` that is not canonical JCS, not an object, or contains `null` | `payload-encoding` |
+| payload with an extra key, a missing key, `body` an array or string | `payload-shape` |
+| `v` of 0, 2, `"1"`, `true` | `version` |
+| `type` differing from the expected type; differing only in case; with trailing space | `type` |
+| several faults at once | the first in V4 order |
+| `open(text, "unknown")`, `seal("unknown", {})` | `TypeError` (programming error, not a refusal) |
+
+### 3.3 Properties
+
+- **Q1 id excludes the signature:** changing only `sig` never changes `id`.
+- **Q2 round trip:** `open(wrap(seal(t, b).payload, sig), t)` returns `b` (deep-equal), the same `id`, and the same
+  `payload` text.
+- **Q3 id commits to every payload byte:** any single-byte change to `payload` either is refused or changes `id`.
+- **Q4 refusal is total:** any string, and any envelope built around a mutated payload, either opens or throws
+  `EnvelopeError` — never another error.
+- **Q5 frozen output** with null prototypes (E8 carried through).
+
+### 3.4 Structural
+
+- The `payload` returned is the received payload text: equal to the substring of `text` that the envelope's `payload`
+  decodes to, and `signedBytes` of it equals the prefix followed by that text's UTF-8. A twin that re-serialises the
+  body before hashing cannot be caught by any vector while E2 holds; a guard test fails if `src/envelope.js` uses
+  `encode` anywhere other than its import and the bodies of `seal` and `wrap`.
+- `signedBytes` returns a new array on every call; mutating one never changes another or a later `id`.
+
+### 3.5 Broken twins
+
+No version check; no type check; a root accepted with `sig`; an extra envelope key accepted; id over the payload
+without the prefix; id over the whole envelope (so it covers `sig`); the prefix without its newline; `body` allowed to
+be an array; output not frozen.
+
+## 4. Layer 3 — Ed25519 keys and signatures (`src/ed25519.js`): K1, K2, K4, K5
+
+Interface under test: `checkEd25519(sig, message, key)` → frozen `{ ok: true }` or `{ ok: false, reason }` (K5).
+
+### 4.1 Known answers (counts asserted)
+
+- **RFC 8032 §7.1** (5): each verifies; flipping any one bit of the signature, message or key makes it fail, with the
+  reason K5 order predicts for where the bit is.
+- **Wycheproof `ed25519_test.json`** (210): the 117 valid verify; the 64 invalid and all 29 acceptable are rejected.
+- **ed25519-speccheck `cases.json`** (12): all rejected, each with the reason written by hand in the test from the
+  case's documented construction.
+- **Hand-built:** a key and an R that each carry a small-order component (from the eight small-order points), which
+  `ed25519.verify` with `zip215: false` accepts and K1/K4 reject; the identity point as key and as R; a non-canonical
+  y (y ≥ p) for key and for R.
+
+### 4.2 Oracles and properties
+
+- **Differential, one direction:** whatever we accept, Node's WebCrypto Ed25519 also accepts — over every vector and
+  over generated keys and messages.
+- **Agreement on honest signatures:** for generated keys (Node `generateKeyPairSync('ed25519')`) and messages, the
+  Node signature is accepted; changing one byte of signature, message or key is rejected.
+- **K2 total:** for arbitrary strings, numbers, objects and byte arrays as `sig` and `key`, the result is a frozen
+  `{ ok, reason? }` with a reason from K5 — never a throw.
+- **Hex is canonical:** uppercase hex, odd length, `0x` prefix, whitespace, or a non-string is `key-encoding` or
+  `sig-encoding`.
+
+### 4.3 Broken twins
+
+`zip215: true` (in decoding and verifying); no small-order check; no mixed-order (torsion) check; no K4 checks on R;
+no S range check (left to `verify`, which must then still reject — so this twin is caught only by its reason);
+uppercase hex accepted; a throw from the library escaping; built-ins looked up live; signature checked before key.
+Calling the library without `zip215: false` is not a twin: our canonical, prime-order checks run first, so no input
+reaches it on which the two modes differ.
+
+## 4a. Layer 3b — P-256 signatures (`src/p256.js`): K2, K6
+
+Interface under test: `checkP256(sig, message, key)` → frozen `{ ok: true }` or `{ ok: false, reason }` (K6).
+
+- **Wycheproof `ecdsa_secp256r1_sha256_test.json`** (484, count asserted): every verdict matches, with
+  `sig-encoding` for each BER or malformed-DER case and the 174 valid cases accepted — including those with high S.
+- **Differential, one direction:** whatever we accept, Node's ECDSA (OpenSSL) also accepts.
+- **Honest signatures:** Node-signed messages are accepted; so are the same signatures with S replaced by n − S
+  (passkeys emit both, §2); one changed byte of signature, message or key is rejected.
+- **Keys:** compressed (`02`/`03`), hybrid (`06`/`07`), a wrong length, uppercase hex: `key-encoding`; a point off the
+  curve, x or y ≥ p: `key-point`.
+- **K2:** arbitrary values as `sig` and `key` never throw; built-ins captured at load; built-ins the library uses can
+  only make it fail closed.
+- **Twins:** `lowS: true` (the library default); `prehash: false`; compressed keys accepted; a throw escaping.
+
+## 4b. Layer 4 — root assertions (`src/assertion.js`): W0–W6
+
+Interface under test: `checkRootAssertion(sig, { record, rpId, origin, key })` → frozen `{ ok: true }` or
+`{ ok: false, reason }` (W6).
+
+- **W3C WebAuthn L3 §16 vectors** (pinned excerpt): for each ES256 authentication example, its authenticator data and
+  client data are kept byte for byte except the challenge, which becomes a muid challenge, and the assertion is
+  re-signed with the published credential private key. Expected: the plain example and the long-credential-id
+  example accept (with UV set, as W2 requires — an example without UV is refused as `user-verification`); the
+  `crossOrigin: true` and `topOrigin` examples are refused as `client-data`.
+- **Browser fixtures:** the shapes measured in Chrome, Safari and Firefox, including Chromium's extra key, rebuilt
+  from their recorded layout with a test key.
+- **One field at a time:** starting from a valid assertion, each field is mutated (every flag bit; each prefix
+  byte; challenge from another record set; origin with a trailing slash, another port, `http`; rp ID hash of a
+  sibling domain; trailing authenticator-data bytes; extensions; a second `type` key later in the JSON) and the reason
+  is asserted.
+- **W0:** `covers` empty, longer than 8, unsorted, with a duplicate, with an uppercase id, not containing the record;
+  the record covered together with others (accepted); a challenge computed with `muid/v1\n` (the signed-bytes
+  prefix) instead of `muid/v1/assert\n` (refused); one record's assertion replayed onto a record outside `covers`.
+- **Encoding:** padded base64url, standard base64 characters, trailing bits not zero, length ≡ 1 mod 4, invalid
+  UTF-8 in client data.
+- **K2:** arbitrary `sig` values never throw; captured built-ins.
+- **Differential, one direction:** whatever we accept, SimpleWebAuthn's `verifyAuthenticationResponse` also accepts
+  (it is a dev dependency only; its known stricter or looser points are a committed list).
+- **Twins:** no challenge check; an `endsWith` origin check; UV not required; trailing authenticator-data bytes
+  allowed; `topOrigin` allowed; the challenge computed over the signed-bytes prefix; covers not required to contain
+  the record.
+
+## 4c. Canonical origins (`src/origin.js`): O1
+
+- **Hand cases:** accepted — two labels, many labels, digits and hyphens inside labels, port 1, 444, 65535, a
+  63-character label, a 253-character host. Refused — `http`, uppercase anywhere, a trailing dot or slash, a path,
+  query, fragment or userinfo, port 443, 0, 65536, a leading zero, an empty port, one label, an empty label, a label
+  of 64 characters, a 254-character host, leading or trailing hyphen, `xn--` and any `??--` label, an IPv4 or IPv6
+  host, percent-encoding, whitespace or control characters anywhere, a non-string.
+- **Oracle, one direction:** whatever is accepted, the WHATWG URL parser (Node's) agrees is an origin and serialises
+  to the same string: `new URL(x).origin === x`.
+- **Property:** generated hosts and ports in the grammar are accepted; every single-character mutation of an
+  accepted origin is either refused or still satisfies the oracle.
+- **Twins:** uppercase allowed; port 443 allowed; trailing slash allowed; `xn--` allowed; IPv4 allowed; no length
+  limits.
+
+## 4c2. Roots and identities (`src/root.js`)
+
+- **Hand vectors:** a root record's id and its identity id, computed outside the project with `printf … | shasum`.
+- **Refusals:** each V4 reason through `checkRoot`; `root-shape` for a missing, extra or non-string key and for `pub`
+  not 130 lowercase hex starting `04`; `rp-id` for another rp ID, a different case, a trailing dot; `key-point` for a
+  point off the curve.
+- **Binding:** the id changes with the rp ID and with any key byte; the same key under two rp IDs gives two roots.
+- **K2:** arbitrary texts never throw; `identityOf` refuses anything but a 64-hex id as a programming error.
+- **Twins:** id without the domain prefix; id over the hex text instead of the bytes; rp ID not compared; identity
+  over the hex root id.
+
+## 4d. Layer 5 — delegations (`src/delegation.js`): D1–D7
+
+Interface under test: `checkDelegation(text, ctx)` → frozen `{ ok: true }` or `{ ok: false, reason }` (D7), with
+envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shaped assertion (as in §4b).
+
+- **Window (D1):** `now` at `nbf − skew − 1` (`not-yet`), `nbf − skew` (accepted), `exp − 1` (accepted), `exp`
+  (`expired`); skew never extends `exp`.
+- **Lifetime (D2):** `exp − nbf` at `maxLifetime` (accepted) and one over; `exp = nbf`; `exp < nbf`.
+- **Shape:** each of the eight keys missing, an extra key, each field of the wrong type or form (uppercase hex, 63 or
+  65 characters, a float or unsafe time, a string time); `sig` without `subject`, with an extra key, `subject` not
+  128 hex.
+- **Scopes:** empty, 17, unsorted, duplicate, uppercase, a 65-character scope, a scope starting with a digit; 16
+  accepted.
+- **Audience:** every refused case of §4c gives `aud`; a canonical origin is accepted.
+- **Subject key (K1):** a small-order and a mixed-order key give `subject-key`.
+- **Root binding:** a body naming another root, a key that is another root's, the right key under another rp ID —
+  each `root`, before the assertion is checked.
+- **Result and context:** an accept carries `id` and `body`, frozen; each context field is read once.
+- **Root assertion:** an assertion covering another record (`covers`), one signed by another passkey (`sig-invalid`),
+  one whose covers include this record and others (accepted).
+- **Subject consent (D6):** signed by another key; over the hex id instead of its bytes; with the signed-bytes or
+  assertion prefix instead of the accept prefix; over another delegation's id — each `subject-consent`.
+- **Context:** a context that is not well formed (`now`, `skew`, `maxLifetime` not non-negative safe integers; keys
+  not strings) is a programming error.
+- **K2:** arbitrary texts and values never throw; envelope faults give V4's reasons.
+- **Twins:** skew applied to `exp`; `<=` at `exp`; no lifetime cap; scopes prefix-matched or unsorted allowed; no D6;
+  D6 over hex text; aud not checked; root assertion checked against a fixed record id.
+
+## 4e. Layer 6 — attestations (`src/attestation.js`): A1, A3, A4
+
+- **Accounts:** GitHub `1`, `583231`, a 20-digit id (accepted); `0`, `01`, 21 digits, `-1`, a login (refused).
+  Google: a 21-digit sub, 255 printable characters (accepted); empty, 256 characters, a space, a non-ASCII
+  character (refused). ORCID: the iDs ORCID publishes as examples, including one ending in `X` (accepted); each with
+  its check digit changed, lowercase `x`, no hyphens, a URL form (refused).
+- **Witness keys (A1):** an unpinned key; a pinned key before its `nbf` and at its `exp`; a pinned key inside its
+  window (accepted); a signature by a different pinned key than the one named.
+- **Window and lifetime:** as for delegations (§4d).
+- **Signature:** over the signed bytes, by the named key; any change to the payload or signature is refused.
+- **Shape, totality, context read once,** as for delegations.
+- **Twins:** no check digit; leading zeros allowed; any provider; witness found by trying keys; key window ignored;
+  signature over the payload without the prefix.
+
+## 4f. Layer 7 — membership state (`src/membership.js`): R1–R8
+
+- **The model as oracle:** every state `model/settled.mjs`'s explorer reaches in five scenarios (one root stolen; two
+  roots, the later stolen; three roots, a later or the first stolen; three roots, two stolen) — thief moves, owner
+  answers, then the window closing — is translated into real signed records (P-256 roots, an Ed25519 witness), and
+  `membershipState` must give the model's answer. The scenarios together must reach dead, frozen, pending and settled
+  states. Sampled partial views (subsets a network attacker could show) must agree too. Under a small `FC_RUNS` a
+  deterministic sample is used, keeping every dead and frozen state.
+- **Hand cases:** memberships of every wrong shape (extra key, empty, six roots, unsorted, duplicate, non-id roots,
+  wrong epoch, another identity, bad `prev`) ignored even when anchored; witness records with a bad signature shape,
+  a negative `at` or a bad outcome ignored; contests and freezes of non-ids ignored; a witness that anchors two
+  rivals ends the identity; witness keys outside their window at the record's `at`; assertions over another record
+  or by a key that is not the named root; a signer whose root record is missing; unreadable `records`.
+- **Order-free (R7):** in a settled, a frozen pending and a dead scenario, every list permuted, records repeated and
+  another identity's valid records mixed in (property; most runs include them): the state is unchanged.
+- **Tamper sweep:** a pending epoch over a settled one, frozen by a root of the pending record; a one-character change
+  (two replacements and a deletion) to any one record gives the state with that record or without it, never another,
+  and each kind holds a record whose loss changes the state. Positions are sampled with a fixed seed;
+  `MUID_SWEEP=full` sweeps every position.
+- **Twins:** half counted as a majority; added roots not required to sign; the witness window ignored; a contest
+  without a majority; new roots with authority while pending; a freeze lifted at anchoring; settlements ignored; one
+  of two anchored rivals chosen; root assertions not verified; the revocation cap applied only after the whole list is
+  read; a pending epoch in the head as if settled.
+
+## 4g. Layer 8 — the verifier (`src/verifier.js`): F1–F5, R9
+
+- **Accept path:** a delegation, its root record and a fresh head give the delegation's id and body.
+- **Head:** another type, an extra key, empty or three memberships, a repeated membership, no or six roots of
+  authority, unsorted or repeated authority, ids with junk, a non-integer `at`, an unpinned witness, a signature by
+  another key than named, a key whose window does not hold `at` — each `head`.
+- **Staleness:** exactly `maxStaleness` old (accepted) and one second more; `skew` in the future (accepted) and one
+  second more; `at = 0`.
+- **Composition:** root-record refusals; D7's reasons passed through (including `root` for another root's record);
+  identity, membership (settled and pending both accepted) and authority judged by the head; revoked, audience, scope.
+- **Revocation and lag (R9):** the head's revocations by delegation id and by subject key; `minHeadAt`; a witness key
+  whose window holds the head's `at` but not `now`, or ends exactly at `now`; malformed revocation entries are a
+  programming error.
+- **Equivocation (decision 10):** with `lastHead`, an honest witness's later heads are accepted (the same state, a
+  successor pending, it settling, the next pending, two epochs on, authority shrinking when a successor turns pending
+  and growing when it settles, and changing freely one epoch on from no pending successor or two epochs on); a lower settled epoch, another settled membership at the same epoch, a pending
+  successor gone or replaced, the next epoch settling another than the pending successor, one membership at two
+  epochs, more or less authority over the same memberships, authority growing as a successor turns pending or shrinking as
+  it settles alone, and two heads of one second inconsistent both ways round are `equivocation`; a head of the same
+  second that could honestly precede the last one is `stale`, as is an older head, even a consistent one; a last head of another identity is `identity`, never a throw; a last head signed by a key since retired
+  still works; a last head that is not a pinned head is a programming error. Over every pair of a pool of heads, a
+  last head only removes trust (F3). Head form: `epoch` a positive integer, 1 exactly when the first membership is the
+  identity.
+- **Equivocation against the model:** over every history the explorer reaches with an honest witness (two and three
+  roots, epochs to 3, every move by an actor holding every root, and ticks; about 18,000 states), every head is
+  consistent with every head signed before it on the same history (the rule restated over epochs and sets, apart from
+  the code), with every progression the rule distinguishes and changes of authority reached; stricter rules refuse
+  some honest pairs, so the check has teeth. Heads from diverging histories are refused in part. Through the real
+  verifier, every distinct honest pair is accepted in order and is `stale` reversed (including pairs of one second),
+  and 300 diverging pairs, some of one second, are `equivocation`.
+- **F3:** adding revocations never turns a refusal into an accept (property).
+- **Programming errors** for configuration, `now`, `scope`, `revoked`, `minHeadAt`, a claim call's `request` and
+  `lastHead`; the configuration is copied at
+  construction; arbitrary and hostile records never throw.
+- **Claims (C1):** accepted with id, body, delegation and `until`; every shape fault (extra key, missing or
+  non-object data, missing or non-string request, bad delegation id or scope, negative or string time, signature not
+  exactly 128 hex or not alone) is `claim-shape`; a claim for another scope or request; the delegation verified in
+  full; another delegation named; time at and one past `maxClaimAge` and `skew`, and outside the delegation's window;
+  a signature by another key or over the payload without its prefix; subject keys in the call's revoked list; the
+  call read once; `until` is the first time the claim is refused (accepted one second before it).
+- **Bounded head building:** `headOf` given 2,000 distinct descending revocations reads exactly 65 entries.
+- **Tamper sweep:** every position of the claim, its delegation, the root record and the head, replaced two ways
+  and deleted: no variant verifies (`tests/integration/tamper.test.mjs`).
+- **Twins:** no staleness bound; heads from the future; `minHeadAt` ignored; claim time, delegation window, delegation,
+  signature, scope or request unchecked; subject keys in the call's revoked list ignored; membership, authority, identity,
+  revocation (call's or head's), audience or scope unchecked; revocation by id only; the witness key's window checked
+  at the head's time only; the head's signature unchecked; `until` one second early; equivocation unchecked; heads of one second taken as evidence in either
+  order; the settled or highest epoch allowed to fall; ids not tied to epochs, or tied only within one epoch;
+  authority unchecked while the memberships stand, allowed to grow, or to shrink at settlement; a head older than the
+  last accepted; the last head's identity unchecked, checked at `now`, or not verified; the head's epoch unchecked
+  against its memberships, or 0 allowed.
+
+## 5. Later layers (outline; each is expanded here before its code is written)
+
+1. **Envelope and record id:** expanded as §3.
+2. **Keys and Ed25519:** expanded as §4. Measured earlier: noble with `zip215: false` and Node's WebCrypto both accept
+   all 21 mixed-order acceptable cases, so the torsion check is load-bearing; the identity point passes
+   `isTorsionFree()`, so `!isSmallOrder()` is too; a small-order component added to R is accepted by noble and
+   rejected by WebCrypto (K4).
+3. **Root assertions:** expanded as §4b. Original outline (W0–W5): Wycheproof P-256 DER (all 484, with `lowS: false`; a broken twin with the default
    `lowS: true` must fail the 71 high-S cases); the W3C WebAuthn L3 §16 vectors, which publish their private keys so
    mutated assertions can be re-signed (3 of the 10 ES256 vectors accept under W2; §16.2's flags 0x19 lack UV); real
    Chrome, Safari and Firefox assertions from the spike, including Chromium's extra `clientDataJSON` key; a software
@@ -134,33 +405,44 @@ The meta-test generates 23 twins from `src/encode.js` (one targeted change each)
    allowed. W0: `covers` empty, longer than 8, unsorted, with a duplicate, with an uppercase id, or missing the
    record's own id; a challenge computed with the signed-bytes prefix instead of the assertion prefix; one record's
    assertion replayed onto another record not in its `covers`.
-4. **Delegation** (D1–D5): window boundaries at `nbf − skew − 1`, `nbf − skew`, `exp − 1`, `exp`; lifetime at the
+4. **Delegation:** expanded as §4d. Original outline (D1–D5): window boundaries at `nbf − skew − 1`, `nbf − skew`, `exp − 1`, `exp`; lifetime at the
    cap and one over; a delegation signed by an Ed25519 key; audience spelling variants (trailing slash, uppercase,
    default port, path, userinfo); unsorted or duplicate scopes; F3 monotonicity (no option turns a reject into an
    accept).
 5. **Attestation** (A1–A3): witness key outside its window; unknown provider; each provider's account format and its
    near misses (GitHub leading zero or login string; ORCID bad check digit).
-6. **Membership, freeze, revocation** (R1–R5): next epoch signed by exactly half (rejected) and by a strict
-   majority (accepted); an added root that did not sign; a freeze by a retired root; two valid records for one epoch
-   (R3); every permutation of a record set gives the same state (R5, property); a delegation from a root of an older
-   epoch; pruning a revocation only after its target's expiry. The three stolen-root scenarios, and traces from the
-   Quint/TLA+ model, replayed as tests.
+6. **Membership, freeze, revocation** — membership expanded as §4f; the rest (R1–R7): a membership record signed by exactly half of `prev`'s roots
+   (rejected) and by a strict majority (accepted); an added root that did not sign; epoch 2 whose `prev` is not the
+   identity id; an `epoch` that is not `prev`'s plus one; a freeze by a retired root; a record without an anchor, or
+   with an anchor or settlement from an unpinned key or outside its key's window; two anchors for one `prev` (the
+   identity ends: the witness contradicted itself); a contest signed by half (rejected); a contest anchored, then
+   settled `contested`; a pending record's new root signing a delegation (rejected until settlement); a delegation
+   naming a membership that is not the effective one; `covers` holding two membership records with one `prev`; every
+   permutation of a record set gives the same state (R7, property); pruning a revocation only after its target's
+   expiry. The model's scenarios (`tests/model/`) are replayed as tests against `verify`, and so are its
+   counterexample traces, including partial views.
 
 Candidate cases drawn from the published behaviour of Porto, Farcaster and Keybase are added to these sections as they
 are expanded.
 
-## 4. How broken twins run
+## 6. How broken twins run
 
 `tests/twins/<layer>/<n>-<name>.js` exports the same interface as the real module. Every test and test helper reaches
 the implementation only through `tests/impl.mjs`, which loads the real module or the twin named by an environment
 variable; a guard test fails if any test file imports `src/` directly, since that import would bypass the twin. A
 meta-test runs the layer's suite once per twin and passes only if every run exits non-zero. A twin that the suite cannot kill is a missing test, and the layer is not mergeable.
 
-## 5. CI order
+## 7. CI
 
-1. `npm ci --ignore-scripts`, registry signature check, lockfile and pin checks.
-2. Semgrep with its rule tests (`semgrep --test`), line budget, duplication check, gitleaks.
-3. `node --test` (vector hashes, vectors, properties, adversarial cases), with coverage.
-4. Broken-twin meta-tests.
-5. Mutation testing on changed core files.
-6. CodeQL.
+Three kinds of job run in parallel, so wall time is the slowest single job, not the sum:
+
+1. **Tests** on Node 22, 24 and 26: `npm ci --ignore-scripts`, the registry signature check, then every suite
+   outside `tests/meta/` (vector hashes, vectors, properties, adversarial cases, guards) with 100% coverage of `src/`.
+2. **Twins:** one job per harness in `tests/meta/`.
+3. **Mutation testing:** one job per core module.
+
+Guards fail the build if a test file is in no job, a module has no mutation config, or a config is not in the
+matrix, and if a dependency is not pinned (exact versions, a lockfile that agrees, the public registry over https
+with sha512 integrity, no install scripts, nothing at runtime but the two noble packages); the pin guard runs against
+eighteen edited copies of the real files and must name each fault. Still to add when their tools are approved: Semgrep with its rule tests, a duplication check, gitleaks,
+CodeQL.
