@@ -1,0 +1,7 @@
+# Secret scanning (SPEC §12). The default rules, with published test vectors exempt: they are public by design.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "published test vectors"
+paths = ['''^tests/vectors/''']

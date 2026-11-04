@@ -444,5 +444,8 @@ Three kinds of job run in parallel, so wall time is the slowest single job, not 
 Guards fail the build if a test file is in no job, a module has no mutation config, or a config is not in the
 matrix, and if a dependency is not pinned (exact versions, a lockfile that agrees, the public registry over https
 with sha512 integrity, no install scripts, nothing at runtime but the two noble packages); the pin guard runs against
-eighteen edited copies of the real files and must name each fault. Still to add when their tools are approved: Semgrep with its rule tests, a duplication check, gitleaks,
-CodeQL.
+eighteen edited copies of the real files and must name each fault. The scan workflow (`.github/workflows/scan.yml`)
+runs CodeQL, Semgrep with its rule tests, gitleaks over every commit, jscpd against its reviewed baseline, and the
+release-age check; each was shown to fail on a planted fault (a result, a broken rule, a token, a copied file, a
+too-new package) before it was relied on. `tests/assertion/W-simplewebauthn.test.mjs` is the SimpleWebAuthn
+differential, with its known differences pinned.

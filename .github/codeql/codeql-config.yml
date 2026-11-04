@@ -1,0 +1,6 @@
+# CodeQL scans the trusted core with the security-extended queries (SPEC §12).
+name: core
+queries:
+  - uses: security-extended
+paths:
+  - src

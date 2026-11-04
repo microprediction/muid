@@ -638,9 +638,13 @@ never afterwards. Details and thresholds: `TESTING.md`; sources: [`assurance.md`
 | Line budget, skipped tests, vector pinning, CI coverage of every test file and module | as named |
 | Supply chain | install scripts (`npm ci --ignore-scripts`); unverified registry signatures; a dependency not pinned exactly, a lockfile entry from another registry or without sha512 integrity, an install script, or anything at runtime but the two noble packages |
 | CI hardening | an action not pinned by commit SHA; a workflow with write permissions it does not need; any `pull_request_target` |
+| CodeQL (`security-extended`, over `src/`) | any result; results are printed, not uploaded, so the token stays read-only |
+| Semgrep (`.semgrep/core.yml`, image pinned by digest) | any match in `src/`, or a rule that stops firing on its own cases (`semgrep --test`) |
+| Secret scanning (gitleaks, checksum-verified) | a secret in any commit, except findings reviewed in `.gitleaksignore` |
+| Duplication (jscpd) | a clone in `src/` not in the reviewed `.jscpd-baseline.json` |
+| SimpleWebAuthn differential | a root assertion accepted here and refused by SimpleWebAuthn; a known difference (where only it accepts) that changes |
+| Release-age cooldown | a locked package published less than seven days ago (`.npmrc` `min-release-age` holds new choices to the same) |
 
-**Planned gates** (they count once they run): Semgrep with rule tests; duplication (jscpd); CodeQL
-(`security-extended`); gitleaks; a SimpleWebAuthn differential for root assertions; a release-age cooldown.
 
 **Scheduled, not gating**
 
