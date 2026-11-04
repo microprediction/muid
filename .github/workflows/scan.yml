@@ -26,8 +26,9 @@ jobs:
           curl -sSfL -o "$RUNNER_TEMP/gitleaks.tgz" https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz
           echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  $RUNNER_TEMP/gitleaks.tgz" | sha256sum -c -
           tar -xzf "$RUNNER_TEMP/gitleaks.tgz" -C "$RUNNER_TEMP" gitleaks
+      # The history of the commit under test only: other branches fetched alongside are checked in their own runs.
       - name: No secret in any commit
-        run: '"$RUNNER_TEMP/gitleaks" git --redact --no-banner --exit-code 1 .'
+        run: '"$RUNNER_TEMP/gitleaks" git --redact --no-banner --exit-code 1 --log-opts=HEAD .'
 
   codeql:
     runs-on: ubuntu-24.04
