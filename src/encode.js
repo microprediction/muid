@@ -11,11 +11,14 @@
 // E7 OWN INTRINSICS    only built-ins captured when this module loaded are used; later patching changes nothing.
 // E8 NULL PROTOTYPES   decoded objects and arrays have null prototypes and are deeply frozen.
 //
-// Domain (SPEC §3): plain objects (keys ^[a-z][a-z0-9_]{0,31}$), dense plain arrays, well-formed strings, safe
-// integers (no -0), true, false; the top level is a plain object. "Plain": prototype Object.prototype or null
-// (Array.prototype or null for arrays), no internal slots. A Proxy can choose only what is encoded, as any caller can.
+// Domain: plain objects (keys ^[a-z][a-z0-9_]{0,31}$), dense plain arrays, well-formed strings, safe integers (no -0),
+// true, false. No null, no floats. The top level is a plain object. "Plain" means a prototype of Object.prototype or
+// null (Array.prototype or null for arrays), no internal slots, and no Symbol.toStringTag the slot check could read.
+// A Proxy cannot be detected in a browser; E3, E4 and E6 make one harmless, and it can choose only what is encoded,
+// as any caller can.
 
-// E7: captured at load. Object.defineProperty and setPrototypeOf throw on failure; Reflect's return false silently.
+// E7: captured at load.
+// Object.defineProperty and Object.setPrototypeOf throw on failure; their Reflect versions return false silently.
 const { apply, ownKeys, getPrototypeOf } = Reflect
 const { getOwnPropertyDescriptor, hasOwn, is, freeze, create, defineProperty, setPrototypeOf } = Object
 const { isArray } = Array
@@ -119,7 +122,10 @@ class Writer {
     switch (typeof x) {
       case 'string': {
         if (!apply(isWellFormed, x, NO_ARGS)) fail('surrogate')
-        // Stryker disable next-line ArithmeticOperator: bounds the scan below (quotes, a byte after); weaker only defers.
+        // A string encodes in at least its length plus two quotes, and a value is always followed by at least one
+        // byte (a comma or a closing bracket), so this refuses nothing that fits. It bounds the scan below, which
+        // measures the escaped text exactly before it is built, so nothing that cannot fit is copied.
+        // Stryker disable next-line ArithmeticOperator: a weaker bound only defers the refusal to the exact one.
         if (this.bytes + x.length + 3 > MAX_BYTES) fail('size')
         const n = utf8Length(x, true) + 2 // its JSON text, quotes included, measured before the text is built
         if (this.bytes + n + 1 > MAX_BYTES) fail('size')

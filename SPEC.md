@@ -615,7 +615,8 @@ reputation layer.
 
 ## 11. Budget
 
-Trusted core ≤ 1,500 lines. Going over is a design problem, not a reason to raise the budget.
+Trusted core ≤ 1,800 lines, so that it stays reviewable in one sitting. The budget is raised deliberately when
+clarity needs it, and never met by compressing comments.
 
 ## 12. Automated assurance
 

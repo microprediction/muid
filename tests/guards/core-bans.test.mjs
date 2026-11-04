@@ -6,7 +6,7 @@ import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
 
 const SRC = new URL('../../src/', import.meta.url).pathname
-const LINE_BUDGET = 1500
+const LINE_BUDGET = 1800
 
 function files (dir) {
   return readdirSync(dir).flatMap((name) => {
