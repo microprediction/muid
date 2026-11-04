@@ -9,8 +9,8 @@ import { setup, worker, IDENTITY, NOW, FORECASTS, SERVICES } from './fixtures.mj
 async function bundles () {
   const s = setup()
   const w1 = worker(10)
-  await s.post(w1.records({ forecast: 1 }))
-  await s.post(worker(30).records({ forecast: 2 }))
+  await s.post(w1.records({ question: 'q', forecast: 1 }))
+  await s.post(worker(30).records({ question: 'q', forecast: 2 }))
   return { list: (await s.get(`/contributions?identity=${IDENTITY}`)).body, w1 }
 }
 

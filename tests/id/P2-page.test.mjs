@@ -26,7 +26,8 @@ async function open ({ init } = {}) {
   const clock = () => Math.floor(Date.now() / 1000) + offset
   const w = witness({ rpId: 'localhost', origin: site.origin, witnessKeys: keys, key: WITNESS, sign: (b) => hex(ed25519.sign(b, W)),
     contestWindow: 60, skew: 60, maxLifetime: 2_592_000 })
-  holder.svc = witnessService({ witness: w, holdings: memoryHoldings(), log: memoryLog(), clock, headInterval: 0 })
+  const real = witnessService({ witness: w, holdings: memoryHoldings(), log: memoryLog(), clock, headInterval: 0 })
+  holder.svc = real
   const browser = await chromium.launch({ channel: 'chrome', headless: true })
   const problems = []
   const pages = []
@@ -63,7 +64,9 @@ async function open ({ init } = {}) {
   }
   const first = await device()
   const witnessGet = async (path) => (await holder.svc.handle(new Request('http://witness' + path))).json()
-  return { site, browser, ...first, device, problems, collect, keys, clock, witnessGet, svc: holder.svc, advance: (s) => { offset += s },
+  // `refusing(true)` puts a witness that refuses everything in front of the real one, as a test of the page's errors.
+  const refusing = (on) => { holder.svc = on ? { handle: async () => Response.json({ ok: false, reason: 'test' }, { status: 422 }) } : real }
+  return { site, browser, ...first, device, problems, collect, keys, clock, witnessGet, svc: real, refusing, advance: (s) => { offset += s },
     close: async () => { await collect(); await browser.close(); site.close() } }
 }
 
@@ -345,6 +348,114 @@ test('a second passkey: one device adds it, the other co-signs; once settled it 
     const accepted = v.verifyDelegation({ delegation: text, root: bRoot, head }, { now: t.clock(), scope: 'post', revoked: [] })
     assert.equal(accepted.ok, true, JSON.stringify(accepted))
     assert.deepEqual(t.problems, [])
+  } finally {
+    await t.close()
+  }
+})
+
+test('signing buttons do nothing before a review; the witness refusing is shown; a retry clears it', { timeout: 180_000 }, async () => {
+  const t = await open()
+  try {
+    // A fresh page shows only creation.
+    for (const id of ['#identity', '#add-root', '#authorise', '#joining']) assert.equal(await t.page.isHidden(id), true, id)
+    const a = await createIdentity(t.page)
+    for (const id of ['#sign', '#add-sign']) {
+      await t.page.evaluate((x) => document.querySelector(x).click(), id)
+      assert.equal(await t.page.textContent('#error'), '', `${id} before any review`)
+    }
+    const b = await t.device()
+    await b.page.click('#join-button')
+    await b.page.waitForSelector('#joining:not([hidden])')
+    for (const id of ['#identity', '#add-root', '#authorise']) assert.equal(await b.page.isHidden(id), true, `joining: ${id}`)
+    await b.page.evaluate(() => document.getElementById('cosign-sign').click())
+    assert.equal(await b.page.textContent('#error'), '')
+    const bRoot = await b.page.inputValue('#join-root')
+    // The joining passkey is not registered as an identity of its own.
+    const own = rootModule.identityOf(rootModule.checkRoot(bRoot, { rpId: 'localhost' }).id)
+    assert.equal((await t.svc.handle(new Request(`http://witness/v1/identities/${own}/records`))).status, 404)
+
+    // The witness refuses the change: shown; once it accepts, the retry clears the message.
+    await t.page.fill('#new-root', bRoot)
+    await t.page.click('#add-review')
+    await t.page.waitForSelector('#add-panel:not([hidden])')
+    t.refusing(true)
+    await t.page.click('#add-sign')
+    await errorShown(t.page)
+    assert.equal(await t.page.textContent('#error'), 'the witness refused the membership: test')
+    t.refusing(false)
+    await t.page.click('#add-sign')
+    await t.page.waitForSelector('#add-handoff:not([hidden])')
+    assert.equal(await t.page.textContent('#error'), '')
+    assert.equal(await t.page.textContent('#status'), 'Signed. The other device co-signs this change.')
+    // Reviewing again withdraws what was handed over.
+    await t.page.click('#add-review')
+    await t.page.waitForSelector('#add-panel:not([hidden])')
+    assert.equal(await t.page.isHidden('#add-handoff'), true)
+    const payload = JSON.parse(JSON.stringify(await t.page.inputValue('#add-handoff')))
+
+    // The same on the co-signing device; surrounding spaces in what is pasted are not part of it.
+    await b.page.fill('#cosign-payload', `  ${payload}  `)
+    await b.page.click('#cosign-review')
+    await b.page.waitForSelector('#cosign-panel:not([hidden])')
+    t.refusing(true)
+    await b.page.click('#cosign-sign')
+    await errorShown(b.page)
+    assert.equal(await b.page.textContent('#error'), 'the witness refused the membership: test')
+    t.refusing(false)
+    await b.page.click('#cosign-review')
+    assert.equal(await b.page.textContent('#error'), '', 'a new review clears the message')
+    await b.page.click('#cosign-sign')
+    await b.page.waitForSelector('#identity:not([hidden])')
+    assert.equal(await b.page.textContent('#status'), 'Co-signed. The change settles once its contest window has passed.')
+    assert.equal(await b.page.textContent('#identity-id'), a.identity)
+    // The joined identity is remembered; on a reloaded page the signing buttons still do nothing before a review.
+    await t.collect()
+    await b.page.reload()
+    await b.page.waitForSelector('#identity:not([hidden])')
+    assert.equal(await b.page.textContent('#identity-id'), a.identity)
+    for (const id of ['#sign', '#add-sign']) {
+      await b.page.evaluate((x) => document.querySelector(x).click(), id)
+      assert.equal(await b.page.textContent('#error'), '', `${id} on a reloaded page`)
+    }
+    // The browser reports each refusal this test caused; nothing else.
+    assert.deepEqual(t.problems.filter((p) => !/status of 422 \(Unprocessable Entity\)$/.test(p)), [])
+    assert.equal(t.problems.length, 2)
+  } finally {
+    await t.close()
+  }
+})
+
+test('a change edited while the passkey is signing is not submitted, on either device', { timeout: 180_000 }, async () => {
+  const t = await open({ init: () => {
+    const get = navigator.credentials.get.bind(navigator.credentials)
+    navigator.credentials.get = async (o) => { await new Promise((resolve) => setTimeout(resolve, 500)); return get(o) }
+  } })
+  try {
+    const a = await createIdentity(t.page)
+    const b = await t.device()
+    await b.page.click('#join-button')
+    await b.page.waitForSelector('#joining:not([hidden])')
+    const bRoot = await b.page.inputValue('#join-root')
+    await t.page.fill('#new-root', bRoot)
+    await t.page.click('#add-review')
+    await t.page.waitForSelector('#add-panel:not([hidden])')
+    await t.page.click('#add-sign')
+    await t.page.fill('#new-root', bRoot + ' ')
+    await t.page.waitForTimeout(1500)
+    assert.equal((await t.witnessGet(`/v1/identities/${a.identity}/records`)).memberships.length, 0)
+    // Signed properly, then the co-signer edits while its passkey is asked.
+    await t.page.click('#add-review')
+    await t.page.waitForSelector('#add-panel:not([hidden])')
+    await t.page.click('#add-sign')
+    await t.page.waitForSelector('#add-handoff:not([hidden])')
+    await b.page.fill('#cosign-payload', await t.page.inputValue('#add-handoff'))
+    await b.page.click('#cosign-review')
+    await b.page.waitForSelector('#cosign-panel:not([hidden])')
+    await b.page.click('#cosign-sign')
+    await b.page.fill('#cosign-payload', 'x')
+    await b.page.waitForTimeout(1500)
+    assert.equal((await t.witnessGet(`/v1/identities/${a.identity}/records`)).memberships.length, 1, "only the first device's signature")
+    assert.equal(await b.page.isHidden('#identity'), true)
   } finally {
     await t.close()
   }

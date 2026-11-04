@@ -35,15 +35,20 @@ function worker (seed, { aud = FORECASTS, scopes = ['forecast'], lifetime = 3600
   const d = idRecords.delegation({ identity: IDENTITY, membership: IDENTITY, root: ROOT, subject: hex(ed25519.getPublicKey(secret)), aud, scopes, now: now(), lifetime })
   const subject = hex(ed25519.sign(Buffer.concat([Buffer.from('muid/v1/accept\n'), Buffer.from(d.id, 'hex')]), secret))
   const delegation = envelope.wrap(d.payload, { root: make({ covers: [d.id], secret: SECRET }), subject })
-  // A claim for one request: POST to the forecasts endpoint at `origin`, with the forecast in `data`.
-  const claim = (data, origin = aud) => {
-    const { payload } = envelope.seal('claim', { delegation: d.id, scope: 'forecast', htm: 'POST', htu: `${origin}/forecasts`, at: now(), data })
+  // A claim for one request: POST to `path` at `origin`, with the forecast (or nothing) in `data`.
+  const claim = (data, origin = aud, { scope = 'forecast', path = '/forecasts' } = {}) => {
+    const { payload } = envelope.seal('claim', { delegation: d.id, scope, htm: 'POST', htu: `${origin}${path}`, at: now(), data })
     return envelope.wrap(payload, { signature: hex(ed25519.sign(envelope.signedBytes(payload), secret)) })
   }
-  return { id: d.id, body: d.body, delegation, claim }
+  // Its own revocation (R9): the agent retiring itself.
+  const retire = () => {
+    const { payload } = envelope.seal('revocation', { identity: IDENTITY, target: d.body.subject, at: now() })
+    return envelope.wrap(payload, { signature: hex(ed25519.sign(envelope.signedBytes(payload), secret)) })
+  }
+  return { id: d.id, body: d.body, delegation, claim, retire }
 }
 
-test('the demo: limited authority, continuity, lasting attribution, revocation', { timeout: 300_000 }, async () => {
+test('the demo: limited authority, continuity, lasting attribution, revocation, an agent\'s earnings', { timeout: 300_000 }, async () => {
   const l = await startLog({ witnessed: true })
   try {
     const log = tesseraLog({ url: l.url })
@@ -73,17 +78,17 @@ test('the demo: limited authority, continuity, lasting attribution, revocation',
     // 1. Limited authority: the worker's delegation serves Forecasts, for its scope, once per claim.
     const w1 = worker(10)
     const h1 = await head()
-    const c1 = w1.claim({ forecast: 7000 })
+    const c1 = w1.claim({ question: 'q', forecast: 7000 })
     const r1 = await post(f, FORECASTS, { claim: c1, delegation: w1.delegation, root: rootText, head: h1 })
     assert.equal(r1.status, 200, JSON.stringify(r1))
     assert.equal((await post(f, FORECASTS, { claim: c1, delegation: w1.delegation, root: rootText, head: h1 })).reason, 'replay')
-    assert.equal((await post(other, OTHER, { claim: w1.claim({ forecast: 1000 }, OTHER), delegation: w1.delegation, root: rootText, head: h1 })).reason, 'audience')
+    assert.equal((await post(other, OTHER, { claim: w1.claim({ question: 'q', forecast: 1000 }, OTHER), delegation: w1.delegation, root: rootText, head: h1 })).reason, 'audience')
     const reader = worker(30, { scopes: ['read'] })
-    assert.equal((await post(f, FORECASTS, { claim: reader.claim({ forecast: 2000 }), delegation: reader.delegation, root: rootText, head: h1 })).reason, 'scope')
+    assert.equal((await post(f, FORECASTS, { claim: reader.claim({ question: 'q', forecast: 2000 }), delegation: reader.delegation, root: rootText, head: h1 })).reason, 'scope')
 
     // 2. Continuity: the worker's key is replaced (a new delegation, the same identity); History shows one contributor.
     const w2 = worker(50)
-    const r2 = await post(f, FORECASTS, { claim: w2.claim({ forecast: 4000 }), delegation: w2.delegation, root: rootText, head: h1 })
+    const r2 = await post(f, FORECASTS, { claim: w2.claim({ question: 'q', forecast: 4000 }), delegation: w2.delegation, root: rootText, head: h1 })
     assert.equal(r2.status, 200, JSON.stringify(r2))
     const seen = h.verify(IDENTITY, await contributions(), now())
     assert.deepEqual(seen.refused, [])
@@ -109,11 +114,38 @@ test('the demo: limited authority, continuity, lasting attribution, revocation',
     const h2 = await head()
     assert.deepEqual(Array.from(envelope.open(h2, 'head').body.revoked), [w2.id])
     const w3 = worker(70)
-    assert.equal((await post(f, FORECASTS, { claim: w3.claim({ forecast: 5000 }), delegation: w3.delegation, root: rootText, head: h2 })).status, 200)
-    assert.equal((await post(f, FORECASTS, { claim: w2.claim({ forecast: 9000 }), delegation: w2.delegation, root: rootText, head: h1 })).reason, 'stale')
-    assert.equal((await post(f, FORECASTS, { claim: w2.claim({ forecast: 9000 }), delegation: w2.delegation, root: rootText, head: h2 })).reason, 'revoked')
+    assert.equal((await post(f, FORECASTS, { claim: w3.claim({ question: 'q', forecast: 5000 }), delegation: w3.delegation, root: rootText, head: h2 })).status, 200)
+    assert.equal((await post(f, FORECASTS, { claim: w2.claim({ question: 'q', forecast: 9000 }), delegation: w2.delegation, root: rootText, head: h1 })).reason, 'stale')
+    assert.equal((await post(f, FORECASTS, { claim: w2.claim({ question: 'q', forecast: 9000 }), delegation: w2.delegation, root: rootText, head: h2 })).reason, 'revoked')
     // Its earlier contribution stays attributed: revocation stops new claims, it does not rewrite history.
     assert.equal(h.verify(IDENTITY, await contributions(), now()).accepted.length, 3)
+
+    // 5. The organizing example: log in, authorise a temporary agent, let it contribute, retire it, and collect its
+    // later earnings under the continuing identity. The beneficiary was bound when each contribution was accepted.
+    await sleep(1100)
+    const agent = worker(90, { lifetime: 3600 })
+    const h3 = await head()
+    for (const [question, forecast] of [['rain', 8000], ['snow', 1000]]) {
+      assert.equal((await post(f, FORECASTS, { claim: agent.claim({ question, forecast }), delegation: agent.delegation, root: rootText, head: h3 })).status, 200)
+    }
+    assert.deepEqual(await call('POST', '/v1/revocations', { identity: IDENTITY, text: agent.retire(), delegation: agent.delegation }), { ok: true, signed: [] })
+    await sleep(1100)
+    const h4 = await head()
+    assert.ok(Array.from(envelope.open(h4, 'head').body.revoked).includes(agent.body.subject), 'retired: the next head carries it')
+    assert.equal((await post(f, FORECASTS, { claim: agent.claim({ question: 'hail', forecast: 1 }), delegation: agent.delegation, root: rootText, head: h4 })).reason, 'revoked')
+    // The questions resolve after the agent is gone; its earnings arrive under the identity.
+    assert.equal(f.resolve('rain', 1), 1)
+    assert.equal(f.resolve('snow', 0), 1)
+    const earned = (10_000 - 2000 ** 2 / 10_000) + (10_000 - 1000 ** 2 / 10_000)
+    const e = await (await f.handle(new Request(`${FORECASTS}/earnings?identity=${IDENTITY}`))).json()
+    assert.deepEqual(e.agents.find((a) => a.delegation === agent.id), { agent: agent.body.subject, delegation: agent.id, contributions: 2, earned })
+    // The owner's own device collects; the retired agent cannot.
+    const device = worker(110, { scopes: ['collect'] })
+    const collect = async (w, h) => (await f.handle(new Request(`${FORECASTS}/collect`, { method: 'POST',
+      body: JSON.stringify({ claim: w.claim({}, FORECASTS, { scope: 'collect', path: '/collect' }), delegation: w.delegation, root: rootText, head: h }) }))).json()
+    assert.equal((await collect(agent, h4)).reason, 'revoked')
+    assert.deepEqual(await collect(device, h4), { ok: true, collected: e.balance })
+    assert.equal((await (await f.handle(new Request(`${FORECASTS}/earnings?identity=${IDENTITY}`))).json()).balance, 0)
   } finally {
     await l.stop()
   }

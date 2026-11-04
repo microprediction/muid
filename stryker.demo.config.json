@@ -3,7 +3,9 @@
   "testRunner": "tap",
   "tap": {
     "testFiles": [
-      "tests/demo/D2-forecasts.test.mjs", "tests/demo/D3-history.test.mjs"
+      "tests/demo/D2-forecasts.test.mjs",
+      "tests/demo/D3-history.test.mjs",
+      "tests/demo/D4-earnings.test.mjs"
     ]
   },
   "mutate": [

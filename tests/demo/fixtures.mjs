@@ -31,11 +31,11 @@ export function worker (seed, { aud = FORECASTS, scopes = ['forecast'] } = {}) {
   const d = idRecords.delegation({ identity: IDENTITY, membership: IDENTITY, root: ROOT, subject: hex(ed25519.getPublicKey(secret)), aud, scopes, now: NOW - 100, lifetime: 3600 })
   const subject = hex(ed25519.sign(Buffer.concat([Buffer.from('muid/v1/accept\n'), Buffer.from(d.id, 'hex')]), secret))
   const delegation = envelope.wrap(d.payload, { root: make({ covers: [d.id], secret: SECRET }), subject })
-  const claim = (data, at = NOW - 5) => {
-    const { payload } = envelope.seal('claim', { delegation: d.id, scope: 'forecast', htm: 'POST', htu: `${aud}/forecasts`, at, data })
+  const claim = (data, at = NOW - 5, { scope = 'forecast', path = '/forecasts' } = {}) => {
+    const { payload } = envelope.seal('claim', { delegation: d.id, scope, htm: 'POST', htu: `${aud}${path}`, at, data })
     return envelope.wrap(payload, { signature: hex(ed25519.sign(envelope.signedBytes(payload), secret)) })
   }
-  return { id: d.id, delegation, claim, records: (data, at) => ({ claim: claim(data, at), delegation, root: rootText, head: head() }) }
+  return { id: d.id, subject: d.body.subject, delegation, claim, records: (data, at, opts) => ({ claim: claim(data, at, opts), delegation, root: rootText, head: head() }) }
 }
 
 // `realWait` leaves Forecasts its own pause between polls; otherwise `wait` (by default, none).
@@ -51,7 +51,12 @@ export function setup ({ log = fakeLog({ cosignTime: () => NOW }), clock = () =>
     const res = await f.handle(new Request(FORECASTS + path, init))
     return { status: res.status, body: await res.json() }
   }
-  return { f, log, post, get }
+  // A collection by `w`'s delegation: a claim with the collect scope, for POST /collect.
+  const collect = async (w, at = NOW - 5) => {
+    const res = await f.handle(new Request(`${FORECASTS}/collect`, { method: 'POST', body: JSON.stringify(w.records({}, at, { scope: 'collect', path: '/collect' })) }))
+    return { status: res.status, body: await res.json() }
+  }
+  return { f, log, post, get, collect }
 }
 
 export const SERVICES = [{ origin: FORECASTS, key: SERVICE_KEY, nbf: 0, exp: 4_000_000_000 }]

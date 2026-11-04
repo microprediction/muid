@@ -468,6 +468,10 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   self-revocation under a retired root's delegation refused. The service (`S1`): a lost log answer, then a rival —
   the outbox is appended first and the rival refused, every logged anchor the same; heads and ticks settle the
   outbox first; a body past the limit is refused without being read in full.
+- Review round 9 (`W6`): a thief cycling proposals that name fresh roots leaves only its last one's root held, and
+  the owner can still add a root; W0 as SPEC states it — a successor's assertion covering the pending record's
+  contest, and a contest's covering a held successor, refused either way; covering other records, a non-successor
+  among them, allowed.
 - The service (`S1-service.test.mjs`): a change submitted record by record, its anchor logged and served, the tick
   settling it at the window's end and not a second before; refusals as 422 with the reason, changing nothing; every
   malformed request with its status and reason, the body limit at and one past it; heads reused within the
@@ -538,7 +542,12 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   the bundle verified by `verifyReceipt`; replay; each refusal with its reason; the body limit at and one past it;
   a failing log (503, nothing kept, the claim consumed); a checkpoint waited for, and one cosigned in the future
   never counted; each broken bundle refused with its reason, by index.
-- Mutation 100%; twins (`tests/meta/demo-twins.test.mjs`, 10).
+- Earnings (`D4`, and scenario 5 of `D1`): nothing earned before resolution; the Brier score per forecast, credited
+  to the identity with each agent's share; a question resolved once; several agents adding up, another identity's
+  apart; collection by a delegation with the collect scope, not by the agent; a contribution that is not a
+  forecast refused and its claim spent. End to end, the agent retires itself through the witness and is then
+  refused, its earnings resolved afterwards, and the owner's device collects.
+- Mutation 100%; twins (`tests/meta/demo-twins.test.mjs`, 17).
 
 ## 5. Later layers (outline; each is expanded here before its code is written)
 

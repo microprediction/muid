@@ -40,7 +40,7 @@ function fail (e) {
 
 // The witness service: a record submitted, or the records it holds for the identity.
 async function submit (identity, type, text) {
-  const r = await (await fetch(WITNESS + 'v1/records', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ identity, type, text }) })).json()
+  const r = await (await fetch(WITNESS + 'v1/records', { method: 'POST', body: JSON.stringify({ identity, type, text }) })).json()
   if (!r.ok) throw new Error(`the witness refused the ${type}: ${r.reason}`)
 }
 async function state () {

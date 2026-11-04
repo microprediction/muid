@@ -389,7 +389,9 @@ the network and the transparency log are the service's, and the signing key stay
   first root or named by a held membership record. Each signature is verified on admission. One envelope is held per
   record and signer (another, an assertion covering other records too, is accepted unchanged), and one proposal per
   root and `prev`: a root's later proposal replaces its earlier one, so no root can fill a list and block its owner
-  (review round 8). W0 is applied: an assertion that covers both a membership record and its contest is refused. A
+  (review round 8); root records only a replaced proposal named go with it (round 9). W0 is applied: an assertion
+  that covers both a membership record and its contest, or a successor of a pending record and that record's
+  contest, is refused, either way round. A
   list at `MAX_RECORDS` refuses new ones (`full`), a backstop the rules above keep out of reach; nothing is admitted
   to a dead identity.
 - `advance(held, now)` signs what the model's witness does: with nothing pending, it anchors a held successor of
@@ -416,7 +418,8 @@ freeze), `POST /v1/revocations` (`{ identity, text, delegation? }`), `GET /v1/id
 and `GET /v1/identities/{id}/head` (a head, reused for `headInterval` seconds while nothing changes); `tick()`
 advances every identity, settling once windows pass. Each identity's changes are serialised by its store, and every
 record the witness signs is appended to the log before the holding that contains it is kept, so nothing is served
-that the log did not take; a failing log or store is 503 and nothing is kept. Refusals are 422 with the witness's
+that the log did not take. A failing log is 503: what was decided waits in the outbox and takes effect once the log
+has it, so a retry may answer with nothing new signed; a failing store is 503 and nothing is kept. Refusals are 422 with the witness's
 reason; malformed requests are 400, 404, 405 or 413 (a body is read only up to 131,072 bytes). The log is Tessera's POSIX
 server with a witness policy (`log/cmd/muid-log`: Tessera's own server example, plus the witness-policy option from
 its one-shot example, unchanged otherwise; `log/go.mod` pins Tessera and every module), which publishes a C2SP
@@ -676,8 +679,14 @@ I1–I3 window protocol for apps.
 delegation's root record and a fresh head; the relying-party adapter verifies and consumes it, and only then is the
 forecast kept and a receipt (C2) signed, appended to the log and kept with the cosigned checkpoint that holds it and
 the inclusion proof, as a bundle. **History** verifies an identity's bundles under its own pinned services and log.
-Four scenarios run end to end in CI: limited authority, continuity across a replaced worker key, attribution that
-lasts past the delegations' expiry, and revocation that takes effect at once through the relying party's memory.
+A contribution's data is `{ question, forecast }` (basis points); the identity of the delegation it was made under
+is bound as its beneficiary when it is accepted, never decided later from whoever holds the agent's key. Once the
+operator resolves a question, each forecast of it earns its Brier score in basis points, credited to the identity
+with each agent's share shown (`GET /earnings`); the identity collects with a claim under any live delegation of it
+holding the `collect` scope (`POST /collect`). Five scenarios run end to end in CI: limited authority, continuity
+across a replaced worker key, attribution that lasts past the delegations' expiry, revocation that takes effect at
+once through the relying party's memory, and the organizing example — an agent authorised for an hour contributes,
+retires itself, and its earnings, resolved afterwards, are collected by the owner's own device.
 
 ## 9. Open decisions
 

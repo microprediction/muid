@@ -11,7 +11,7 @@ import { join } from 'node:path'
 const DIR = new URL('../../demo/', import.meta.url)
 const FILES = ['forecasts.js', 'history.js']
 const SUITE_DIR = new URL('../demo/', import.meta.url).pathname
-const SUITE = readdirSync(SUITE_DIR).filter((f) => /^D[23]-.*\.test\.mjs$/.test(f)).map((f) => join(SUITE_DIR, f))
+const SUITE = readdirSync(SUITE_DIR).filter((f) => /^D[234]-.*\.test\.mjs$/.test(f)).map((f) => join(SUITE_DIR, f))
 // The demo's imports of the core, made absolute because a twin lives outside the repository.
 const CORE = ["from '../" + 'src/', "from '" + new URL('../../src/', import.meta.url).href]
 // And its one package import, resolved from here.
@@ -23,11 +23,16 @@ const TWINS = [
   ['checkpoint-uncosigned', 'a checkpoint without the cosigner quorum is bundled', [['verifyCheckpoint(text, { ...checkpoints, now: clock() })', 'verifyCheckpoint(text, { ...checkpoints, quorum: 0, now: clock() })']], 'forecasts.js'],
   ['receipt-postdated', 'the receipt is dated after the claim was accepted', [['claim: accepted.id, at: now }', 'claim: accepted.id, at: now + 3600 }']], 'forecasts.js'],
   ['receipt-other-claim', 'the receipt names the delegation, not the claim', [['claim: accepted.id, at: now }', 'claim: accepted.delegation.id, at: now }']], 'forecasts.js'],
-  ['kept-before-logged', 'a contribution is listed though its receipt was not logged', [["      r = await adapter.acceptClaim(records, { now, scope: 'forecast', method: 'POST', url: request.url, revoked: [] }, async (accepted) => {\n        const bundle", "      r = await adapter.acceptClaim(records, { now, scope: 'forecast', method: 'POST', url: request.url, revoked: [] }, async (accepted) => {\n        kept.push({ identity: accepted.delegation.body.identity, claim: records.claim, bundle: {} })\n        const bundle"]], 'forecasts.js'],
-  ['contributions-everyone', "every identity's contributions are listed", [['kept.filter((k) => k.identity === identity)', 'kept']], 'forecasts.js'],
-  ['body-unbounded', 'a request body of any size is read', [["    if (text === undefined) return json(413, { ok: false, reason: 'too-large' })\n", '']], 'forecasts.js'],
+  ['kept-before-logged', 'a contribution is listed though its receipt was not logged', [['    const bundle = await receipt(accepted, clock())\n', "    kept.push({ identity: accepted.delegation.body.identity, delegation: accepted.delegation.id, claim: records.claim, ...f, bundle: {} })\n    const bundle = await receipt(accepted, clock())\n"]], 'forecasts.js'],
+  ['contributions-everyone', "every identity's contributions are listed", [['kept.filter((k) => k.identity === identity).map(', 'kept.map(']], 'forecasts.js'],
+  ['body-unbounded', 'a request body of any size is read', [["    if (text === undefined) return { error: json(413, { ok: false, reason: 'too-large' }) }\n", '']], 'forecasts.js'],
   ['body-read-in-full', 'the body is read in full before its size is checked', [['    n += r.value.length\n    if (n > max) {', '    n += r.value.length\n    if (false) {']], 'forecasts.js'],
   ['answer-unchecked', 'an answer that is not a list is iterated', [["    if (!Array.isArray(bundles)) return { accepted, refused: [{ index: null, reason: 'bundles' }] }\n", '']], 'history.js'],
+  ['collect-any-scope', 'collection needs no collect scope', [["const collect = (request) => claimed(request, 'collect',", "const collect = (request) => claimed(request, 'forecast',"]], 'forecasts.js'],
+  ['resolved-twice', 'a question resolved again scores its forecasts again', [['if (k.question !== question || k.credits !== undefined) continue', 'if (k.question !== question) continue']], 'forecasts.js'],
+  ['forecast-unchecked', 'any data is kept as a forecast', [['    if (f === undefined) return { refused: \'forecast\' }\n', '']], 'forecasts.js'],
+  ['earnings-everyone', "every identity's contributions count toward one's earnings", [['const mine = kept.filter((k) => k.identity === identity)', 'const mine = kept']], 'forecasts.js'],
+  ['collect-twice', 'what was collected is not taken off the balance', [['collected.set(identity, (collected.get(identity) ?? 0) + amount)', 'collected.get(identity)']], 'forecasts.js'],
   ['identity-unchecked', "another identity's receipt is counted as this one's", [["if (r.ok && r.identity !== identity) refused.push({ index: i, reason: 'identity' })\n      else if (r.ok)", 'if (r.ok)']], 'history.js'],
   ['claim-dropped', 'the claim a bundle carries is not checked against its receipt', [['index: b.index, claim: b.claim }', 'index: b.index }']], 'history.js'],
   ['proof-unchecked', 'a proof that is not hex is read anyway', [["b.proof.every((h) => typeof h === 'string' && /^(?:[0-9a-f]{2})*$/.test(h))", 'true']], 'history.js'],
@@ -81,7 +86,7 @@ test('demo broken twins', { timeout: 1_800_000 }, async (t) => {
       assert.ok(r.pass >= 8, `control: only ${r.pass} tests ran`)
     })
     const jobs = TWINS.map(([name, why, edits, file]) => [name, why, generate(name, edits, file)])
-    assert.equal(jobs.length, 12, 'twin count')
+    assert.equal(jobs.length, 17, 'twin count')
     const results = []
     const queue = [...jobs]
     const workers = Math.max(1, Math.floor(availableParallelism() / 4))
