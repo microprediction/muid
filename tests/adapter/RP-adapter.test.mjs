@@ -259,6 +259,15 @@ for (const [name, open] of [['memory', (o) => memoryStore(o)], ['sqlite', (o) =>
   })
 }
 
+test("the request's nonce and body digest reach the verifier", async () => {
+  const rp = relyingParty({ verifier: verifier(), store: memoryStore() })
+  const digest = Buffer.alloc(32, 7).toString('base64')
+  const c = claim(NOW - 5, 'n', { nonce: 'n-1', content_digest: digest })
+  assert.deepEqual(await rp.acceptClaim(records(c), { ...CALL, nonce: 'n-1' }, () => 1), refused('claim-digest'))
+  assert.deepEqual(await rp.acceptClaim(records(c), { ...CALL, contentDigest: digest }, () => 1), refused('claim-nonce'))
+  assert.equal((await rp.acceptClaim(records(c), { ...CALL, nonce: 'n-1', contentDigest: digest }, () => 1)).ok, true)
+})
+
 // Found by review: the call's fields were copied with a spread, which drops inherited ones; now read once.
 test('call fields are read once, including inherited ones', async () => {
   const store = memoryStore()
@@ -269,7 +278,7 @@ test('call fields are read once, including inherited ones', async () => {
   const reads = {}
   const counting = new Proxy({ ...CALL }, { get (t, k) { reads[k] = (reads[k] ?? 0) + 1; return t[k] } })
   await rp.acceptClaim(records(claim(NOW - 3, 'c'), head(NOW - 70)), counting, () => 1)
-  for (const k of ['now', 'scope', 'request', 'revoked', 'minHeadAt']) assert.equal(reads[k], 1, k)
+  for (const k of ['now', 'scope', 'method', 'url', 'nonce', 'contentDigest', 'revoked', 'minHeadAt']) assert.equal(reads[k], 1, k)
   await assert.rejects(rp.acceptClaim(records(), null, () => 1), TypeError)
 })
 

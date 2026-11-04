@@ -368,12 +368,16 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   verifier, every distinct honest pair is accepted in order and is `stale` reversed (including pairs of one second),
   and 300 diverging pairs, some of one second, are `equivocation`.
 - **F3:** adding revocations never turns a refusal into an accept (property).
-- **Programming errors** for configuration, `now`, `scope`, `revoked`, `minHeadAt`, a claim call's `request` and
-  `lastHead`; the configuration is copied at
+- **Programming errors** for configuration, `now`, `scope`, `revoked`, `minHeadAt`, a claim call's `method`, `url`,
+  `nonce` and `contentDigest`, and `lastHead`; the configuration is copied at
   construction; arbitrary and hostile records never throw.
 - **Claims (C1):** accepted with id, body, delegation and `until`; every shape fault (extra key, missing or
-  non-object data, missing or non-string request, bad delegation id or scope, negative or string time, signature not
-  exactly 128 hex or not alone) is `claim-shape`; a claim for another scope or request; the delegation verified in
+  non-object data, bad delegation id or scope, `htm` not upper-case letters, `htu` without a path, with a query or
+  fragment, over http, with a non-canonical origin, a space, a bare or lower-case escape, a nonce outside NQCHAR, a
+  digest not canonical base64 of 32 bytes, negative or string time, signature not exactly 128 hex or not alone) is
+  `claim-shape`; a claim for another scope, method or URL (another origin's URL refused even where that origin is
+  passed; the received URL's query and fragment dropped; a received URL outside the grammar refused, not thrown); a
+  nonce or digest missing, unexpected or different; the request checked in order before the delegation; the delegation verified in
   full; another delegation named; time at and one past `maxClaimAge` and `skew`, and outside the delegation's window;
   a signature by another key or over the payload without its prefix; subject keys in the call's revoked list; the
   call read once; `until` is the first time the claim is refused (accepted one second before it).
@@ -381,7 +385,7 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
 - **Tamper sweep:** every position of the claim, its delegation, the root record and the head, replaced two ways
   and deleted: no variant verifies (`tests/integration/tamper.test.mjs`).
 - **Twins:** no staleness bound; heads from the future; `minHeadAt` ignored; claim time, delegation window, delegation,
-  signature, scope or request unchecked; subject keys in the call's revoked list ignored; membership, authority, identity,
+  signature, scope, method, URL (or its origin, its form, or the query kept), nonce, digest or extra keys unchecked; subject keys in the call's revoked list ignored; membership, authority, identity,
   revocation (call's or head's), audience or scope unchecked; revocation by id only; the witness key's window checked
   at the head's time only; the head's signature unchecked; `until` one second early; equivocation unchecked; heads of one second taken as evidence in either
   order; the settled or highest epoch allowed to fall; ids not tied to epochs, or tied only within one epoch;
@@ -399,6 +403,8 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
 - Failure: a failing transaction or any of its operations is refused as `storage`, and the action does not run; a
   SQLite transaction that fails is rolled back; a malformed call still throws.
 - Boundaries: claim ids expire exactly at `until`, when the verifier already refuses the claim by its time.
+- The call is read once, field by field, and the request's nonce and body digest reach the verifier (a twin drops
+  the nonce).
 - Broken twins (`tests/meta/adapter-twins.test.mjs`): the memory not read in the transaction; a memory read failure
   taken for a verifier error; a consumed claim accepted again; a failed transaction taken as success; the stored
   head not passed; an unreadable stored head locking its identity out, or its time ignored; the records read twice;

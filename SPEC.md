@@ -396,7 +396,7 @@ Research: [`delegation.md`](research/delegation.md), [`oidc-witness.md`](researc
 const v = verifier({ rpId, origin, audience, witnessKeys, skew, maxLifetime, maxStaleness, maxClaimAge })
 v.verifyDelegation({ delegation, root, head }, { now, scope, revoked, minHeadAt, lastHead })  // per call
   -> { ok: true, id, body } | { ok: false, reason }
-v.verifyClaim({ claim, delegation, root, head }, { now, scope, request, revoked, minHeadAt, lastHead })
+v.verifyClaim({ claim, delegation, root, head }, { now, scope, method, url, nonce, contentDigest, revoked, minHeadAt, lastHead })
   -> { ok: true, id, body, delegation: { id, body }, until } | { ok: false, reason }
 ```
 
@@ -438,22 +438,33 @@ is the text of the newest head the relying party has accepted for the identity, 
   `{ ok: true, identity, at }` or exactly the refusal `verifyDelegation` would give for that head. A relying party
   may remember any head that verifies, whatever else a request carries, as a TUF client keeps any metadata that
   verifies: a head that revokes a delegation is remembered even from the request it refuses (§7).
-- **C1 CLAIMS (decision 1: ephemeral):** a **claim** `{ delegation, scope, request, at, data }` is a record signed by
-  the delegation's subject key: its `sig` is `{ signature }`, an Ed25519 signature over the claim's signed bytes
-  (K7). `delegation` is the id of the delegation it is made under; `scope` and `request` are the scope and the
-  request it is for — `request` in the relying party's own canonical form (its method, URL and body hash, and a
-  server nonce if it issues them, as DPoP does), so a claim seen in transit cannot be used on another request; `at`
-  is the signer's time; `data` any object. `verifyClaim` takes the scope and request the relying party needs, and
-  refuses, in order, with: V4's reasons for the claim (`envelope-encoding` too when the records cannot be read);
-  `claim-shape` (keys other than the five, a field of the wrong
-  form, or `sig` not as above); `claim-scope`; `claim-request`; then F5's reasons for the delegation;
-  `claim-delegation` (the claim names another delegation); `claim-time` (`at` more than `maxClaimAge` before `now`,
-  more than `skew` after it, or outside the delegation's window); then K5's signature reasons under the subject key.
-  A claim is verifiable only while its delegation and head are. Replay within the window is the relying party's to
-  refuse: the result carries the claim id and `until` (`at + maxClaimAge + 1`, the first time the claim is refused),
-  so a store shared by every instance serving the audience keeps the id while `now < until`. A call whose `request`
-  is not a string is a programming error. Every claim costs the full F5 check before its own signature; a relying
-  party under load can rate-limit by delegation id. `data` is decoded data: frozen, with null prototypes.
+- **C1 CLAIMS (decision 1: ephemeral; a DPoP proof, RFC 9449):** a **claim** `{ delegation, scope, htm, htu, nonce,
+  content_digest, at, data }` is a record signed by the delegation's subject key: its `sig` is `{ signature }`, an
+  Ed25519 signature over the claim's signed bytes (K7). `delegation` is the id of the delegation it is made under;
+  `scope` the scope it is for; `htm` and `htu` the request it is for, as DPoP binds a proof to one (RFC 9449 §4.2):
+  the HTTP method (upper-case letters) and the target URI without query or fragment, whose origin is the audience
+  (a canonical origin, O1, then a path of RFC 3986 characters, any escape in upper-case hex); `nonce` (optional) a
+  nonce the relying party issued, as DPoP's (§8, `1*NQCHAR`); `content_digest` (optional) the body's RFC 9530
+  `sha-256`, canonical base64, since DPoP does not cover the body; `at` is the signer's time (DPoP's `iat`); `data`
+  any object. A claim seen in transit therefore cannot be used on another request. `verifyClaim` takes the scope
+  and the request the relying party is serving: `method`, `url` (the URL it received; the query and fragment are
+  dropped before comparison), and `nonce` and `contentDigest` when it issues nonces or requires the body's digest.
+  It refuses, in order, with: V4's reasons for the claim (`envelope-encoding` too when the records cannot be read);
+  `claim-shape` (a key other than these, a field of the wrong form, or `sig` not as above); `claim-scope`;
+  `claim-method`; `claim-url` (`htu` not under the audience, or not the URL received); `claim-nonce` (not the nonce
+  issued, including present when none was or absent when one was); `claim-digest` (likewise); then F5's reasons for
+  the delegation; `claim-delegation` (the claim names another delegation); `claim-time` (`at` more than
+  `maxClaimAge` before `now`, more than `skew` after it, or outside the delegation's window); then K5's signature
+  reasons under the subject key. A received URL outside the grammar matches no claim and is refused as `claim-url`,
+  not thrown: it comes from the client. A claim is verifiable only while its delegation and head are. Replay within
+  the window is the relying party's to refuse (DPoP §11.1's `jti` store): the result carries the claim id and `until`
+  (`at + maxClaimAge + 1`, the first time the claim is refused), so a store shared by every instance serving the
+  audience keeps the id while `now < until`. A call whose `method` is not upper-case letters, whose `url` is not a
+  string, or whose `nonce` or `contentDigest` is present but not of its form, is a programming error. Every claim
+  costs the full F5 check before its own signature; a relying party under load can rate-limit by delegation id.
+  `data` is decoded data: frozen, with null prototypes. Deviations from DPoP, named: the proof is a muid record, not
+  a JWS with a `jwk` header, since its key is the delegation's subject key; and it names a delegation, not an access
+  token's hash (`ath`), since there is no access token.
 - **C2 RECEIPTS (proposal; research/witness-tlog.md §5a):** a claim proves authority only while its delegation is
   live. A **receipt** `{ service, identity, delegation, claim, at }` makes an accepted claim attributable after that:
   signed by the receiving service's Ed25519 key (`sig = { signature, service }`, `service` that key in hex), it states
@@ -592,7 +603,9 @@ rotation and the expiry boundary.
 1. **Claims and time — decided: ephemeral in version 1.** A claim a delegate signs is verified on receipt against
    the verifier's `now`, and cannot be verified once its delegation has lapsed; a claim names the record id of the
    delegation it is made under. Durable claims (a witness countersignature over the claim's id and when it was seen)
-   are a later layer. Any timestamp inside a record is chosen by its signer and proves nothing on its own.
+   are a later layer (C2's receipts). Any timestamp inside a record is chosen by its signer and proves nothing on its
+   own. A claim binds its request as a DPoP proof does (`htm`, `htu`, `nonce`), plus the body's RFC 9530 digest, so
+   no relying party invents its own canonical form of a request.
 2. **Recovery — decided: R1–R7, witness anchors and settlements with a contest window.** The model showed that
    without a trusted time any past majority can end an identity, and that anchoring the first record alone makes a
    thief's takeover of a one-root identity final at once. An independent review then showed that verifiers holding

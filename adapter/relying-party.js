@@ -13,9 +13,9 @@ const refusal = (reason) => Object.freeze({ ok: false, reason })
 // the adapter adds what it remembers. A call that is not an object, or that brings its own lastHead, is a programming
 // error: the adapter supplies lastHead from its memory.
 function readCall (call) {
-  const { now, scope, request, revoked, minHeadAt, lastHead } = call
+  const { now, scope, method, url, nonce, contentDigest, revoked, minHeadAt, lastHead } = call
   if (lastHead !== undefined) throw new TypeError('the adapter supplies lastHead from its memory')
-  return { now, scope, request, revoked, minHeadAt }
+  return { now, scope, method, url, nonce, contentDigest, revoked, minHeadAt }
 }
 
 // The presented records, each read once: what is verified is what is remembered. Undefined if reading throws.

@@ -81,19 +81,34 @@ function headBody (text, cfg, now) {
   return b
 }
 
-const CLAIM_KEYS = freeze(['at', 'data', 'delegation', 'request', 'scope'])
+const CLAIM_KEYS = freeze(['at', 'content_digest', 'data', 'delegation', 'htm', 'htu', 'nonce', 'scope'])
 const SIG128 = /^[0-9a-f]{128}$/
+// The request a claim is for, as a DPoP proof binds it (RFC 9449 §4.2, §8.1), and the body by RFC 9530's sha-256.
+const METHOD = /^[A-Z]{1,16}$/
+const HTU = /^(https:\/\/[^/?#]*)\/(?:[A-Za-z0-9._~!$&'()*+,;=:@/-]|%[0-9A-F]{2})*$/ // origin, then a path (RFC 3986)
+const NONCE = /^[\x21\x23-\x5b\x5d-\x7e]{1,256}$/
+const DIGEST = /^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$/ // 32 bytes, canonical base64
+const BEFORE_QUERY = /[^?#]*/ // matches at 0, possibly empty
+const matches = (re, x) => typeof x === 'string' && apply(exec, re, [x]) !== null
+const optional = (re, x) => x === undefined || matches(re, x)
+// The origin of an htu, or undefined if it is not one: a canonical origin, a path, no query or fragment.
+function htuOrigin (x) {
+  const m = typeof x === 'string' ? apply(exec, HTU, [x]) : null
+  return m !== null && isCanonicalOrigin(m[1]) ? m[1] : undefined
+}
 
-// The call's fields, each read once (the revoked list copied); a claim's call also names the request it is for.
+// The call's fields, each read once (the revoked list copied). A claim's call also names the request it is for: its
+// method, its URL (the query and fragment are dropped), and the nonce and body digest if the relying party uses them.
 function readCall (call, claim, cfg) {
-  const { now, scope, request, revoked, minHeadAt = 0, lastHead } = typeof call === 'object' && call !== null ? call : {}
+  const { now, scope, method, url, nonce, contentDigest, revoked, minHeadAt = 0, lastHead } = typeof call === 'object' && call !== null ? call : {}
   const list = allIds(revoked)
   const last = headBody(lastHead, cfg, undefined) // undefined when no last head is given
-  if (!isTime(now) || typeof scope !== 'string' || apply(exec, SCOPE, [scope]) === null || !isTime(minHeadAt) ||
-    list === undefined || (claim && typeof request !== 'string') || (lastHead !== undefined && last === undefined)) {
+  if (!isTime(now) || !matches(SCOPE, scope) || !isTime(minHeadAt) || list === undefined ||
+    (claim && (!matches(METHOD, method) || typeof url !== 'string' || !optional(NONCE, nonce) || !optional(DIGEST, contentDigest))) ||
+    (lastHead !== undefined && last === undefined)) {
     throw new TypeError('call must hold now, a scope and a revoked list')
   }
-  return { now, scope, request, revoked: list, minHeadAt, last }
+  return { now, scope, method, url: claim ? apply(exec, BEFORE_QUERY, [url])[0] : undefined, nonce, contentDigest, revoked: list, minHeadAt, last }
 }
 
 const within = (a, b) => { for (let i = 0; i < a.length; i++) if (!has(b, a[i])) return true; return false } // a ⊄ b
@@ -184,16 +199,18 @@ export function verifier (config) {
       return refuse(isRefusal(e) ? e.reason : 'envelope-encoding')
     }
     const b = claim.body
-    let i = 0
-    for (const k in b) if (k !== CLAIM_KEYS[i++]) return refuse('claim-shape')
+    for (const k in b) if (!has(CLAIM_KEYS, k)) return refuse('claim-shape')
     let keys = 0
     for (const k in claim.sig) keys++ // eslint-disable-line no-unused-vars
-    if (!isId(b.delegation) || typeof b.scope !== 'string' || apply(exec, SCOPE, [b.scope]) === null ||
-      typeof b.request !== 'string' || !isTime(b.at) ||
+    if (!isId(b.delegation) || !matches(SCOPE, b.scope) || !matches(METHOD, b.htm) || htuOrigin(b.htu) === undefined ||
+      !optional(NONCE, b.nonce) || !optional(DIGEST, b.content_digest) || !isTime(b.at) ||
       typeof b.data !== 'object' || isArray(b.data) || keys !== 1 || typeof claim.sig.signature !== 'string' ||
       apply(exec, SIG128, [claim.sig.signature]) === null) return refuse('claim-shape')
     if (b.scope !== c.scope) return refuse('claim-scope')
-    if (b.request !== c.request) return refuse('claim-request')
+    if (b.htm !== c.method) return refuse('claim-method')
+    if (htuOrigin(b.htu) !== cfg.audience || b.htu !== c.url) return refuse('claim-url')
+    if (b.nonce !== c.nonce) return refuse('claim-nonce')
+    if (b.content_digest !== c.contentDigest) return refuse('claim-digest')
     const d = check(given, c)
     if (!d.ok) return d
     if (b.delegation !== d.id) return refuse('claim-delegation')

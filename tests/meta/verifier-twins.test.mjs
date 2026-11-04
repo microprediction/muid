@@ -36,14 +36,21 @@ const TWINS = [
   ['older-than-last-accepted', 'a head older than the last one accepted is accepted', [[' || (last && h.at < last.at)', '']]],
   ['last-identity-unchecked', 'a last head of another identity is compared as if it were this one\'s', [["    if (last && last.identity !== h.identity) return refuse('identity')\n", '']]],
   ['last-head-at-now', 'the last head must still be in its key\'s window now, so key rotation breaks callers', [['headBody(lastHead, cfg, undefined)', 'headBody(lastHead, cfg, now)']]],
-  ['last-head-unverified', 'a last head that is not a pinned head is ignored', [[' || (lastHead !== undefined && last === undefined)', '']]],
+  ['last-head-unverified', 'a last head that is not a pinned head is ignored', [[' ||\n    (lastHead !== undefined && last === undefined)', '']]],
   ['epoch-form-unchecked', 'a head whose epoch disagrees with its memberships is accepted', [['(b.epoch === 1) !== (b.memberships[0] === b.identity) || ', '']]],
   ['until-inclusive', 'a store that drops the claim id at until lets it replay once', [['until: b.at + cfg.maxClaimAge + 1 })', 'until: b.at + cfg.maxClaimAge })']]],
   ['claim-time-unchecked', 'a claim of any age is accepted', [['b.at < c.now - cfg.maxClaimAge || b.at > c.now + cfg.skew || ', '']]],
   ['claim-delegation-unchecked', 'a claim may name any delegation', [["    if (b.delegation !== d.id) return refuse('claim-delegation')\n", '']]],
   ['claim-unsigned', 'the claim\'s signature is not checked', [['    if (!s.ok) return s\n', '']]],
   ['claim-scope-unchecked', 'a claim for one scope is accepted where another is needed', [["    if (b.scope !== c.scope) return refuse('claim-scope')\n", '']]],
-  ['claim-request-unchecked', 'a claim for one request is accepted for another', [["    if (b.request !== c.request) return refuse('claim-request')\n", '']]],
+  ['claim-method-unchecked', 'a claim for one method is accepted for another', [["    if (b.htm !== c.method) return refuse('claim-method')\n", '']]],
+  ['claim-url-unchecked', 'a claim for one URL is accepted for another', [["    if (htuOrigin(b.htu) !== cfg.audience || b.htu !== c.url) return refuse('claim-url')\n", '']]],
+  ['claim-url-any-origin', "a claim for another origin's URL is accepted where that origin is passed", [['htuOrigin(b.htu) !== cfg.audience || ', '']]],
+  ['claim-url-with-query', 'the query is kept in the URL a claim must match', [['apply(exec, BEFORE_QUERY, [url])[0]', 'url']]],
+  ['claim-nonce-unchecked', 'a claim without the issued nonce is accepted', [["    if (b.nonce !== c.nonce) return refuse('claim-nonce')\n", '']]],
+  ['claim-digest-unchecked', 'a claim for another body is accepted', [["    if (b.content_digest !== c.contentDigest) return refuse('claim-digest')\n", '']]],
+  ['claim-htu-any-form', 'an htu outside the grammar is accepted', [['return m !== null && isCanonicalOrigin(m[1]) ? m[1] : undefined', 'return typeof x === \'string\' ? x.split(\'/\').slice(0, 3).join(\'/\') : undefined']]],
+  ['claim-keys-any', 'a claim with keys of its own is accepted', [["    for (const k in b) if (!has(CLAIM_KEYS, k)) return refuse('claim-shape')\n", '']]],
   ['claim-outside-delegation', 'a claim dated outside its delegation\'s window is accepted', [[' || b.at < d.body.nbf - cfg.skew ||\n      b.at >= d.body.exp', '']]],
   ['call-revoked-by-id-only', 'a subject key in the call\'s revoked list is ignored', [[' || revoked[i] === b.subject', '']]],
   ['key-window-at-head-only', 'a retired witness key\'s heads are accepted', [['  const until = (now > b.at ? now : b.at) + 1', '  const until = b.at + 1']]],
@@ -99,7 +106,7 @@ test('verifier broken twins', { timeout: 600_000 }, async (t) => {
     })
 
     const jobs = TWINS.map(([name, why, edits]) => [name, why, generate(name, edits)])
-    assert.equal(jobs.length, 39, 'twin count')
+    assert.equal(jobs.length, 46, 'twin count')
     const results = []
     const queue = [...jobs]
     const workers = Math.max(1, Math.floor(availableParallelism() / 4))
