@@ -35,7 +35,8 @@ test('root-shape: exactly pub and rp_id, both strings; pub 130 lowercase hex sta
 })
 
 test('rp-id: exactly the configured one', () => {
-  for (const rp of ['ID.example', 'id.example.', 'example', 'other.example', '']) {
+  // Case, a trailing dot, a parent, another domain, empty; a Cyrillic і, a zero-width space, a fullwidth full stop.
+  for (const rp of ['ID.example', 'id.example.', 'example', 'other.example', '', '\u0456d.example', 'id.example\u200b', 'id\uff0eexample']) {
     assert.deepEqual(result(text({ pub: KEY, rp_id: rp })), { ok: false, reason: 'rp-id' }, rp)
   }
 })

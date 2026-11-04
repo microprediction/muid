@@ -93,7 +93,7 @@ Generators cover deep and wide nesting, every string class in §2.2, and integer
 
 ### 2.4 Broken twins (each must make the suite fail)
 
-The meta-test generates 23 twins from `src/encode.js` (one targeted change each) plus one standalone
+The meta-test generates 27 twins from `src/encode.js` (one targeted change each) plus one standalone
 `JSON.stringify` twin; the list below is the original set, and the meta-test file is the authoritative one.
 
 1. `JSON.stringify` with sorted keys and no domain checks.

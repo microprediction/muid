@@ -99,3 +99,24 @@ test('patched built-in case count', () => {
 for (const [label, target, name, patch, run, check] of CASES) {
   test(`results are unchanged when ${label} is patched after loading`, () => check(underPatch(target, name, patch, run)))
 }
+
+// Object.prototype.toString reads Symbol.toStringTag through the prototype chain. One defined on Object.prototype after
+// loading is never read; with it in place no object whose prototype is Object.prototype can be shown plain, so each is
+// refused (failing closed), and null-prototype objects still encode. Found by review of an automated finding.
+test('a Symbol.toStringTag defined on Object.prototype after loading is never read, and fails closed', () => {
+  let calls = 0
+  const run = (fn) => { try { return { value: fn() } } catch (error) { return { error } } }
+  Object.defineProperty(Object.prototype, Symbol.toStringTag, { configurable: true, get () { calls++; return 'Object' } })
+  let date, plain, bare
+  try {
+    date = run(() => encode(Object.assign(Object.create(null), { a: Object.setPrototypeOf(new Date(0), Object.prototype) })))
+    plain = run(() => encode({ a: 1 }))
+    bare = run(() => encode(Object.assign(Object.create(null), { a: Object.assign(Object.create(null), { b: 1 }) })))
+  } finally {
+    delete Object.prototype[Symbol.toStringTag]
+  }
+  refusedWith(date, 'non-plain')
+  refusedWith(plain, 'top-level')
+  assert.equal(bare.value, '{"a":{"b":1}}')
+  assert.equal(calls, 0)
+})

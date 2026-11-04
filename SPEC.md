@@ -117,12 +117,14 @@ longer than `MAX_BYTES` is refused before it is parsed. Encoding stops as soon a
 `MAX_BYTES`, so work is bounded by the limit even when one object is reachable by many paths. Nesting deeper than
 `MAX_DEPTH` is refused before recursion can exhaust the stack. Nothing is enumerated or copied past what the limit
 allows. Every value is followed by at least one byte, so: an array of length L is refused on entry when the bytes
-already written + 2L + 2 exceed the limit; a string, before it is copied, when the bytes already written + its length
-+ 3 do; an object with k keys, when 6k + 1 does. Each bound is a true minimum, so none refuses anything that fits; the
+already written + 2L + 2 exceed the limit; a string, before it is scanned, when the bytes already written + its
+length + 3 do, and before it is copied, when they + its exact escaped size + 3 do (a control character escapes to six
+bytes); an object with k keys, when 6k + 1 does. Each bound is a true minimum, so none refuses anything that fits; the
 array and string bounds are attained exactly, and tests pin a value that fits to the last byte.
 **E5 ONE REASON:** a refusal carries exactly one reason code, and it is the same for every implementation. The top
-level must be a plain object. Each container is checked on entry — cycle, then depth, then plainness (prototype and
-internal slots), then width (E4), then shape (symbol keys, array holes and extra properties). An object's members are
+level must be a plain object. Each container is checked on entry — cycle, then depth, then plainness (prototype, internal slots, and no
+`Symbol.toStringTag` the slot check could read: none of its own, nor one on `Object.prototype` for an object that
+inherits from it), then width (E4), then shape (symbol keys, array holes and extra properties). An object's members are
 then visited in canonical key order, each key checked (grammar, then data-property descriptor) before its value;
 array elements in index order. The first violation found is the reason. Numbers are checked in the order non-finite,
 `-0`, non-integer, unsafe integer. Reason codes: `top-level`, `key`, `symbol-key`, `accessor`, `non-enumerable`,
@@ -136,7 +138,9 @@ the value encoded is the value read. A Proxy cannot be detected in a browser; wi
 twice or escape with a foreign error, and it can choose only what is encoded, as any caller can by building the
 object. The bytes are what get signed.
 **E7 OWN INTRINSICS:** the encoder uses only built-ins captured when its module loaded, called through a captured
-`Reflect.apply`, and no iteration protocol; code that patches a built-in afterwards changes no result.
+`Reflect.apply`, and no iteration protocol; code that patches a built-in afterwards changes no result, except that
+a `Symbol.toStringTag` defined on `Object.prototype` (never read) leaves no object inheriting from it plain: each is
+refused, failing closed.
 **E8 NULL PROTOTYPES:** `decode` returns objects and arrays with null prototypes, deeply frozen, so prototype pollution
 elsewhere in the page cannot make an absent field read as present. Arrays with a null prototype are in the domain.
 
