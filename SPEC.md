@@ -403,6 +403,16 @@ the network and the transparency log are the service's, and the signing key stay
 - `head(held, now)` signs `headOf` of the state with the kept revocations, or nothing where `headOf` gives nothing.
 - A `sign` that does not give a valid signature under the configured key is a fault, thrown, so nothing it signs is
   published.
+**The witness service (`witness/service.js`, not core)** puts these behind a small HTTP API, fetch-style (a
+`Request` in, a `Response` out): `POST /v1/records` (`{ identity, type, text }`; a root, membership, contest or
+freeze), `POST /v1/revocations` (`{ identity, text, delegation? }`), `GET /v1/identities/{id}/records` (what R8 needs)
+and `GET /v1/identities/{id}/head` (a head, reused for `headInterval` seconds while nothing changes); `tick()`
+advances every identity, settling once windows pass. Each identity's changes are serialised by its store, and every
+record the witness signs is appended to the log before the holding that contains it is kept, so nothing is served
+that the log did not take; a failing log or store is 503 and nothing is kept. Refusals are 422 with the witness's
+reason; malformed requests are 400, 404, 405 or 413 (bodies past 131,072 characters). The log is the transparency
+log's (Tessera); an in-memory log and store stand in for tests.
+
 Tested against `model/settled.mjs`'s `witness` on random histories of owner and thief moves and passing time: each
 record goes through admission, the model is given what was admitted, and the anchors and settlements signed are the
 model's, text for text; a record admission refuses changes nothing the model's witness or verifier would do.

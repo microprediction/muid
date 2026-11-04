@@ -461,16 +461,23 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   dead and unknown identities; more than 64 live gives no head; the list capped at 256 live entries, stale ones
   not counted; a foreign error refused.
 - A `sign` under another key is thrown, for anchors and heads.
+- The service (`S1-service.test.mjs`): a change submitted record by record, its anchor logged and served, the tick
+  settling it at the window's end and not a second before; refusals as 422 with the reason, changing nothing; every
+  malformed request with its status and reason, the body limit at and one past it; heads reused within the
+  interval, re-signed after it or after a change, every one logged, none for a frozen identity; revocations;
+  concurrent submissions for one identity both kept; a failing log (503, nothing kept, the tick rejected and
+  retried) and a failing store; configuration.
 - The model (`W3-model.test.mjs`): random owner and thief histories in three scenarios, admitted record by record;
   the witness's anchors and settlements equal the model witness's translated texts after every step; every refused
   record leaves the model's witness and verifier unchanged. The walks reach settled, pending, frozen and dead states
   and up to two settled changes.
-- Twins (`tests/meta/witness-twins.test.mjs`, 29): each admission rule dropped in turn; the anchor kept unchecked;
+- Twins (`tests/meta/witness-twins.test.mjs`, 36): each admission rule dropped in turn; the anchor kept unchecked;
   the highest id anchored; settlement inside the window; contests never anchored, anchored unchecked, or ignored at
   settlement; the witness's view counting contest anchors; a settlement ending the step; `sign` unchecked; heads
   without revocations; a revocation by a root without authority or by any key without its delegation, or unverified; revocations
   kept for ever, kept under the settled membership while a change is pending, or duplicated; the first held
-  successor anchored.
+  successor anchored; and in the service, a holding kept before the log took its records, changes to one identity
+  interleaved, a head kept after a change or for ever, a head unlogged, an unbounded body, and any type submitted.
 
 ## 5. Later layers (outline; each is expanded here before its code is written)
 

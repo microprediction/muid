@@ -8,13 +8,13 @@ import { tmpdir, availableParallelism } from 'node:os'
 import { join } from 'node:path'
 
 const DIR = new URL('../../witness/', import.meta.url)
-const FILE = 'witness.js'
+const FILES = ['witness.js', 'service.js']
 const SUITE_DIR = new URL('../witness/', import.meta.url).pathname
 const SUITE = readdirSync(SUITE_DIR).filter((f) => f.endsWith('.test.mjs')).map((f) => join(SUITE_DIR, f))
 // The witness's imports of the core, made absolute because a twin lives outside the repository.
 const CORE = ["from '../" + 'src/', "from '" + new URL('../../src/', import.meta.url).href]
 
-// [name, bug class, [find, replace] pairs]
+// [name, bug class, [find, replace] pairs, file (witness.js unless named)]
 const TWINS = [
   ['rival-admitted', 'a record whose prev is not the effective membership is held (R3)', [["    if (b.prev !== s.membership) return refuse('prev')\n", '']]],
   ['epoch-unchecked', 'a membership record of another epoch is held', [["    if (b.epoch !== s.epoch + 1) return refuse('epoch')\n", '']]],
@@ -23,6 +23,13 @@ const TWINS = [
   ['freeze-any-membership', 'a freeze of a membership outside the state is held', [["      if (b.membership !== s.settled && b.membership !== s.membership) return refuse('membership')\n", '']]],
   ['signature-unchecked', "a root's signature is not verified on admission", [["return refuse('root-missing')\n    if (!checkRootAssertion(r.sig.assertion, { record: r.id, rpId, origin, key: k }).ok) return refuse('signature')\n", "return refuse('root-missing')\n"]]],
   ['revocation-signature-unchecked', "a root's revocation is not verified", [["const k = rootKeys(held).get(r.sig.root)\n      if (!checkRootAssertion(r.sig.assertion, { record: r.id, rpId, origin, key: k }).ok) return refuse('signature')\n", 'const k = rootKeys(held).get(r.sig.root)\n']]],
+  ['log-not-awaited', 'a holding is kept before the log has taken what it signed', [['      await append(texts)\n      return { entry: { held: a.held }, value', '      append(texts).catch(() => {})\n      return { entry: { held: a.held }, value']], 'service.js'],
+  ['unserialised', 'changes to one identity interleave, so one is lost', [['(queues.get(identity) ?? Promise.resolve())', 'Promise.resolve()']], 'service.js'],
+  ['head-kept-after-change', 'a head signed before a change is served after it', [['return { entry: { held: a.held }, value', 'return { entry: { held: a.held, head: entry?.head }, value']], 'service.js'],
+  ['head-kept-for-ever', 'a head is reused however old', [['now - entry.head.at < headInterval', 'true']], 'service.js'],
+  ['head-unlogged', 'a head is served that the log did not take', [['      await append([text])\n', '']], 'service.js'],
+  ['body-unbounded', 'a request body of any size is read', [["    if (text.length > MAX_BODY) return { error: refusal(413, 'too-large') }\n", '']], 'service.js'],
+  ['type-unfiltered', 'a type that may not be submitted reaches the witness', [["      if (!SUBMITTED.includes(b.type)) return refusal(422, 'type')\n", '']], 'service.js'],
   ['self-revocation-unsigned', "a delegate's revocation of itself is not verified", [["      if (!checkEd25519(r.sig.signature, signedBytes(r.payload), b.target).ok) return refuse('signature')\n", '']]],
   ['no-cap', 'a list grows past MAX_RECORDS', [["    if (held[list].length >= MAX_RECORDS) return refuse('full')\n", '']]],
   ['root-unnamed', 'any root record is held', [["      return refuse('root-unnamed')", '      return accept({ held: add(held, \'roots\', text) })']]],
@@ -69,19 +76,21 @@ function run (dir) {
 }
 
 const HANG = 180_000 // ms; the real suite takes seconds here
-const source = readFileSync(new URL(FILE, DIR), 'utf8')
+const sources = Object.fromEntries(FILES.map((f) => [f, readFileSync(new URL(f, DIR), 'utf8')]))
 const root = mkdtempSync(join(tmpdir(), 'muid-witness-twins-'))
 
-function generate (name, edits) {
+function generate (name, edits, file = 'witness.js') {
   const dir = join(root, name)
   mkdirSync(dir)
-  let text = source.split(CORE[0]).join(CORE[1])
-  for (const [find, replace] of edits) {
-    const n = text.split(find).length - 1
-    assert.equal(n, 1, `twin ${name}: target must occur exactly once in witness/${FILE}, found ${n}: ${JSON.stringify(find)}`)
-    text = text.replace(find, () => replace)
+  for (const f of FILES) {
+    let text = sources[f].split(CORE[0]).join(CORE[1])
+    for (const [find, replace] of f === file ? edits : []) {
+      const n = text.split(find).length - 1
+      assert.equal(n, 1, `twin ${name}: target must occur exactly once in witness/${f}, found ${n}: ${JSON.stringify(find)}`)
+      text = text.replace(find, () => replace)
+    }
+    writeFileSync(join(dir, f), text)
   }
-  writeFileSync(join(dir, FILE), text)
   return dir
 }
 
@@ -92,8 +101,8 @@ test('witness broken twins', { timeout: 1_800_000 }, async (t) => {
       assert.equal(r.code, 0, `control: exit ${r.code}, ${r.fail} failing${r.hung ? ', hung' : ''}`)
       assert.ok(r.pass >= 25, `control: only ${r.pass} tests ran`)
     })
-    const jobs = TWINS.map(([name, why, edits]) => [name, why, generate(name, edits)])
-    assert.equal(jobs.length, 29, 'twin count')
+    const jobs = TWINS.map(([name, why, edits, file]) => [name, why, generate(name, edits, file)])
+    assert.equal(jobs.length, 36, 'twin count')
     const results = []
     const queue = [...jobs]
     const workers = Math.max(1, Math.floor(availableParallelism() / 4))
