@@ -24,9 +24,9 @@ test('no test file imports src/ directly', () => {
   assert.deepEqual(offenders.map((p) => relative(ROOT, p)), [])
 })
 
-test('no test file imports adapter/ or witness/ directly: only their own impl.mjs', () => {
+test('no test file imports adapter/, witness/ or id/ directly: only their own impl.mjs', () => {
   const offenders = files(ROOT)
-    .filter((p) => !/^(adapter|witness)\/impl\.mjs$/.test(relative(ROOT, p)))
-    .filter((p) => /(?:from|import)\s*\(?\s*['"][^'"]*\.\.\/(adapter|witness)\/[^'"]*\.js['"]/.test(readFileSync(p, 'utf8')))
+    .filter((p) => !/^(adapter|witness|id)\/impl\.mjs$/.test(relative(ROOT, p)))
+    .filter((p) => /(?:from|import)\s*\(?\s*['"][^'"]*\.\.\/(adapter|witness|id)\/[^'"]*\.js['"]/.test(readFileSync(p, 'utf8')))
   assert.deepEqual(offenders.map((p) => relative(ROOT, p)), [])
 })

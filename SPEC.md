@@ -605,6 +605,16 @@ rotation and the expiry boundary.
 
 ## 8. The id origin and machine onboarding (not core)
 
+**The id page (`id/`).** A static page with a strict CSP (scripts from its own origin, plus the import map by its
+hash; no inline handlers), using the core's own modules through an import map. It creates an identity — a resident
+ES256 passkey with user verification; the root record from its public key, kept in this browser — and authorises a
+worker: the user gives the worker's Ed25519 key, the audience, scopes and a lifetime of at most 30 days; the page
+shows the fields of the exact payload it will ask the passkey to sign (I4), any edit withdraws it, and a signature
+that returns after an edit is discarded. One assertion (W1 challenge, user verification required, the identity's
+own credential only) signs it, and the page hands the worker the payload and assertion; the worker adds its own
+consent (D6). `id/records.js` builds every record with the core's functions and refuses first what the core would.
+Not yet: rotation, freezes and contests, the I1–I3 window protocol for apps, and the witness round trip.
+
 - The id origin is a dedicated host serving nothing else, with no subdomains. `rp_id` and the exact origin are
   deployment configuration, compared exactly; no suffix or wildcard rule exists anywhere.
 - **I6 ONE CEREMONY:** the id page asks the passkey to sign only W1 challenges — never a server-chosen or login

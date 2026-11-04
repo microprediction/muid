@@ -487,6 +487,26 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   interleaved, a head kept after a change or for ever, a head unlogged, an unbounded body, and any type submitted; and in the log client, halves for the split, no full-tile fallback, a
   short tile used, unprefixed tile indices, any append answer taken, and the proof's order.
 
+## 4k. The id page (`id/`, not core)
+
+- `records.js` in Node (`P1-records.test.mjs`): the root record read by the core, and ES256 on P-256 only; base64url
+  both ways; the W1 challenge as the core computes it; the assertion object verified by `checkRootAssertion`; a
+  delegation signed by the passkey and the worker accepted by `checkDelegation`; each refusal the core would make
+  refused first, with its message.
+- The page in Chrome (`P2-page.test.mjs`, playwright-core driving the installed Chrome, a virtual authenticator
+  through the DevTools WebAuthn domain): create and authorise, the result accepted by the core, then through the
+  witness's head by the relying party's verifier; a resident credential named as asked; the identity remembered;
+  I4 (an edit, a second review and a signature returning after an edit each withdraw); user verification required
+  (the passkey moved to an authenticator that cannot verify); the identity's own passkey among others; an
+  unreadable stored identity forgotten; a refused passkey reported. Chrome's warning that only ES256 is offered is
+  the one console message allowed.
+- The HTML (`P3-html.test.mjs`): one inline script, the import map, allowed by its hash; nothing from elsewhere.
+- Mutation testing runs inside the page: the test activates Stryker's mutant in the page and returns the page's
+  coverage to the test process. Both files at 100%.
+- Twins (`tests/meta/id-twins.test.mjs`, 12): the challenge's domain, any algorithm, unsorted scopes, an unbounded
+  lifetime, an unchecked audience, an edit that keeps the review, a late signature kept, verification preferred,
+  any passkey, a credential that is not resident, inline scripts allowed, hidden parts shown.
+
 ## 5. Later layers (outline; each is expanded here before its code is written)
 
 1. **Envelope and record id:** expanded as §3.

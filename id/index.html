@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'sha256-9vL72uvEUCcJGeX/LoUKObeMuuP9Qx3r3dGQpFN9aTw='; style-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'">
+<title>muid identity</title>
+<link rel="stylesheet" href="page.css">
+<script type="importmap">{"imports":{"@noble/hashes/":"/node_modules/@noble/hashes/","@noble/curves/":"/node_modules/@noble/curves/"}}</script>
+<script type="module" src="page.js"></script>
+</head>
+<body>
+<main>
+  <h1>Your identity</h1>
+  <section id="create" hidden>
+    <p>Your identity is a passkey on this device. Nothing leaves this page until you hand a record to someone.</p>
+    <label>Name for the passkey <input id="name" autocomplete="off" placeholder="muid identity"></label>
+    <button id="create-button" type="button">Create an identity</button>
+  </section>
+  <section id="identity" hidden>
+    <p>Identity <code id="identity-id"></code></p>
+    <details><summary>Root record</summary><textarea id="root-text" readonly></textarea></details>
+  </section>
+  <section id="authorise" hidden>
+    <h2>Authorise a worker</h2>
+    <label>Worker key (Ed25519, hex) <input id="subject" autocomplete="off" spellcheck="false"></label>
+    <label>Audience <input id="aud" autocomplete="off" placeholder="https://app.example"></label>
+    <label>Scopes <input id="scopes" autocomplete="off" placeholder="post read"></label>
+    <label>Lifetime in days <input id="days" type="number" value="30" min="1" max="30"></label>
+    <button id="review" type="button">Review</button>
+    <div id="review-panel" hidden>
+      <p>Your passkey will sign exactly this:</p>
+      <dl>
+        <dt>Audience</dt><dd id="show-aud"></dd>
+        <dt>Scopes</dt><dd id="show-scopes"></dd>
+        <dt>Expires</dt><dd id="show-exp"></dd>
+        <dt>Worker key</dt><dd id="show-subject"></dd>
+      </dl>
+      <button id="sign" type="button">Sign with your passkey</button>
+    </div>
+    <textarea id="handoff" readonly hidden aria-label="Give this to the worker"></textarea>
+  </section>
+  <p id="error" role="alert"></p>
+</main>
+</body>
+</html>
