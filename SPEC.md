@@ -509,9 +509,13 @@ test fails the build on any direct `indexedDB` or `localStorage` use outside the
 
 **Relying-party adapter (`adapter/`, not core).** The verifier is pure; the state a relying party keeps around it is
 replay and head memory, and the adapter makes both atomic with the established mechanism for each. `acceptClaim`
-reads the presented records and the call's fields once, refuses before any transaction whatever the verifier refuses
-without memory (so refused requests never wait for or hold the lock), then in one store transaction verifies them
-against the identity's last head as it stands there, advances that head, and consumes the claim id; only then does it run the protected action, once.
+reads the presented records and the call's fields once (a call bringing its own `lastHead` is a programming error:
+the adapter supplies it), and verifies them without memory, outside any lock. A request refused there is refused; it
+takes the lock only when its head verifies alone (F6) and is newer than the memory, to remember that head. Otherwise,
+in one store transaction, it remembers the head if the head verifies against the memory as it stands there —
+whatever else the request carries, so a head that revokes the request's own delegation is still remembered — then
+verifies the request against the same memory and consumes the claim id; only then does it run the protected action,
+once.
 Consumption is an insert-if-absent (a unique key, as DPoP's `jti` store), the head moves only to a later `at` (a
 conditional update, as TUF's stored metadata), and the transaction serialises requests (`BEGIN IMMEDIATE` for the
 database store, which holds its write lock for one verification), so of any number of instances receiving one claim
