@@ -33,3 +33,4 @@ export const membership = await load('MUID_MEMBERSHIP_IMPL', '../src/membership.
 export const verifier = await load('MUID_VERIFIER_IMPL', '../src/verifier.js')
 export const merkle = await load('MUID_MERKLE_IMPL', '../src/merkle.js')
 export const note = await load('MUID_NOTE_IMPL', '../src/note.js')
+export const receipt = await load('MUID_RECEIPT_IMPL', '../src/receipt.js')

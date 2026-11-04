@@ -54,6 +54,7 @@ jobs:
           - membership-twins.test.mjs
           - merkle-twins.test.mjs
           - note-twins.test.mjs
+          - receipt-twins.test.mjs
           - origin-twins.test.mjs
           - p256-twins.test.mjs
           - root-twins.test.mjs
@@ -82,6 +83,7 @@ jobs:
           - stryker.p256.config.json
           - stryker.merkle.config.json
           - stryker.note.config.json
+          - stryker.receipt.config.json
           - stryker.assertion.config.json
           - stryker.origin.config.json
           - stryker.delegation.config.json

@@ -126,6 +126,11 @@ is refused, where Go skips it; the checkpoint format forbids such lines), and is
 with thirteen broken twins. Deviations kept: extension lines are refused; a cosignature time of 2^53 or more cannot
 be checked and is refused; signature lines are capped at 64 and notes at 65,536 characters.
 
+`src/receipt.js` (about 95 lines) implements §5a as SPEC C2 (proposal): a receipt signed by a pinned service key,
+included in a cosigned checkpoint, with `existedBy` the quorum-th earliest cosignature. 100% coverage and mutation
+score, ten broken twins. jscpd caught the first draft copying three helpers from `src/attestation.js`; they are now
+shared.
+
 ## 9. Order of work (approved 2026-11-04: integration first)
 
 The owner approved judging progress by a working integration: a minimal witness (log, heads, receipts,
