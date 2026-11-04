@@ -378,6 +378,29 @@ Residuals:
   — and a thief holding a retired root could mint new delegations under it. The guarantees above hold for a verifier
   that requires a head no older than `maxStaleness`; the residual is that window.
 
+**The witness's own decisions (`witness/`, not core).** `witness(config)` gives `empty`, `admit`, `advance` and
+`head`, pure functions over the records the witness holds for one identity, grouped as R8's `records`; storage,
+the network and the transparency log are the service's, and the signing key stays behind `config.sign`.
+- `admit(held, type, text)` applies R8's admission to a submitted root, membership, contest or freeze, against the
+  state of what is held: a membership record must name the effective membership as `prev` and be one epoch past it
+  (R3: a rival is refused), and be signed by one of its roots, or by a root it adds once a strict majority has
+  signed; a contest must contest the pending record, signed by a root of the settled membership (R5); a freeze must
+  name the settled or pending membership, signed by one of its roots (R2, decision 11); a root record must be the
+  first root or named by a held membership record. Each signature is verified on admission. A record already held is
+  accepted unchanged; a list at `MAX_RECORDS` refuses new ones (`full`); nothing is admitted to a dead identity.
+- `advance(held, now)` signs what the model's witness does: with nothing pending, it anchors the lowest-id held
+  successor of the settled membership, and keeps an anchor only if `membershipState` with it shows that record
+  pending, so the witness never applies a second implementation of R1; with a record pending and the window open, it
+  anchors a held contest only if verifiers would then see the identity end; once `CONTEST_WINDOW` has passed, it
+  settles, as `contested` if a contest is anchored. A settlement can make a held successor anchorable in the same
+  step. Its own view leaves out contest anchors, as the model's does.
+- `head(held, now, revoked)` signs `headOf` of the state, or nothing where `headOf` gives nothing.
+- A `sign` that does not give a valid signature under the configured key is a fault, thrown, so nothing it signs is
+  published.
+Tested against `model/settled.mjs`'s `witness` on random histories of owner and thief moves and passing time: each
+record goes through admission, the model is given what was admitted, and the anchors and settlements signed are the
+model's, text for text; a record admission refuses changes nothing the model's witness or verifier would do.
+
 **revocation** — `{ identity, target, at }`, where `target` is a delegation's record id or a subject key. It is signed
 by a root with authority (`sig = { root, assertion }`, as for membership records), or by the delegate for itself (`sig
 = { signature }` by the subject key, as for claims); the witness revokes its own attestations in its log (decision 8).

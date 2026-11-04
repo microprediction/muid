@@ -441,6 +441,28 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
 - `existedBy` is the quorum-th earliest cosignature; configuration read once; a foreign error fails closed.
 - Twins (13).
 
+## 4j. The witness's decisions (`witness/`, not core)
+
+- Admission (R8): each refusal by name — the type, the form, another identity, `prev` not the effective
+  membership (a rival before and after anchoring, and after settlement), another epoch, a stranger, an added root
+  before a strict majority, an added root before its root record, a forged assertion, a contest of anything but the
+  pending record or by a root outside the settled membership, a freeze of a membership outside the state or by
+  another membership's root, an unnamed root record, a dead identity, a full list (built directly; the cap is
+  checked first), and a foreign error. A record already held is accepted without being stored twice.
+- Advancing: an honest change anchored and settled at the window's end, not a second before; an incomplete change
+  not anchored; a successor held while its predecessor was pending anchored in the settling step; of three valid
+  successors, the lowest id; a contest inside the window anchored and settled as contested; one first seen after it
+  ignored; a minority contest not anchored; heads equal to `headOf`, signed, none where `headOf` gives none.
+- A `sign` under another key is thrown, for anchors and heads.
+- The model (`W3-model.test.mjs`): random owner and thief histories in three scenarios, admitted record by record;
+  the witness's anchors and settlements equal the model witness's translated texts after every step; every refused
+  record leaves the model's witness and verifier unchanged. The walks reach settled, pending, frozen and dead states
+  and up to two settled changes.
+- Twins (`tests/meta/witness-twins.test.mjs`, 21): each admission rule dropped in turn; the anchor kept unchecked;
+  the highest id anchored; settlement inside the window; contests never anchored, anchored unchecked, or ignored at
+  settlement; the witness's view counting contest anchors; a settlement ending the step; `sign` unchecked; heads
+  without revocations.
+
 ## 5. Later layers (outline; each is expanded here before its code is written)
 
 1. **Envelope and record id:** expanded as §3.

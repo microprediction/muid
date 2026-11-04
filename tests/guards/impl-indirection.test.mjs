@@ -23,3 +23,10 @@ test('no test file imports src/ directly', () => {
     .filter((p) => /(?:from|import)\s*\(?\s*['"][^'"]*\/src\//.test(readFileSync(p, 'utf8')))
   assert.deepEqual(offenders.map((p) => relative(ROOT, p)), [])
 })
+
+test('no test file imports adapter/ or witness/ directly: only their own impl.mjs', () => {
+  const offenders = files(ROOT)
+    .filter((p) => !/^(adapter|witness)\/impl\.mjs$/.test(relative(ROOT, p)))
+    .filter((p) => /(?:from|import)\s*\(?\s*['"][^'"]*\.\.\/(adapter|witness)\/[^'"]*\.js['"]/.test(readFileSync(p, 'utf8')))
+  assert.deepEqual(offenders.map((p) => relative(ROOT, p)), [])
+})
