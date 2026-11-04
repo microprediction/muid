@@ -102,3 +102,14 @@ test('a getter is never invoked, even while refusing it', () => {
   refuses(() => encode(o), 'accessor', 'getter')
   assert.equal(calls, 0)
 })
+
+test('a Symbol.toStringTag getter is never invoked while its forbidden symbol key is refused', () => {
+  let calls = 0
+  const o = { a: 1 }
+  Object.defineProperty(o, Symbol.toStringTag, {
+    enumerable: true,
+    get () { calls++; return 'Object' },
+  })
+  refuses(() => encode(o), 'symbol-key', 'Symbol.toStringTag getter')
+  assert.equal(calls, 0)
+})
