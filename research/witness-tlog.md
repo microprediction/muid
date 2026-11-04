@@ -51,6 +51,39 @@ Today `CONTEST_WINDOW` starts at the witness's own `at`, so a leaked witness key
 cosigners, the window starts at the cosigned time of the first checkpoint that includes the anchor — time the
 witness alone cannot forge. This is the change that closes the backdating residual.
 
+## 5a. Acceptance receipts: durable attribution
+
+C1's claims are ephemeral: they prove authority at the moment of checking, and stop being checkable when their
+delegation expires. "Was this forecast submitted under this identity before the outcome was known?" needs evidence
+that outlives the delegation. The established pattern is Sigstore's: short-lived signing credentials, with the
+evidence of validity at signing time kept in a transparency log.
+
+- A **receipt** `{ service, identity, delegation, claim, digest, at }` is signed by the receiving service's key after
+  `verifyClaim` accepted the claim: `claim` is the claim's id, `digest` the SHA-256 of the contribution, `at` the
+  service's time. It states only what that service attests: that it verified this claim under that delegation at
+  that time.
+- The service appends the receipt to the witness log (or its own tlog-tiles log). The cosigned checkpoint that
+  first includes it bounds `at` from outside the service: the contribution existed no later than that checkpoint.
+- Later verification needs no live delegation: the receipt's signature, its inclusion in a cosigned checkpoint, and
+  the service's key as pinned by the verifying application. Each application decides whose receipts it trusts.
+- Expiry ends the right to make new submissions; it does not erase the attribution of accepted ones.
+- Receipts are not endorsements. A delegation grants authority to act; a receipt records that software acting under
+  it submitted something. Neither says the identity's owner reviewed it.
+
+## 5b. Long histories: a checkpoint in the log
+
+Decision 9 caps an identity at about 85 settled changes because R8 replays from the first root. With a log, the
+witness can publish a **membership checkpoint** for an identity — its settled membership at a log position — and a
+verifier can start R8 from the newest checkpoint included in a cosigned log checkpoint, as TUF clients start from a
+trusted root and walk forward. The trust added is bounded: the checkpoint is in the public log, so a wrong one is
+visible to anyone replaying the identity's records. This should exist before valuable histories accumulate.
+
+## 5c. Delegations in the log (decision 12, option c)
+
+If the witness logs every delegation it learns of, as certificate transparency logs every certificate, a verifier
+can require a delegation's inclusion, and the witness then knows every delegation that a subject-key revocation must
+outlive. This closes decision 12 without a retention heuristic, at the cost of a log entry per delegation.
+
 ## 6. Cost
 
 Verifier code, estimated from reference implementations: signed-note and cosignature checks 150–250 lines; inclusion
@@ -85,7 +118,12 @@ vectors but one, a pinned difference (it requires 32-byte hashes where upstream 
 length). Checking it found one precondition that is not redundant: without `size1 > size2` refused, a genuine proof
 from 6 to 11 also verifies from 11 to 6. Trees up to 2^53 − 1 entries are tested with identical leaves.
 
-## 9. Order of work once approved
+## 9. Order of work (approved 2026-11-04: integration first)
+
+The owner approved judging progress by a working integration: a minimal witness (log, heads, receipts,
+checkpoints; cosigners later), then the id page, then a two-application demo (one service accepts forecasts and
+issues receipts; another verifies contribution history under its own policy), with the relying-party adapter
+(issue #21) built inside it. Within the witness:
 
 1. Pin the vectors; write the inclusion and consistency verifiers test-first (pure functions, small).
 2. Signed-note and cosignature verification, test-first, with the C2SP/Go vectors.
