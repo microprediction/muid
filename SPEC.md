@@ -629,8 +629,15 @@ whole contribution is a set of verified facts:
 - each verified claim and the delegation it was made under.
 
 The reputation layer reads these and nothing else. It never holds a secret key, never verifies a signature itself, and
-never
-writes a record the core trusts.
+never writes a record the core trusts.
+
+**Authority is not endorsement.** A delegation grants a key authority to act for an identity within its audience and
+scopes. A claim made under it is attributable to that identity — software it authorised did this — but it is not a
+statement that the identity's owner reviewed or endorses what was done. The reputation layer keeps the two apart.
+
+**One identity is correlatable.** Every service that verifies an identity's records sees the same identity id, so
+activity under it can be linked across services. For a public contributor history that is the purpose; someone who
+wants activities kept apart uses separate identities.
 
 **Memorable names (outside the core).** A root's key cannot be mined, but a name can be mined over an identity id:
 find a nonce such that SHA-256(`"muid-name\n"` ‖ identity id ‖ nonce) begins with bits that map to a readable name.
