@@ -628,16 +628,18 @@ test fails the build on any direct `indexedDB` or `localStorage` use outside the
    is hold up the change that added it, and the owner who added it can supersede that change. In return an owner whose
    new device sees an unexpected change can stop it. The alternative, limiting a pending record's freeze to the roots
    of its `prev`, stays available if a case against this appears.
-12. **Retaining subject-key revocations — decided: (a) now, (c) with the transparency log.** `exp − nbf` is
+12. **Retaining subject-key revocations — decided: (b) now, (c) with the transparency log.** `exp − nbf` is
    bounded, but `nbf` is not, so a delegation signed today may become valid long after it was signed. A witness that
    drops a subject-key revocation once the delegations it knows of expire can therefore drop it too early: it may not
-   know every delegation to that key. (a) The witness keeps a subject-key revocation for as long as the membership
-   current when it was revoked, or its pending successor, has authority: R6 refuses every delegation under a
-   membership that has neither, and a delegation under a later membership is a new signature by a root the owner
-   kept. (c) Once the witness is a transparency log, it logs every delegation it learns of, as certificate
-   transparency logs every certificate, and relying parties may require a delegation to be logged, so the witness
-   knows them all. The rejected option, (b), keeps every revocation until the identity ends and fails closed at the
-   64-entry cap (R9).
+   know every delegation to that key. (b) The witness keeps a revocation for the life of the identity, except a
+   root's revocation of a delegation id given with that delegation, kept until its `exp` plus `skew`; past 64 live
+   entries no head is signed (R9, fail closed). (c) Once the witness is a transparency log, it logs every delegation
+   it learns of, as certificate transparency logs every certificate, and relying parties may require a delegation to
+   be logged, so the witness knows them all and the rest can lapse too. Option (a), first chosen — keep a
+   revocation while the membership current when it was revoked, or its pending successor, has authority — was shown
+   unsound by review: W0 lets the owner sign a change and the delegations under it in one prompt, so a delegation can
+   exist under a membership before it is anchored, or under a chain of them, and no change of membership bounds what
+   a revocation can affect.
 
 ## 10. What the reputation layer consumes (not core)
 
