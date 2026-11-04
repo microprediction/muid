@@ -515,7 +515,9 @@ takes the lock only when its head verifies alone (F6) and is newer than the memo
 in one store transaction, it remembers the head if the head verifies against the memory as it stands there —
 whatever else the request carries, so a head that revokes the request's own delegation is still remembered — then
 verifies the request against the same memory and consumes the claim id; only then does it run the protected action,
-once.
+once. Heads of one second may arrive in either order (F5): of two, the memory keeps the one the verifier ranks later
+(the new one only if the stored one could not follow it). Anyone holding a fresh head can move the memory forward;
+that only obliges delegates to present heads at least as fresh, which the witness serves.
 Consumption is an insert-if-absent (a unique key, as DPoP's `jti` store), the head moves only to a later `at` (a
 conditional update, as TUF's stored metadata), and the transaction serialises requests (`BEGIN IMMEDIATE` for the
 database store, which holds its write lock for one verification), so of any number of instances receiving one claim

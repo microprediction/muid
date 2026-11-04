@@ -289,6 +289,8 @@ test('a refused request takes the transaction only to remember a newer head', as
   assert.deepEqual(await base.lastHead(IDENTITY), { head: head(NOW - 100), at: NOW - 100 })
   assert.deepEqual(await rp.acceptClaim(records(), { ...CALL, scope: 'read' }, () => 1), refused('claim-scope'))
   assert.equal(transactions, 1, 'the same head again: nothing to remember')
+  assert.deepEqual(await rp.acceptClaim(records(undefined, head(NOW - 200)), { ...CALL, scope: 'read' }, () => 1), refused('claim-scope'), 'checked before the head')
+  assert.equal(transactions, 1, 'an older head: nothing to remember')
   assert.equal((await rp.acceptClaim(records(), CALL, () => 1)).ok, true)
   assert.equal(transactions, 2)
 })
@@ -339,3 +341,57 @@ test('a head that verifies alone but not against the memory (equivocation) is no
   assert.deepEqual(await rp.acceptClaim(records(undefined, forked), CALL, () => 1), refused('equivocation'))
   assert.deepEqual(await store.lastHead(IDENTITY), { head: settled, at: NOW - 100 })
 })
+
+// Found by review: heads of one second may come in either order (F5), and the memory kept whichever it saw first. On
+// a tie it now keeps the one the verifier ranks later: the new head if it may follow the stored one and not the
+// reverse.
+test('two heads of one second: the memory keeps the later in the honest order, whichever arrives first', async () => {
+  const T = NOW - 100
+  for (const [name, later] of [['settled into another membership', head(T, { epoch: 2, memberships: ['5'.repeat(64)] })],
+    ['a successor turned pending', head(T, { memberships: [IDENTITY, '5'.repeat(64)] })]]) {
+    for (const store of [memoryStore(), sqliteStore(join(tmp(), 'rp.db'))]) {
+      const rp = relyingParty({ verifier: verifier(), store })
+      assert.equal((await rp.acceptClaim(records(claim(NOW - 5, 'a'), head(T)), CALL, () => 1)).ok, true, name)
+      await rp.acceptClaim(records(claim(NOW - 4, 'b'), later), CALL, () => 1)
+      assert.equal((await store.lastHead(IDENTITY)).head, later, name)
+      assert.deepEqual(await rp.acceptClaim(records(claim(NOW - 3, 'c'), head(T)), CALL, () => 1), refused('stale'), name)
+      assert.equal((await store.lastHead(IDENTITY)).head, later, `${name}: not moved back`)
+    }
+  }
+})
+
+// Found by review: a request refused before the lock gave its reason without the memory, so equivocation by the
+// witness could be reported as the request's other fault.
+test('a request refused before the lock gives the reason the memory gives', async () => {
+  const T = NOW - 100
+  const store = memoryStore()
+  const stored = head(T, { epoch: 2, memberships: ['6'.repeat(64)] })
+  await store.transaction((tx) => tx.advanceHead(IDENTITY, stored, T))
+  const rp = relyingParty({ verifier: verifier(), store })
+  assert.deepEqual(await rp.acceptClaim(records(undefined, head(T, { epoch: 2, memberships: ['5'.repeat(64)] })), CALL, () => 1), refused('equivocation'))
+  assert.deepEqual(await rp.acceptClaim(records(undefined, head(T - 10, { epoch: 2, memberships: ['6'.repeat(64)] })), CALL, () => 1), refused('stale'))
+})
+
+test('two heads of one second, each able to follow the other: the memory keeps the one it holds', async () => {
+  const T = NOW - 100
+  const revoking = head(T, { revoked: ['7'.repeat(64)] }) // differs only in what it revokes
+  const store = memoryStore()
+  await store.transaction((tx) => tx.advanceHead(IDENTITY, revoking, T))
+  await relyingParty({ verifier: verifier(), store }).acceptClaim(records(undefined, head(T)), CALL, () => 1)
+  assert.equal((await store.lastHead(IDENTITY)).head, revoking, 'not replaced by a head that drops a revocation')
+})
+
+for (const [name, open] of [['memory', () => memoryStore()], ['sqlite', () => sqliteStore(join(tmp(), 'rp.db'))]]) {
+  test(`${name} store: replaceHead replaces only the head given, of the same time`, async () => {
+    const s = open()
+    await s.transaction((tx) => tx.replaceHead('i', 'b', 5, 'a'))
+    assert.equal(await s.lastHead('i'), undefined, 'nothing held')
+    await s.transaction((tx) => tx.advanceHead('i', 'a', 5))
+    await s.transaction((tx) => tx.replaceHead('i', 'b', 5, 'x'))
+    assert.deepEqual(await s.lastHead('i'), { head: 'a', at: 5 }, 'another head held')
+    await s.transaction((tx) => tx.replaceHead('i', 'b', 6, 'a'))
+    assert.deepEqual(await s.lastHead('i'), { head: 'a', at: 5 }, 'another time')
+    await s.transaction((tx) => tx.replaceHead('i', 'b', 5, 'a'))
+    assert.deepEqual(await s.lastHead('i'), { head: 'b', at: 5 })
+  })
+}

@@ -58,7 +58,10 @@ export function relyingParty ({ verifier, store }) {
       } catch {
         return refusal('storage')
       }
-      if (stored !== undefined && stored.at >= seen.at) return refusal(pre.reason)
+      // Nothing to remember: the memory is later, or is this very head. The reason is the one the memory gives.
+      if (stored !== undefined && (stored.at > seen.at || stored.head === given.head)) {
+        return refusal(withMemory((c) => verifier[method](given, c), call, stored).reason)
+      }
     }
     let outcome
     try {
@@ -71,7 +74,15 @@ export function relyingParty ({ verifier, store }) {
         } catch (e) {
           return { thrown: e } // the verifier's, not the store's: rethrown below
         }
-        if (head.ok) tx.advanceHead(seen.identity, given.head, seen.at)
+        if (head.ok) {
+          // Heads of one second may arrive in either order (F5): keep the later in the honest order, the new one if
+          // the stored one could not follow it.
+          if (stored !== undefined && stored.at === seen.at) {
+            if (!verifier.verifyHead(stored.head, { ...call, lastHead: given.head }).ok) tx.replaceHead(seen.identity, given.head, seen.at, stored.head)
+          } else {
+            tx.advanceHead(seen.identity, given.head, seen.at)
+          }
+        }
         if (!r.ok) return refusal(r.reason)
         if (method === 'verifyClaim' && !tx.consume(r.id, r.until)) return refusal('replay')
         return r

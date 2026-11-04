@@ -1,6 +1,7 @@
 // Stores for the relying-party adapter. `transaction(fn)` runs fn atomically with synchronous operations: lastHead
-// reads { head, at }; advanceHead replaces an identity's head only with a later one; consume inserts a claim id only
-// if absent, returning whether it did. Each is the database's own guarantee (a unique key, a conditional upsert,
+// reads { head, at }; advanceHead replaces an identity's head only with a later one; replaceHead replaces it with
+// another of the same time only if it is still the one given (compare-and-set); consume inserts a claim id only if
+// absent, returning whether it did. Each is the database's own guarantee (a unique key, a conditional upsert,
 // a serialising transaction), not read-then-write in the adapter.
 import { DatabaseSync } from 'node:sqlite'
 
@@ -16,6 +17,10 @@ export function memoryStore ({ grace = 60 } = {}) {
     advanceHead (identity, head, at) {
       const old = heads.get(identity)
       if (old === undefined || at > old.at) heads.set(identity, { head, at })
+    },
+    replaceHead (identity, head, at, was) {
+      const old = heads.get(identity)
+      if (old !== undefined && old.at === at && old.head === was) heads.set(identity, { head, at })
     },
     consume (id, until) {
       if (consumed.has(id)) return false
@@ -42,6 +47,7 @@ export function sqliteStore (file, { grace = 60 } = {}) {
   const get = db.prepare('SELECT head, at FROM heads WHERE identity = ?')
   const advance = db.prepare(`INSERT INTO heads (identity, head, at) VALUES (?, ?, ?)
     ON CONFLICT (identity) DO UPDATE SET head = excluded.head, at = excluded.at WHERE excluded.at > heads.at`)
+  const replace = db.prepare('UPDATE heads SET head = ? WHERE identity = ? AND at = ? AND head = ?')
   const insert = db.prepare('INSERT INTO consumed (id, until) VALUES (?, ?) ON CONFLICT (id) DO NOTHING')
   const remove = db.prepare('DELETE FROM consumed WHERE until <= ?')
   const read = (identity) => {
@@ -51,6 +57,7 @@ export function sqliteStore (file, { grace = 60 } = {}) {
   const tx = {
     lastHead: read,
     advanceHead (identity, head, at) { advance.run(identity, head, at) },
+    replaceHead (identity, head, at, was) { replace.run(head, identity, at, was) },
     consume: (id, until) => insert.run(id, until).changes === 1,
   }
   return {
