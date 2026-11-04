@@ -11,7 +11,7 @@ import { checkEd25519Key } from '../src/ed25519.js'
 const SPKI_P256 = '3059301306072a8648ce3d020106082a8648ce3d030107034200'
 const ASSERT_PREFIX = 'muid/v1/assert\n'
 const SCOPE = /^[a-z][a-z0-9_.:-]{0,63}$/
-export const MAX_LIFETIME = 2_592_000 // 30 days (decision 3)
+export const MAX_LIFETIME = 604_800 // 7 days: the id page gives machines at most this (decision 3)
 
 const hex = (b) => Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('')
 // Unpadded base64url (RFC 4648 §5), as WebAuthn fields are written (W6).
@@ -54,7 +54,8 @@ export function delegation ({ identity, membership, root, subject, aud, scopes, 
   if (list.length < 1 || list.length > 16 || !list.every((s) => typeof s === 'string' && SCOPE.test(s))) {
     throw new Error('scopes must be 1 to 16 lower-case names')
   }
-  if (!Number.isSafeInteger(lifetime) || lifetime < 1 || lifetime > MAX_LIFETIME) throw new Error('the lifetime must be 1 second to 30 days')
+  if (list.includes('attest')) throw new Error('the attest scope is not granted to a worker') // SPEC §8
+  if (!Number.isSafeInteger(lifetime) || lifetime < 1 || lifetime > MAX_LIFETIME) throw new Error('the lifetime must be 1 second to 7 days')
   const body = { identity, membership, root, subject, aud, scopes: list, nbf: now, exp: now + lifetime }
   return { body, ...seal('delegation', body) }
 }

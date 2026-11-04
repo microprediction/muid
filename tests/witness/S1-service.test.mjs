@@ -4,7 +4,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { envelope } from '../impl.mjs'
 import { witnessService, memoryHoldings, memoryLog } from './impl.mjs'
-import { w, IDENTITY, BASE, WINDOW, M2, mId, signed, rootText } from './fixtures.mjs'
+import { w, IDENTITY, BASE, WINDOW, M2, mBody, mId, signed, rootText } from './fixtures.mjs'
 
 const URL_ = 'https://witness.example'
 function setup ({ log = memoryLog(), holdings = memoryHoldings(), headInterval = 60 } = {}) {
@@ -56,6 +56,9 @@ test('a refused record is 422 with its reason, and changes nothing', async () =>
   assert.equal((await s.call('GET', `/v1/identities/${IDENTITY}/records`)).body.roots.length, 1)
   assert.deepEqual((await s.submit('nonsense', 'x')).body, { ok: false, reason: 'type' })
   assert.deepEqual((await s.submit('anchor', 'x')).body, { ok: false, reason: 'type' })
+  // A refusal for an identity the witness has never held leaves nothing behind for the tick.
+  assert.equal((await s.submit('root', rootText('a'), 'e'.repeat(64))).body.reason, 'root-unnamed')
+  assert.deepEqual(await s.svc.tick(), [])
   for (const type of ['root', 'membership', 'contest', 'freeze']) assert.equal((await s.submit(type, 'x')).body.reason, 'envelope-encoding', type)
 })
 
@@ -63,6 +66,7 @@ test('malformed requests: 400, 404, 405 and 413, each with its reason', async ()
   const s = setup()
   const is = async (p, status, reason, label) => assert.deepEqual(await p, { status, body: { ok: false, reason }, type: 'application/json' }, label)
   await is(s.call('POST', '/v1/records', '{'), 400, 'json')
+  await is(s.call('POST', '/v1/records'), 400, 'json') // no body at all
   await is(s.call('POST', '/v1/revocations', '{'), 400, 'json')
   for (const b of ['[]', 'null', '1', '"x"', JSON.stringify([IDENTITY])]) await is(s.call('POST', '/v1/records', b), 400, 'request', b)
   await is(s.call('POST', '/v1/records', { identity: IDENTITY, type: 'root' }), 400, 'request', 'no text')
@@ -82,6 +86,21 @@ test('malformed requests: 400, 404, 405 and 413, each with its reason', async ()
   await is(s.call('GET', `/v1/identities/${IDENTITY}/head`), 404, 'unknown-identity')
   await is(s.call('GET', '/v1/records'), 405, 'method')
   await is(s.call('DELETE', `/v1/identities/${IDENTITY}/head`), 405, 'method')
+})
+
+// Found by review: the body was buffered in full before its size was checked.
+test('a body past the limit is refused without being read in full', async () => {
+  let pulled = 0
+  const chunk = new Uint8Array(16_384).fill(0x78)
+  // 1 MiB, far past the limit: a reader that reads it all is caught by how much it pulled.
+  const body = new ReadableStream({ pull (c) { if (pulled >= 1_048_576) { c.close(); return } pulled += chunk.length; c.enqueue(chunk) } })
+  const res = await setup().svc.handle(new Request('https://witness.example/v1/records', { method: 'POST', body, duplex: 'half' }))
+  assert.equal(res.status, 413)
+  assert.ok(pulled < 131_072 + 4 * chunk.length, `read ${pulled} bytes`)
+  // Several chunks below the limit are joined in order.
+  const parts = ['{"ide', 'ntity":"x","t', 'ext":"x"}']
+  const small = new ReadableStream({ start (c) { for (const p of parts) c.enqueue(new TextEncoder().encode(p)); c.close() } })
+  assert.equal((await setup().svc.handle(new Request('https://witness.example/v1/records', { method: 'POST', body: small, duplex: 'half' }))).status, 400)
 })
 
 test('heads: signed when asked, reused within headInterval while nothing changes, and every one logged', async () => {
@@ -141,13 +160,53 @@ test('a log that fails: 503, and nothing it did not take is kept', async () => {
   assert.equal((await s.call('GET', `/v1/identities/${IDENTITY}/records`)).body.memberships.length, 1, 'the signature that led to the anchor is not kept')
   assert.equal((await s.call('GET', `/v1/identities/${IDENTITY}/head`)).status, 503)
   down = false
-  assert.equal((await s.submit('membership', signed('membership', M2, 'b'))).body.signed.length, 1, 'anchored once the log is back')
+  // The anchor signed before the failure is appended first, once the log is back: the same text, not a new one.
+  assert.deepEqual((await s.submit('membership', signed('membership', M2, 'b'))).body, { ok: true, signed: [] })
+  const anchors = (await s.call('GET', `/v1/identities/${IDENTITY}/records`)).body.anchors
+  assert.equal(anchors.length, 1)
+  assert.deepEqual(inner.entries(), anchors, 'the log took exactly the anchor that is served')
   down = true
   s.at(BASE + WINDOW)
   await assert.rejects(s.svc.tick(), /log unavailable/)
   assert.equal((await s.call('GET', `/v1/identities/${IDENTITY}/records`)).body.settlements.length, 0, 'the settlement is not kept')
   down = false
-  assert.equal((await s.svc.tick()).length, 1)
+  assert.deepEqual(await s.svc.tick(), [], 'the settlement signed before is appended from the outbox, not signed anew')
+  assert.equal((await s.call('GET', `/v1/identities/${IDENTITY}/records`)).body.settlements.length, 1)
+})
+
+// Found by review: a log that took an entry but whose answer was lost led the witness to sign a rival anchor later.
+test('a lost log answer never leads to a rival: what was signed is appended again, before anything new', async () => {
+  const inner = memoryLog()
+  let lose = false
+  const s = setup({ log: { append: async (t) => { await inner.append(t); if (lose) { lose = false; throw new Error('answer lost') } }, entries: inner.entries } })
+  await s.submit('root', rootText('a'))
+  const X = mBody(2, ['a'], IDENTITY)
+  const Y = mBody(2, ['a', 'b'], IDENTITY)
+  lose = true
+  assert.deepEqual((await s.submit('membership', signed('membership', X, 'a'))).body, { ok: false, reason: 'log' })
+  assert.equal(inner.entries().length, 1, 'the log has the anchor of X')
+  // A rival arrives: X's anchor is appended again first, so X is pending and the rival is refused.
+  assert.deepEqual((await s.submit('membership', signed('membership', Y, 'a'))).body, { ok: false, reason: 'prev' })
+  const anchored = inner.entries().map((t) => envelope.open(t, 'anchor').body.record)
+  assert.deepEqual([...new Set(anchored)], [mId(X)], 'every anchor in the log is X\'s')
+  assert.deepEqual((await s.call('GET', `/v1/identities/${IDENTITY}/records`)).body.anchors, [inner.entries()[0]])
+})
+
+test('the outbox is appended before a head is served and before a tick advances', async () => {
+  const inner = memoryLog()
+  let lose = false
+  const s = setup({ log: { append: async (t) => { await inner.append(t); if (lose) { lose = false; throw new Error('answer lost') } }, entries: inner.entries } })
+  await s.submit('root', rootText('a'))
+  lose = true
+  await s.submit('membership', signed('membership', mBody(2, ['a'], IDENTITY), 'a'))
+  const head = (await s.call('GET', `/v1/identities/${IDENTITY}/head`)).body.head
+  assert.deepEqual(Array.from(envelope.open(head, 'head').body.memberships), [IDENTITY, mId(mBody(2, ['a'], IDENTITY))], 'the head is of the logged anchor')
+  lose = true
+  s.at(BASE + WINDOW)
+  await assert.rejects(s.svc.tick(), /log unavailable/)
+  const settled = await s.svc.tick()
+  assert.deepEqual(settled, [], 'the settlement signed before the failure was appended again, not signed anew')
+  assert.equal((await s.call('GET', `/v1/identities/${IDENTITY}/records`)).body.settlements.length, 1)
 })
 
 test('a store that fails: 503', async () => {

@@ -110,13 +110,15 @@ test('what the core would refuse is refused first, with a reason to show', () =>
     [{ scopes: ['a'.repeat(65)] }, 'scopes must be 1 to 16 lower-case names'],
     [{ subject: 'x' + SUBJECT }, "the worker's key must be an Ed25519 public key, 64 hex digits"],
     [{ scopes: Array.from({ length: 17 }, (_, i) => `s${i}`) }, 'scopes must be 1 to 16 lower-case names'],
-    [{ lifetime: 0 }, 'the lifetime must be 1 second to 30 days'],
-    [{ lifetime: MAX_LIFETIME + 1 }, 'the lifetime must be 1 second to 30 days'],
-    [{ lifetime: 1.5 }, 'the lifetime must be 1 second to 30 days'],
+    [{ lifetime: 0 }, 'the lifetime must be 1 second to 7 days'],
+    [{ lifetime: MAX_LIFETIME + 1 }, 'the lifetime must be 1 second to 7 days'],
+    [{ lifetime: 1.5 }, 'the lifetime must be 1 second to 7 days'],
+    // Found by review: SPEC §8 never grants attest this way.
+    [{ scopes: ['post', 'attest'] }, 'the attest scope is not granted to a worker'],
   ]
   for (const [over, message] of refusals) assert.throws(() => delegation({ ...base, ...over }), { message }, JSON.stringify(over))
   for (const ok of [{ lifetime: 1 }, { lifetime: MAX_LIFETIME }, { scopes: Array.from({ length: 16 }, (_, i) => `s${String(i).padStart(2, '0')}`) }]) {
     assert.doesNotThrow(() => delegation({ ...base, ...ok }), JSON.stringify(ok).slice(0, 40))
   }
-  assert.equal(MAX_LIFETIME, 2_592_000)
+  assert.equal(MAX_LIFETIME, 604_800, 'decision 3: the id page gives machines at most 7 days')
 })

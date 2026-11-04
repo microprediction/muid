@@ -27,6 +27,13 @@ export function forged (type, body, claimed, actual) {
   return envelope.wrap(payload, { root: rootId(claimed), assertion: make({ covers: [id], secret: secretOf(actual) }) })
 }
 
+// A root-signed record whose assertion covers it and the `extra` ids too (W0: one prompt may sign several records).
+export function covering (type, body, letter, extra) {
+  const { payload, id } = envelope.seal(type, body)
+  return envelope.wrap(payload, { root: rootId(letter), assertion: make({ covers: [id, ...extra].sort(), secret: secretOf(letter) }) })
+}
+export const contestId = (record) => envelope.seal('contest', { identity: IDENTITY, record }).id
+
 // Admits each [type, text], asserting every one is accepted; returns the held records.
 export function admitAll (held, items) {
   for (const [type, text] of items) {

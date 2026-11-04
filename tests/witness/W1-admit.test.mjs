@@ -48,6 +48,8 @@ test('a membership signature counts only from a root of the effective membership
   assert.equal(refused(w.admit(h, 'membership', sig('c'))), 'signer', 'one of two previous roots is not a strict majority')
   h = admitAll(h, [['membership', sig('b')]])
   assert.equal(w.admit(h, 'membership', sig('c')).ok, true)
+  // A root neither in the effective membership nor added by the record, after the majority: still a stranger.
+  assert.equal(refused(w.admit(h, 'membership', signed('membership', M3b, 'd'))), 'signer')
 })
 
 test('a membership signature by a stranger, or forged, or for another identity, prev or epoch, is refused', () => {
@@ -151,7 +153,9 @@ test('each list is capped at MAX_RECORDS (256): a new record is refused when its
   const full = Object.freeze({ ...s, memberships: Object.freeze(Array.from({ length: 256 }, (_, i) => `filler ${i}`)) })
   assert.equal(refused(w.admit(full, 'membership', signed('membership', M2, 'a'))), 'full')
   assert.equal(refused(w.admit({ ...s, freezes: full.memberships }, 'freeze', signed('freeze', { identity: IDENTITY, membership: IDENTITY }, 'a'))), 'full')
-  const almost = Object.freeze({ ...s, memberships: Object.freeze(full.memberships.slice(1)) })
+  // Real envelopes (of another identity's record) where admission reads what is held.
+  const other = signed('membership', { ...M2, identity: 'f'.repeat(64) }, 'b')
+  const almost = Object.freeze({ ...s, memberships: Object.freeze(Array.from({ length: 255 }, () => other)) })
   assert.equal(w.admit(almost, 'membership', signed('membership', M2, 'a')).ok, true, 'the 256th is admitted')
   assert.equal(w.admit({ ...full, memberships: [...full.memberships.slice(1), signed('membership', M2, 'a')] }, 'membership',
     signed('membership', M2, 'a')).ok, true, 'a record already held is accepted when its list is full')

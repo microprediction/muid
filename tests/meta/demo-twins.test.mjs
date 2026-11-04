@@ -25,7 +25,9 @@ const TWINS = [
   ['receipt-other-claim', 'the receipt names the delegation, not the claim', [['claim: accepted.id, at: now }', 'claim: accepted.delegation.id, at: now }']], 'forecasts.js'],
   ['kept-before-logged', 'a contribution is listed though its receipt was not logged', [["      r = await adapter.acceptClaim(records, { now, scope: 'forecast', method: 'POST', url: request.url, revoked: [] }, async (accepted) => {\n        const bundle", "      r = await adapter.acceptClaim(records, { now, scope: 'forecast', method: 'POST', url: request.url, revoked: [] }, async (accepted) => {\n        kept.push({ identity: accepted.delegation.body.identity, claim: records.claim, bundle: {} })\n        const bundle"]], 'forecasts.js'],
   ['contributions-everyone', "every identity's contributions are listed", [['kept.filter((k) => k.identity === identity)', 'kept']], 'forecasts.js'],
-  ['body-unbounded', 'a request body of any size is read', [["    if (text.length > MAX_BODY) return json(413, { ok: false, reason: 'too-large' })\n", '']], 'forecasts.js'],
+  ['body-unbounded', 'a request body of any size is read', [["    if (text === undefined) return json(413, { ok: false, reason: 'too-large' })\n", '']], 'forecasts.js'],
+  ['body-read-in-full', 'the body is read in full before its size is checked', [['    n += r.value.length\n    if (n > max) {', '    n += r.value.length\n    if (false) {']], 'forecasts.js'],
+  ['answer-unchecked', 'an answer that is not a list is iterated', [["    if (!Array.isArray(bundles)) return { accepted, refused: [{ index: null, reason: 'bundles' }] }\n", '']], 'history.js'],
   ['identity-unchecked', "another identity's receipt is counted as this one's", [["if (r.ok && r.identity !== identity) refused.push({ index: i, reason: 'identity' })\n      else if (r.ok)", 'if (r.ok)']], 'history.js'],
   ['claim-dropped', 'the claim a bundle carries is not checked against its receipt', [['index: b.index, claim: b.claim }', 'index: b.index }']], 'history.js'],
   ['proof-unchecked', 'a proof that is not hex is read anyway', [["b.proof.every((h) => typeof h === 'string' && /^(?:[0-9a-f]{2})*$/.test(h))", 'true']], 'history.js'],
@@ -79,7 +81,7 @@ test('demo broken twins', { timeout: 1_800_000 }, async (t) => {
       assert.ok(r.pass >= 8, `control: only ${r.pass} tests ran`)
     })
     const jobs = TWINS.map(([name, why, edits, file]) => [name, why, generate(name, edits, file)])
-    assert.equal(jobs.length, 10, 'twin count')
+    assert.equal(jobs.length, 12, 'twin count')
     const results = []
     const queue = [...jobs]
     const workers = Math.max(1, Math.floor(availableParallelism() / 4))

@@ -386,17 +386,21 @@ the network and the transparency log are the service's, and the signing key stay
   (R3: a rival is refused), and be signed by one of its roots, or by a root it adds once a strict majority has
   signed; a contest must contest the pending record, signed by a root of the settled membership (R5); a freeze must
   name the settled or pending membership, signed by one of its roots (R2, decision 11); a root record must be the
-  first root or named by a held membership record. Each signature is verified on admission. A record already held is
-  accepted unchanged; a list at `MAX_RECORDS` refuses new ones (`full`); nothing is admitted to a dead identity.
-- `advance(held, now)` signs what the model's witness does: with nothing pending, it anchors the lowest-id held
-  successor of the settled membership, and keeps an anchor only if `membershipState` with it shows that record
+  first root or named by a held membership record. Each signature is verified on admission. One envelope is held per
+  record and signer (another, an assertion covering other records too, is accepted unchanged), and one proposal per
+  root and `prev`: a root's later proposal replaces its earlier one, so no root can fill a list and block its owner
+  (review round 8). W0 is applied: an assertion that covers both a membership record and its contest is refused. A
+  list at `MAX_RECORDS` refuses new ones (`full`), a backstop the rules above keep out of reach; nothing is admitted
+  to a dead identity.
+- `advance(held, now)` signs what the model's witness does: with nothing pending, it anchors a held successor of
+  the settled membership (at most one has a strict majority, since each root holds one proposal per `prev`), and keeps an anchor only if `membershipState` with it shows that record
   pending, so the witness never applies a second implementation of R1; with a record pending and the window open, it
   anchors a held contest only if verifiers would then see the identity end; once `CONTEST_WINDOW` has passed, it
   settles, as `contested` if a contest is anchored. A settlement can make a held successor anchorable in the same
   step. Its own view leaves out contest anchors, as the model's does.
 - `revoke(held, text, now, delegation)` admits a revocation (R9) signed by a root with authority, or by a delegate
   for its own key, given with the delegation that makes it a delegate of this identity under its settled or pending
-  membership (verified by `checkDelegation` at `now`); otherwise any fresh key could add entries until, past 64, no
+  membership from a root with authority (verified by `checkDelegation` at `now`; R6); otherwise any fresh key could add entries until, past 64, no
   head can be signed. One entry per target. Each entry records the effective membership when it was admitted and is
   kept while that membership, or its successor while pending, has authority (decision 12 (a)); entries no longer
   kept are dropped at the next admission.
@@ -404,13 +408,15 @@ the network and the transparency log are the service's, and the signing key stay
 - A `sign` that does not give a valid signature under the configured key is a fault, thrown, so nothing it signs is
   published.
 **The witness service (`witness/service.js`, not core)** puts these behind a small HTTP API, fetch-style (a
-`Request` in, a `Response` out): `POST /v1/records` (`{ identity, type, text }`; a root, membership, contest or
+`Request` in, a `Response` out). Records the witness signs wait in an outbox until the log has taken them, and the
+outbox is appended again, the same texts, before anything else is done for the identity: a log that took an entry
+but whose answer was lost never leads the witness to sign a rival (review round 8). Endpoints: `POST /v1/records` (`{ identity, type, text }`; a root, membership, contest or
 freeze), `POST /v1/revocations` (`{ identity, text, delegation? }`), `GET /v1/identities/{id}/records` (what R8 needs)
 and `GET /v1/identities/{id}/head` (a head, reused for `headInterval` seconds while nothing changes); `tick()`
 advances every identity, settling once windows pass. Each identity's changes are serialised by its store, and every
 record the witness signs is appended to the log before the holding that contains it is kept, so nothing is served
 that the log did not take; a failing log or store is 503 and nothing is kept. Refusals are 422 with the witness's
-reason; malformed requests are 400, 404, 405 or 413 (bodies past 131,072 characters). The log is Tessera's POSIX
+reason; malformed requests are 400, 404, 405 or 413 (a body is read only up to 131,072 bytes). The log is Tessera's POSIX
 server with a witness policy (`log/cmd/muid-log`: Tessera's own server example, plus the witness-policy option from
 its one-shot example, unchanged otherwise; `log/go.mod` pins Tessera and every module), which publishes a C2SP
 checkpoint only once the witnesses in its policy have cosigned it (tlog-witness), and serves C2SP tiles; the
@@ -491,7 +497,10 @@ is the text of the newest head the relying party has accepted for the identity, 
   (a canonical origin, O1, then a path of RFC 3986 characters, any escape in upper-case hex); `nonce` (optional) a
   nonce the relying party issued, as DPoP's (§8, `1*NQCHAR`); `content_digest` (optional) the body's RFC 9530
   `sha-256`, canonical base64, since DPoP does not cover the body; `at` is the signer's time (DPoP's `iat`); `data`
-  any object. A claim seen in transit therefore cannot be used on another request. `verifyClaim` takes the scope
+  any object. A claim seen in transit therefore cannot be used for another method, origin or path. As in DPoP the
+  query is not bound: a relying party that acts on query parameters takes them in the body and requires
+  `content_digest`. A path that a URL parser leaves with characters outside the grammar (`|`, `[`, `]`, a lower-case
+  escape) cannot be claimed at all, which fails closed. `verifyClaim` takes the scope
   and the request the relying party is serving: `method`, `url` (the URL it received; the query and fragment are
   dropped before comparison), and `nonce` and `contentDigest` when it issues nonces or requires the body's digest.
   It refuses, in order, with: V4's reasons for the claim (`envelope-encoding` too when the records cannot be read);
@@ -611,7 +620,7 @@ rotation and the expiry boundary.
 **The id page (`id/`).** A static page with a strict CSP (scripts from its own origin, plus the import map by its
 hash; no inline handlers), using the core's own modules through an import map. It creates an identity — a resident
 ES256 passkey with user verification; the root record from its public key, kept in this browser — and authorises a
-worker: the user gives the worker's Ed25519 key, the audience, scopes and a lifetime of at most 30 days; the page
+worker: the user gives the worker's Ed25519 key, the audience, scopes (never `attest`) and a lifetime of at most 7 days (decision 3); the page
 shows the fields of the exact payload it will ask the passkey to sign (I4), any edit withdraws it, and a signature
 that returns after an edit is discarded. One assertion (W1 challenge, user verification required, the identity's
 own credential only) signs it, and the page hands the worker the payload and assertion; the worker adds its own

@@ -16,6 +16,8 @@ export function history ({ services, log, skew }) {
   function verify (identity, bundles, now) {
     const accepted = []
     const refused = []
+    // The answer comes from the service: anything but a list is refused as a whole.
+    if (!Array.isArray(bundles)) return { accepted, refused: [{ index: null, reason: 'bundles' }] }
     for (let i = 0; i < bundles.length; i++) {
       const b = bundles[i]
       const proof = Array.isArray(b?.proof) && b.proof.every((h) => typeof h === 'string' && /^(?:[0-9a-f]{2})*$/.test(h)) ? b.proof.map(bytes) : undefined

@@ -5,7 +5,7 @@
 // The log is the transparency log's (Tessera, research/witness-tlog.md); memoryLog stands in for it in tests.
 const ID = /^[0-9a-f]{64}$/
 const IDENTITY_PATH = /^\/v1\/identities\/([0-9a-f]{64})\/(records|head)$/
-const MAX_BODY = 131072 // characters: two envelopes of the largest payload, with room
+const MAX_BODY = 131072 // bytes: two envelopes of the largest payload, with room
 const SUBMITTED = ['root', 'membership', 'contest', 'freeze']
 const LISTS = ['roots', 'memberships', 'contests', 'freezes', 'anchors', 'settlements']
 
@@ -19,6 +19,25 @@ class Unavailable extends Error {
 const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
 const refusal = (status, reason) => json(status, { ok: false, reason })
 const isTime = (x) => Number.isSafeInteger(x) && x >= 0
+
+// The request body as UTF-8 text, read only up to `max` bytes: undefined past them, the rest never read.
+async function bounded (request, max) {
+  const chunks = []
+  let n = 0
+  const reader = request.body.getReader()
+  for (let r = await reader.read(); !r.done; r = await reader.read()) {
+    n += r.value.length
+    if (n > max) {
+      await reader.cancel()
+      return undefined
+    }
+    chunks.push(r.value)
+  }
+  const all = new Uint8Array(n)
+  let at = 0
+  for (const c of chunks) { all.set(c, at); at += c.length }
+  return new TextDecoder().decode(all)
+}
 
 export function witnessService ({ witness, holdings, log, clock, headInterval }) {
   if (typeof witness?.admit !== 'function' || typeof holdings?.update !== 'function' || typeof log?.append !== 'function' ||
@@ -35,29 +54,51 @@ export function witnessService ({ witness, holdings, log, clock, headInterval })
     }
   }
 
-  // A submitted record or revocation: decided, advanced and logged inside the identity's update, then kept.
+  // An entry as the log has it. Records signed but not yet known to be logged wait in the entry's outbox; they are
+  // appended (again, if need be: the same texts) before anything else is done for the identity, so a lost answer
+  // from the log never leads the witness to sign a rival instead.
+  async function settle (entry) {
+    if (entry?.outbox === undefined) return entry
+    await append(entry.outbox.texts)
+    return entry.outbox.entry
+  }
+
+  // Runs `step(entry, now)` on the identity's logged entry, inside its update. A step that signs nothing returns
+  // { value } or { entry, value }, kept at once; one that signs returns { entry, texts, value }: the entry and texts
+  // are kept in the outbox first, then appended, and the value is given only once they are logged.
+  async function commit (identity, step) {
+    const r = await holdings.update(identity, async (entry) => {
+      const e = await settle(entry)
+      const s = step(e, clock())
+      if (s.texts === undefined) return { entry: s.entry ?? e, value: { done: s.value } }
+      return { entry: { ...e, outbox: { entry: s.entry, texts: s.texts } }, value: { staged: s.value } }
+    })
+    if (r.staged === undefined) return r.done
+    await holdings.update(identity, async (entry) => ({ entry: await settle(entry) }))
+    return r.staged
+  }
+
+  // A submitted record or revocation: decided against the logged records, advanced, logged, then kept.
   function change (identity, decide) {
-    return holdings.update(identity, async (entry) => {
-      const now = clock()
+    return commit(identity, (entry, now) => {
       const r = decide(entry?.held ?? witness.empty(identity), now)
       if (!r.ok) return { value: refusal(422, r.reason) }
       const a = witness.advance(r.held, now)
-      const texts = a.signed.map((s) => s.text)
-      await append(texts)
-      return { entry: { held: a.held }, value: json(200, { ok: true, signed: texts }) }
+      const texts = a.signed.map((x) => x.text)
+      const value = json(200, { ok: true, signed: texts })
+      // Stryker disable next-line ConditionalExpression: equivalent; an empty outbox appends nothing
+      return texts.length === 0 ? { entry: { held: a.held }, value } : { entry: { held: a.held }, texts, value }
     })
   }
 
   // The current head, reused while it is younger than headInterval and nothing has changed since it was signed.
   function head (identity) {
-    return holdings.update(identity, async (entry) => {
+    return commit(identity, (entry, now) => {
       if (entry === undefined) return { value: refusal(404, 'unknown-identity') }
-      const now = clock()
       if (entry.head !== undefined && now - entry.head.at < headInterval) return { value: json(200, { head: entry.head.text }) }
       const text = witness.head(entry.held, now)
       if (text === undefined) return { value: refusal(409, 'no-head') }
-      await append([text])
-      return { entry: { held: entry.held, head: { text, at: now } }, value: json(200, { head: text }) }
+      return { entry: { held: entry.held, head: { text, at: now } }, texts: [text], value: json(200, { head: text }) }
     })
   }
 
@@ -71,8 +112,9 @@ export function witnessService ({ witness, holdings, log, clock, headInterval })
   }
 
   async function body (request) {
-    const text = await request.text()
-    if (text.length > MAX_BODY) return { error: refusal(413, 'too-large') }
+    // Stryker disable next-line StringLiteral: equivalent; any text that is not JSON is refused as json below
+    const text = request.body === null ? '' : await bounded(request, MAX_BODY)
+    if (text === undefined) return { error: refusal(413, 'too-large') }
     let b
     try {
       b = JSON.parse(text)
@@ -120,14 +162,11 @@ export function witnessService ({ witness, holdings, log, clock, headInterval })
   async function tick () {
     const out = []
     for (const identity of await holdings.identities()) {
-      await holdings.update(identity, async (entry) => {
-        const a = witness.advance(entry.held, clock())
-        if (a.signed.length === 0) return {}
-        const texts = a.signed.map((s) => s.text)
-        await append(texts)
-        out.push(...texts)
-        return { entry: { held: a.held } }
-      })
+      out.push(...await commit(identity, (entry, now) => {
+        const a = witness.advance(entry.held, now)
+        const texts = a.signed.map((x) => x.text)
+        return texts.length === 0 ? { value: [] } : { entry: { held: a.held }, texts, value: texts }
+      }))
     }
     return out
   }

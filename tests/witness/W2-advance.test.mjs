@@ -43,19 +43,6 @@ test('a successor held while its predecessor was pending is anchored at settleme
   assert.deepEqual(bodies(r).map((b) => b.type + ' ' + (b.record ?? b.outcome)), ['settlement ' + mId(M2), 'anchor ' + mId(M3)])
 })
 
-test('of several valid successors, exactly one is anchored: the lowest record id', () => {
-  const pending = w.advance(withM2(), BASE).held
-  const candidates = [mBody(3, ['a'], mId(M2)), mBody(3, ['b'], mId(M2)), mBody(3, ['a', 'b'], mId(M2))]
-  let h = pending
-  // Held in descending id order, so the first held is not the lowest.
-  candidates.sort((x, y) => (mId(x) < mId(y) ? 1 : -1))
-  for (const c of candidates) h = admitAll(h, [['membership', signed('membership', c, 'a')], ['membership', signed('membership', c, 'b')]])
-  const r = w.advance(h, BASE + WINDOW)
-  const anchored = bodies(r).filter((b) => b.type === 'anchor').map((b) => b.record)
-  assert.deepEqual(anchored, [candidates.map(mId).sort()[0]])
-  assert.equal(state(r.held).pending, true)
-})
-
 test('R5: a contest inside the window is anchored, and the epoch then settles as contested; the identity ends', () => {
   const pending = w.advance(withM2(), BASE).held
   const contest = signed('contest', { identity: IDENTITY, record: mId(M2) }, 'a')

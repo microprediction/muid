@@ -33,6 +33,10 @@ test('refusals: unpinned service, another identity, a broken bundle, a claim tha
   assert.deepEqual(h.verify(IDENTITY, broken, NOW), { accepted: [], refused: [
     { index: 0, reason: 'bundle' }, { index: 1, reason: 'bundle' }, { index: 2, reason: 'bundle' }, { index: 3, reason: 'bundle' }, { index: 4, reason: 'bundle' },
     { index: 5, reason: 'inclusion' }, { index: 6, reason: 'claim' }, { index: 7, reason: 'inclusion' }, { index: 8, reason: 'inclusion' }, { index: 9, reason: 'bundle' }] })
+  // Found by review: an answer that is not a list is refused as a whole, never thrown or iterated as a length.
+  for (const bad of [null, undefined, 'x', { length: 1e9 }, { 0: list[0], length: 1 }]) {
+    assert.deepEqual(h.verify(IDENTITY, bad, NOW), { accepted: [], refused: [{ index: null, reason: 'bundles' }] }, JSON.stringify(bad))
+  }
   // Mixed: what verifies is kept, in order.
   const mixed = h.verify(IDENTITY, [list[1], { ...list[0], proof: 'x' }, list[0]], NOW)
   assert.deepEqual(mixed.accepted.map((a) => a.claim), [list[1], list[0]].map((b) => envelope.open(b.claim, 'claim').id))

@@ -59,7 +59,9 @@ function walk (steps, owner, thief) {
           const r = w.admit(held, type, text)
           if (!r.ok) continue
           held = r.held
-          items = [...items, it]
+          // A root's later proposal for one prev replaces its earlier one (R8's admission): the model loses it too.
+          const replaced = (x) => x.kind === 'M' && it.kind === 'M' && x.signer === it.signer && x.prev === it.prev && (x.n !== it.n || x.roots.join() !== it.roots.join())
+          items = [...items.filter((x) => !replaced(x)), it]
           left = left.filter((x) => x !== it)
           progress = true
         }

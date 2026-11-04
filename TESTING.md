@@ -450,8 +450,7 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   another membership's root, an unnamed root record, a dead identity, a full list (built directly; the cap is
   checked first), and a foreign error. A record already held is accepted without being stored twice.
 - Advancing: an honest change anchored and settled at the window's end, not a second before; an incomplete change
-  not anchored; a successor held while its predecessor was pending anchored in the settling step; of three valid
-  successors, the lowest id; a contest inside the window anchored and settled as contested; one first seen after it
+  not anchored; a successor held while its predecessor was pending anchored in the settling step; a contest inside the window anchored and settled as contested; one first seen after it
   ignored; a minority contest not anchored; heads equal to `headOf`, signed, none where `headOf` gives none.
 - Revocations: by a root with authority (a delegation id and a subject key, carried in the head); refused from a
   root without authority (added, pending), a stranger, a forgery; a delegate's own, only with its delegation —
@@ -461,6 +460,12 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   dead and unknown identities; more than 64 live gives no head; the list capped at 256 live entries, stale ones
   not counted; a foreign error refused.
 - A `sign` under another key is thrown, for anchors and heads.
+- Review round 8 (`W6-review.test.mjs`): 60 envelopes of one record by one root hold one; a stolen root's 40
+  proposals hold one, and the owner's recovery is anchored; an owner's changed proposal replaces its first; one
+  contest and one freeze per signer; W0 (an assertion covering a change and its contest, either way) refused; a
+  self-revocation under a retired root's delegation refused. The service (`S1`): a lost log answer, then a rival —
+  the outbox is appended first and the rival refused, every logged anchor the same; heads and ticks settle the
+  outbox first; a body past the limit is refused without being read in full.
 - The service (`S1-service.test.mjs`): a change submitted record by record, its anchor logged and served, the tick
   settling it at the window's end and not a second before; refusals as 422 with the reason, changing nothing; every
   malformed request with its status and reason, the body limit at and one past it; heads reused within the
@@ -481,11 +486,10 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   refused. With a witness policy naming the omniwitness, every published checkpoint carries its cosignature, which
   the core counts toward a quorum of one, with the witness's clock as the time.
 - Twins (`tests/meta/witness-twins.test.mjs`, 42): each admission rule dropped in turn; the anchor kept unchecked;
-  the highest id anchored; settlement inside the window; contests never anchored, anchored unchecked, or ignored at
+  settlement inside the window; contests never anchored, anchored unchecked, or ignored at
   settlement; the witness's view counting contest anchors; a settlement ending the step; `sign` unchecked; heads
   without revocations; a revocation by a root without authority or by any key without its delegation, or unverified; revocations
-  kept for ever, kept under the settled membership while a change is pending, or duplicated; the first held
-  successor anchored; and in the service, a holding kept before the log took its records, changes to one identity
+  kept for ever, kept under the settled membership while a change is pending, or duplicated; and in the service, a holding kept before the log took its records, changes to one identity
   interleaved, a head kept after a change or for ever, a head unlogged, an unbounded body, and any type submitted; and in the log client, halves for the split, no full-tile fallback, a
   short tile used, unprefixed tile indices, any append answer taken, and the proof's order.
 

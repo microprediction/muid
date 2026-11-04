@@ -49,6 +49,7 @@ test('refusals: the adapter\'s reasons as 403, malformed requests, other paths a
   await is(s.post(worker(40, { scopes: ['read'] }).records({ forecast: 1 })), 403, 'scope')
   await is(s.post(worker(50, { aud: 'https://other.example' }).records({ forecast: 1 })), 403, 'claim-url')
   await is(s.post('{'), 400, 'json')
+  await is(s.get('/forecasts', { method: 'POST' }), 400, 'json') // no body at all
   for (const b of ['null', '1', '[]', '{}']) assert.equal((await s.post(b)).status, 403, b)
   const max = 262_144
   const sized = (n) => JSON.stringify({ claim: 'x'.repeat(n - 12) })
@@ -59,6 +60,21 @@ test('refusals: the adapter\'s reasons as 403, malformed requests, other paths a
   await is(s.get('/contributions', { method: 'POST', body: '' }), 405, 'method')
   await is(s.get('/other'), 404, 'not-found')
   assert.deepEqual(s.log.entries(), [], 'nothing refused is logged')
+})
+
+// Found by review: the body was buffered in full before its size was checked.
+test('a body past the limit is refused without being read in full', async () => {
+  let pulled = 0
+  const chunk = new Uint8Array(16_384).fill(0x78)
+  // 1 MiB, far past the limit: a reader that reads it all is caught by how much it pulled.
+  const body = new ReadableStream({ pull (c) { if (pulled >= 1_048_576) { c.close(); return } pulled += chunk.length; c.enqueue(chunk) } })
+  const res = await setup().f.handle(new Request('https://forecasts.example/forecasts', { method: 'POST', body, duplex: 'half' }))
+  assert.equal(res.status, 413)
+  assert.ok(pulled < 262_144 + 4 * chunk.length, `read ${pulled} bytes`)
+  // Several chunks below the limit are joined in order.
+  const parts = ['{"cla', 'im":"x","dele', 'gation":"x"}']
+  const small = new ReadableStream({ start (c) { for (const p of parts) c.enqueue(new TextEncoder().encode(p)); c.close() } })
+  assert.equal((await setup().f.handle(new Request('https://forecasts.example/forecasts', { method: 'POST', body: small, duplex: 'half' }))).status, 403)
 })
 
 test('a failing log is 503, and nothing is kept; the claim stays consumed', async () => {

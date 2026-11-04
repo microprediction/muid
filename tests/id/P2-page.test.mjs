@@ -188,7 +188,11 @@ test('an edit while the passkey is signing withdraws the delegation: the late si
 })
 
 test("with another passkey for this site on the device, the identity's own signs", { timeout: 120_000 }, async () => {
-  const t = await open()
+  // The options the page asks with are recorded: which credential signs when none is named is the browser's choice.
+  const t = await open({ init: () => {
+    const get = navigator.credentials.get.bind(navigator.credentials)
+    navigator.credentials.get = (o) => { globalThis.asked = o.publicKey.allowCredentials.map((c) => [c.type, btoa(String.fromCharCode(...new Uint8Array(c.id)))]); return get(o) }
+  } })
   try {
     // Other passkeys for this site, held before and after the identity's own.
     const add = (n) => t.cdp.send('WebAuthn.addCredential', { authenticatorId: t.authenticatorId, credential: { credentialId: Buffer.from(`other passkey ${n}`).toString('base64'),
@@ -202,6 +206,8 @@ test("with another passkey for this site on the device, the identity's own signs
     await t.page.click('#sign')
     await t.page.waitForSelector('#handoff:not([hidden])')
     const h = JSON.parse(await t.page.inputValue('#handoff'))
+    const own = JSON.parse(await t.page.evaluate(() => localStorage.getItem('muid.root'))).credential
+    assert.deepEqual(await t.page.evaluate(() => globalThis.asked), [['public-key', Buffer.from(own, 'base64url').toString('base64')]])
     const key = rootModule.checkRoot(r.text, { rpId: 'localhost' }).key
     const id = h.root.covers[0]
     assert.deepEqual({ ...assertionModule.checkRootAssertion(h.root, { record: id, rpId: 'localhost', origin: t.site.origin, key }) }, { ok: true })

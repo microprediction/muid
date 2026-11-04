@@ -8,7 +8,26 @@ import { verifyCheckpoint } from '../src/note.js'
 
 const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
 const hex = (b) => Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('')
-const MAX_BODY = 262144 // characters: four records of the largest payload, with room
+const MAX_BODY = 262144 // bytes: four records of the largest payload, with room
+
+// The request body as UTF-8 text, read only up to `max` bytes: undefined past them, the rest never read.
+async function bounded (request, max) {
+  const chunks = []
+  let n = 0
+  const reader = request.body.getReader()
+  for (let r = await reader.read(); !r.done; r = await reader.read()) {
+    n += r.value.length
+    if (n > max) {
+      await reader.cancel()
+      return undefined
+    }
+    chunks.push(r.value)
+  }
+  const all = new Uint8Array(n)
+  let at = 0
+  for (const c of chunks) { all.set(c, at); at += c.length }
+  return new TextDecoder().decode(all)
+}
 
 export function forecasts ({ origin, adapter, log, checkpoints, key, sign, clock, wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) }) {
   // Stryker disable next-line ArrayDeclaration: equivalent; a stray element has no identity, so is never listed
@@ -39,8 +58,9 @@ export function forecasts ({ origin, adapter, log, checkpoints, key, sign, clock
   }
 
   async function submit (request) {
-    const text = await request.text()
-    if (text.length > MAX_BODY) return json(413, { ok: false, reason: 'too-large' })
+    // Stryker disable next-line StringLiteral: equivalent; any text that is not JSON is refused as json below
+    const text = request.body === null ? '' : await bounded(request, MAX_BODY)
+    if (text === undefined) return json(413, { ok: false, reason: 'too-large' })
     let b
     try {
       b = JSON.parse(text)

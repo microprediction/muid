@@ -20,6 +20,7 @@ const TWINS = [
   ['any-algorithm', 'a passkey of another algorithm becomes a root', [["  if (alg !== -7) throw new Error('the passkey must use ES256 (P-256)')\n", '']], 'records.js'],
   ['scopes-unsorted', 'scopes are signed in the order typed', [['const list = [...new Set(scopes)].sort()', 'const list = [...new Set(scopes)]']], 'records.js'],
   ['lifetime-unbounded', 'a delegation may outlive 30 days', [['lifetime > MAX_LIFETIME', 'lifetime > 10 * MAX_LIFETIME']], 'records.js'],
+  ['attest-granted', 'a worker may be granted attest', [["  if (list.includes('attest')) throw new Error('the attest scope is not granted to a worker') // SPEC §8\n", '']], 'records.js'],
   ['audience-unchecked', 'any audience text is signed', [["  if (!isCanonicalOrigin(aud)) throw new Error('the audience must be an origin, such as https://app.example')\n", '']], 'records.js'],
   ['edit-keeps-review', 'an edit leaves the reviewed delegation signable', [["for (const id of ['subject', 'aud', 'scopes', 'days']) $(id).addEventListener('input', withdraw)", '']], 'page.js'],
   ['late-signature-kept', 'a signature that returns after an edit is handed over', [['    if (pending !== d) return // withdrawn while the passkey was asked\n', '']], 'page.js'],
@@ -73,7 +74,7 @@ test('id page broken twins', { timeout: 1_800_000 }, async (t) => {
       assert.ok(r.pass >= 14, `control: only ${r.pass} tests ran`)
     })
     const jobs = TWINS.map(([name, why, edits, file]) => [name, why, generate(name, edits, file)])
-    assert.equal(jobs.length, 12, 'twin count')
+    assert.equal(jobs.length, 13, 'twin count')
     const results = []
     const queue = [...jobs]
     const workers = Math.max(1, Math.floor(availableParallelism() / 4))

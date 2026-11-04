@@ -102,6 +102,8 @@ export function witness (config) {
     const s = against(held, b)
     if (!s.ok) return s
     const signer = r.sig.root
+    // One envelope per record and signer: another (an assertion covering other records too) adds nothing.
+    if (held[list].some((t) => { const x = open(t, type); return x.id === r.id && x.sig.root === signer })) return accept({ held })
     let roots
     if (type === 'membership') {
       if (b.prev !== s.membership) return refuse('prev')
@@ -120,8 +122,17 @@ export function witness (config) {
     const k = rootKeys(held).get(signer)
     if (k === undefined) return refuse('root-missing')
     if (!checkRootAssertion(r.sig.assertion, { record: r.id, rpId, origin, key: k }).ok) return refuse('signature')
-    return accept({ held: add(held, list, text) })
+    // W0: one prompt cannot both propose a change and end the identity by contesting it.
+    const covers = r.sig.assertion.covers
+    if (has(covers, type === 'contest' ? b.record : contestOf(held.identity, r.id))) return refuse('covers')
+    if (type !== 'membership') return accept({ held: add(held, list, text) })
+    // One proposal per root and prev: a root's later proposal replaces its earlier one, so no root can fill the list.
+    const others = held.memberships.filter((t) => { const x = open(t, 'membership'); return x.sig.root !== signer || x.body.prev !== b.prev })
+    return accept({ held: freeze({ ...held, memberships: freeze([...others, text]) }) })
   }
+
+  // The id of the contest of membership record `record`: the same for every signer.
+  const contestOf = (identity, record) => seal('contest', { identity, record }).id
 
   // The state a submitted record is admitted against; a refusal for another identity's record, or an unknown or
   // dead identity.
@@ -169,10 +180,11 @@ export function witness (config) {
       // A dead or unknown identity has no settled membership and nothing pending: nothing is signed for it.
       const s = stateOf(own)
       if (!s.pending) {
-        // R3: the lowest id among held successors of the settled membership that verifiers would see pending.
+        // R3: a held successor of the settled membership that verifiers would see pending. At most one has a strict
+        // majority, since each root holds one proposal per prev, so the order they are tried in does not matter.
         const ids = [...new Set(held.memberships.map((t) => open(t, 'membership'))
           // Stryker disable next-line ConditionalExpression,MethodExpression: equivalent; the check below refuses a record of another prev, and this bounds the work
-          .filter((m) => m.body.prev === s.settled).map((m) => m.id))].sort()
+          .filter((m) => m.body.prev === s.settled).map((m) => m.id))]
         let found
         for (const x of ids) {
           const text = make('anchor', { identity: held.identity, record: x, at: now })
@@ -257,8 +269,9 @@ export function witness (config) {
     } catch {
       return false
     }
-    const rootKey = rootKeys(held).get(d.root)
-    return rootKey !== undefined && d.identity === held.identity && (d.membership === s.settled || d.membership === s.membership) &&
+    const rootKey = rootKeys(held).get(d.root) // held: a root with authority is in a held membership
+    // R6: its root has authority now, so no retired or proposed root can add entries.
+    return has(s.authority, d.root) && d.identity === held.identity && (d.membership === s.settled || d.membership === s.membership) &&
       d.subject === subject && checkDelegation(delegation, { rootKey, rpId, origin, now, skew, maxLifetime }).ok
   }
 
