@@ -568,9 +568,10 @@ test fails the build on any direct `indexedDB` or `localStorage` use outside the
    than trusted; that record and the witness protocol are specified with the witness. Anchors and settlements stay
    checked at their own `at`: a leaked retired witness key could sign backdated ones, and the append-only log is
    what shows them (residual).
-9. **Long histories:** R8 replays from the first root, and `MAX_RECORDS` bounds each list, so an identity can make
-   about 85 settled changes over its life. A checkpoint (a witness-signed settled membership from which R8 starts)
-   would lift the bound at the cost of trusting the witness for history before it.
+9. **Long histories — decided: the bound stands for v1.** R8 replays from the first root, and `MAX_RECORDS` bounds
+   each list, so an identity can make about 85 settled changes over its life; one that reaches the bound starts a new
+   identity. A checkpoint (a witness-signed settled membership from which R8 starts) would lift the bound at the cost
+   of trusting the witness for history before it; it is left to a later version.
 10. **Witness equivocation — decided: the relying party's memory.** A verifier that remembers nothing cannot tell
    that the witness signed different heads for different relying parties
    ([`witness.md`](research/witness.md)). The head carries its settled epoch, and the call may pass the last head
