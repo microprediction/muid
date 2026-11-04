@@ -1,0 +1,56 @@
+# Semgrep rules for the trusted core (SPEC §12), run over src/ in CI. Each rule has cases in core.js beside it,
+# checked by `semgrep --test .semgrep/`, so a rule that stops firing fails the build.
+rules:
+  - id: verify-without-options
+    message: Call noble's verify with explicit options (zip215 false for Ed25519; DER, lowS and prehash for P-256).
+    severity: ERROR
+    languages: [javascript]
+    pattern-either:
+      - pattern: $LIB.verify($SIG, $MSG, $KEY)
+      - pattern: libraryVerify($SIG, $MSG, $KEY)
+
+  - id: verify-result-not-strict
+    message: Accept a signature only when verify returns exactly true.
+    severity: ERROR
+    languages: [javascript]
+    pattern-either:
+      - pattern: if (libraryVerify(...)) $BODY
+      - pattern: if ($LIB.verify(...)) $BODY
+      - pattern: if (!libraryVerify(...)) $BODY
+      - pattern: if (!$LIB.verify(...)) $BODY
+      - pattern: libraryVerify(...) == true
+      - pattern: libraryVerify(...) && $X
+      - pattern: $LIB.verify(...) && $X
+
+  - id: zip215-enabled
+    message: Ed25519 verification decodes points strictly (zip215 false, SPEC §2 K1).
+    severity: ERROR
+    languages: [javascript]
+    pattern: "{..., zip215: true, ...}"
+
+  - id: json-parse-outside-decoder
+    message: Only the decoder (src/encode.js) parses JSON, and it checks the text is canonical (E2).
+    severity: ERROR
+    languages: [javascript]
+    paths:
+      exclude: ["encode.js"]
+    pattern: JSON.parse
+
+  - id: loose-equality
+    message: Use === and !== in the core.
+    severity: ERROR
+    languages: [javascript]
+    pattern-either:
+      - pattern: $A == $B
+      - pattern: $A != $B
+
+  - id: node-only-global
+    message: The core runs in browsers; Node-only globals are not available there.
+    severity: ERROR
+    languages: [javascript]
+    pattern-either:
+      - pattern: Buffer
+      - pattern: process
+      - pattern: require(...)
+      - pattern: __dirname
+      - pattern: __filename

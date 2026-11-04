@@ -1,0 +1,8 @@
+# Findings reviewed and accepted, by fingerprint (commit:file:rule:line).
+# A public RFC 8032 test key.
+0335745291a7826fc66710f4bf0e2766d1392136:tests/ed25519/K2-total.test.mjs:generic-api-key:10
+# Inputs to the old memorable-id tests, not credentials.
+d45384c2a2576afeaa469efd155d429721ad38c0:tests/test_validation.py:generic-api-key:9
+85b2455bb47844df993e2fd37444b320f5c95033:tests/test_init.py:generic-api-key:4
+# A key for a service that has since shut down, in code removed long ago.
+eb174ebf9e0b697675ae5029f45c6236497450de:muid/mining.py:generic-api-key:14
