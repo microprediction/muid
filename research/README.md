@@ -11,6 +11,7 @@ Background research behind the draft spec in [`../SPEC.md`](../SPEC.md). Sources
 | [delegation.md](delegation.md) | UCAN, ZCAP, Biscuit, did:plc, KERI, NIP-26, RFC 8693, X.509: scope, audience, depth, time, revocation |
 | [oidc-witness.md](oidc-witness.md) | Binding provider accounts to keys (Fulcio, DPoP, PKCE, nonce), GitHub/Google/ORCID identifiers, device flow |
 | [witness.md](witness.md) | Witness equivocation and backdating in CT, checksum databases, KERI, key transparency, did:plc; revocation lag; several witnesses |
+| [witness-tlog.md](witness-tlog.md) | Proposal: the witness as a C2SP transparency log, with checkpoints, inclusion and consistency proofs and cosigners |
 | [assurance.md](assurance.md) | Mutation testing, property testing, fuzzing, linters, known-answer vectors, supply chain, anti-vacuity |
 
 ## Structure of each topic file
