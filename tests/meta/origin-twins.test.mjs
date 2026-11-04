@@ -20,7 +20,8 @@ const TWINS = [
   ['port-443', 'the default port is accepted', [[" || m[2] === '443')", ')']]],
   ['trailing-slash', 'a trailing slash is accepted', [['(?::([1-9][0-9]{0,4}))?$/', '(?::([1-9][0-9]{0,4}))?\\/?$/']]],
   ['idn-allowed', 'xn-- labels are accepted', [["  return apply(exec, LABEL, [label]) !== null && !(label[2] === '-' && label[3] === '-')", '  return apply(exec, LABEL, [label]) !== null']]],
-  ['ipv4-allowed', 'an all-digit last label (an IPv4 address) is accepted', [['  return apply(exec, DIGITS, [labels[labels.length - 1]]) === null', '  return true']]],
+  ['ipv4-allowed', 'an all-digit last label (an IPv4 address) is accepted', [['  return apply(exec, NUMERIC, [labels[labels.length - 1]]) === null', '  return true']]],
+  ['hex-ipv4-allowed', 'a last label of 0x and hex digits (an IPv4 number) is accepted', [['|0x[0-9a-f]*)$/', ')$/']]],
   ['no-length-limits', 'labels and hosts of any length are accepted', [['([a-z0-9.-]{1,253})', '([a-z0-9.-]+)'], ['[a-z0-9-]{0,61}', '[a-z0-9-]*']]],
 ]
 
@@ -65,7 +66,7 @@ test('origin broken twins', { timeout: 600_000 }, async (t) => {
     })
 
     const jobs = TWINS.map(([name, why, edits]) => [name, why, generate(name, edits)])
-    assert.equal(jobs.length, 6, 'twin count')
+    assert.equal(jobs.length, 7, 'twin count')
     const results = []
     const queue = [...jobs]
     const workers = Math.max(1, Math.floor(availableParallelism() / 4))

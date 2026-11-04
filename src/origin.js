@@ -6,7 +6,9 @@ const { split } = String.prototype
 // https://host[:port], with the port 1–65535, no leading zero, checked numerically below.
 const SHAPE = /^https:\/\/([a-z0-9.-]{1,253})(?::([1-9][0-9]{0,4}))?$/
 const LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/
-const DIGITS = /^[0-9]+$/
+// The URL Standard's numeric last label (its "ends in a number" check): digits, or 0x and hex digits, possibly none.
+// A host ending in one is parsed as IPv4, or is invalid, so it is never a DNS name.
+const NUMERIC = /^(?:[0-9]+|0x[0-9a-f]*)$/
 
 function labelOk (label) {
   // No "??--" label: that form is reserved for IDNA (xn--), which this version refuses.
@@ -21,5 +23,5 @@ export function isCanonicalOrigin (x) {
   const labels = apply(split, m[1], ['.'])
   if (labels.length < 2) return false // at most 127 follows from the 253-character limit
   for (let i = 0; i < labels.length; i++) if (!labelOk(labels[i])) return false
-  return apply(exec, DIGITS, [labels[labels.length - 1]]) === null
+  return apply(exec, NUMERIC, [labels[labels.length - 1]]) === null
 }

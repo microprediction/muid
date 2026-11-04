@@ -235,8 +235,9 @@ Its envelope's `sig` is `{ root, subject }`: `root` the passkey assertion (W0–
   page (§8). There is no audience form other than an origin.
 - **O1 CANONICAL ORIGIN:** `isCanonicalOrigin(x)` holds exactly for strings `https://<host>` or
   `https://<host>:<port>` where `<host>` is 2–127 dot-separated labels, each 1–63 characters of `[a-z0-9-]` not
-  starting or ending with `-` and without `--` in positions 3–4 (so no IDN `xn--` label), the last label not all
-  digits (so no IPv4 address), at most 253 characters; and `<port>` is 1–65535 in decimal without leading zeros, and
+  starting or ending with `-` and without `--` in positions 3–4 (so no IDN `xn--` label), the last label not a
+  number as the URL Standard's "ends in a number" check defines it — all digits, or `0x` followed by hex digits,
+  possibly none — so no IPv4 address in any notation, at most 253 characters; and `<port>` is 1–65535 in decimal without leading zeros, and
   not 443. No trailing dot, slash, path, query, fragment or userinfo. Internationalised names are refused in this
   version: validating them needs IDNA rules on which URL parsers in different browsers disagree.
 
