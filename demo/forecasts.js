@@ -1,8 +1,13 @@
 // Forecasts, the demo's service that accepts contributions (research/witness-api-and-demo.md). A worker POSTs a
 // claim (C1: a DPoP proof for this request, its forecast in `data`) with its delegation, the delegation's root
 // record and a fresh head. The relying-party adapter verifies the claim and consumes it once; only then is the
-// forecast kept, and the service signs a receipt (C2), appends it to the transparency log, and keeps it with the
-// cosigned checkpoint and inclusion proof from when it was logged, as a Sigstore bundle keeps its own.
+// forecast kept, with a receipt (C2) the service signs at once. The receipt is then appended to the transparency log
+// and kept with the cosigned checkpoint and inclusion proof from when it was logged, as a Sigstore bundle keeps its
+// own; a contribution whose receipt is not yet published stays kept, and `publish` retries it (an outbox).
+//
+// Reward policy, as forecasting tournaments score: the operator asks each question with a closing time; each identity
+// holds one standing forecast per question, its latest before the question closes, whichever of its agents made it;
+// a question resolves once, and only standing forecasts earn. More agents, or more claims, earn nothing more.
 import { seal, wrap, signedBytes } from '../src/envelope.js'
 import { verifyCheckpoint } from '../src/note.js'
 
@@ -41,8 +46,9 @@ async function bounded (request, max) {
 
 export function forecasts ({ origin, adapter, log, checkpoints, key, sign, clock, wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) }) {
   // Stryker disable next-line ArrayDeclaration: equivalent; a stray element has no identity, so is never listed
-  const kept = [] // { identity, agent, delegation, claim, question, forecast, credits, bundle }
+  const kept = [] // { identity, agent, delegation, claim, question, forecast, receipt, index, bundle, credits }
   const collected = new Map() // identity -> credits collected
+  const questions = new Map() // question -> { closes, outcome }
 
   // A checkpoint whose tree holds entry `index`, verified under the log's configuration: polled until one is
   // published (the log publishes once its witnesses have cosigned).
@@ -58,14 +64,29 @@ export function forecasts ({ origin, adapter, log, checkpoints, key, sign, clock
     throw new Error('no cosigned checkpoint holds the receipt')
   }
 
-  async function receipt (accepted, now) {
+  function receipt (accepted, now) {
     const body = { service: origin, identity: accepted.delegation.body.identity, delegation: accepted.delegation.id, claim: accepted.id, at: now }
     const { payload } = seal('receipt', body)
-    const text = wrap(payload, { signature: sign(signedBytes(payload)), service: key })
-    const index = await log.append(text)
-    const c = await covering(index)
-    const proof = (await log.inclusionProof(index, c.size)).map(hex)
-    return { receipt: text, checkpoint: c.text, proof, index }
+    return wrap(payload, { signature: sign(signedBytes(payload)), service: key })
+  }
+
+  // Publishes a kept contribution's receipt: appended once (its index kept as soon as the log gives it), then bundled
+  // with a covering checkpoint and proof. True once bundled; false if the log failed, to be retried.
+  async function published (k) {
+    try {
+      if (k.index === undefined) k.index = await log.append(k.receipt)
+      const c = await covering(k.index)
+      const proof = (await log.inclusionProof(k.index, c.size)).map(hex)
+      k.bundle = { receipt: k.receipt, checkpoint: c.text, proof, index: k.index }
+    } catch { /* the log failed: `publish` retries from what is kept */ }
+    return k.bundle !== undefined
+  }
+
+  // The outbox: retries every contribution whose receipt is not yet bundled. Returns how many it bundled.
+  async function publish () {
+    let n = 0
+    for (const k of kept) if (k.bundle === undefined && await published(k)) n++
+    return n
   }
 
   // The four records a request carries, read from its JSON body; or the response refusing it.
@@ -90,22 +111,28 @@ export function forecasts ({ origin, adapter, log, checkpoints, key, sign, clock
     try {
       r = await adapter.acceptClaim(records, { now: clock(), scope, method: 'POST', url: request.url, revoked: [] }, (accepted) => action(accepted, records))
     } catch {
-      // The log, or the adapter's store, failed. The claim may be consumed: the delegate makes a new one.
+      // The action failed before anything was kept (the service could not sign its receipt). The claim may be
+      // consumed: the delegate makes a new one.
       return json(503, { ok: false, reason: 'unavailable' })
     }
     if (!r.ok) return json(403, { ok: false, reason: r.reason })
-    return r.value.refused === undefined ? json(200, { ok: true, ...r.value }) : json(422, { ok: false, reason: r.value.refused })
+    if (r.value.refused !== undefined) return json(422, { ok: false, reason: r.value.refused })
+    return json(r.value.pending ? 202 : 200, { ok: true, ...r.value })
   }
 
-  // A contribution: a forecast, kept for the identity of the delegation it was made under (the beneficiary, bound
-  // now) and the agent that made it, with its receipt. A claim whose data is not a forecast is spent, and refused.
+  // A contribution: a forecast for an open question, kept for the identity of the delegation it was made under (the
+  // beneficiary, bound now) and the agent that made it, with its signed receipt, before the receipt is published. A
+  // claim whose data is not a forecast, or is for a question not open, is spent, and refused.
   const submit = (request) => claimed(request, 'forecast', async (accepted, records) => {
     const f = forecastOf(accepted.body.data)
     if (f === undefined) return { refused: 'forecast' }
-    const bundle = await receipt(accepted, clock())
-    kept.push({ identity: accepted.delegation.body.identity, agent: accepted.delegation.body.subject, delegation: accepted.delegation.id,
-      claim: records.claim, ...f, credits: undefined, bundle })
-    return { bundle }
+    const now = clock()
+    const q = questions.get(f.question)
+    if (q === undefined || q.outcome !== undefined || now >= q.closes) return { refused: 'question' }
+    const k = { identity: accepted.delegation.body.identity, agent: accepted.delegation.body.subject, delegation: accepted.delegation.id,
+      claim: records.claim, ...f, receipt: receipt(accepted, now), index: undefined, bundle: undefined, credits: undefined }
+    kept.push(k)
+    return (await published(k)) ? { bundle: k.bundle } : { pending: true, receipt: k.receipt }
   })
 
   // Collection: by a live delegation of the identity holding the collect scope (not an agent's, unless granted it).
@@ -131,23 +158,39 @@ export function forecasts ({ origin, adapter, log, checkpoints, key, sign, clock
     return { identity, earned, collected: took, balance: earned - took, agents }
   }
 
-  // The operator resolves a question: each forecast of it not yet scored earns its Brier score, in basis points
-  // (10,000 - (f - 10,000 o)^2 / 10,000, rounded down). Returns how many were scored.
-  function resolve (question, outcome) {
-    if (typeof question !== 'string' || (outcome !== 0 && outcome !== 1)) throw new TypeError('a question and an outcome of 0 or 1')
-    let n = 0
-    for (const k of kept) {
-      if (k.question !== question || k.credits !== undefined) continue
-      const d = k.forecast - 10_000 * outcome
-      k.credits = 10_000 - Math.floor(d * d / 10_000)
-      n++
-    }
-    return n
+  // The operator asks a question, open to forecasts until `closes` (the service's time).
+  function ask (question, closes) {
+    if (typeof question !== 'string' || !QUESTION.test(question) || !Number.isSafeInteger(closes) || closes < 0) throw new TypeError('a question and a closing time')
+    if (questions.has(question)) throw new Error('already asked')
+    questions.set(question, { closes, outcome: undefined })
   }
 
-  // An identity's contributions, each with its receipt bundle and the claim it names.
+  // The operator resolves a question, once: each identity's standing forecast, its last kept, earns its Brier score in
+  // basis points (10,000 - (f - 10,000 o)^2 / 10,000, rounded down). Returns how many were scored: none when the same
+  // outcome is given again; another outcome is an error.
+  function resolve (question, outcome) {
+    if (typeof question !== 'string' || (outcome !== 0 && outcome !== 1)) throw new TypeError('a question and an outcome of 0 or 1')
+    const q = questions.get(question)
+    if (q === undefined) throw new Error('not asked')
+    if (q.outcome !== undefined) {
+      if (q.outcome !== outcome) throw new Error('already resolved with the other outcome')
+      return 0
+    }
+    q.outcome = outcome
+    const standing = new Map() // identity -> its last forecast of the question
+    for (const k of kept) if (k.question === question) standing.set(k.identity, k)
+    for (const k of standing.values()) {
+      const d = k.forecast - 10_000 * outcome
+      k.credits = 10_000 - Math.floor(d * d / 10_000)
+    }
+    return standing.size
+  }
+
+  // An identity's contributions, each with its receipt bundle and the claim it names; one not yet published, with its
+  // receipt alone, marked pending.
   function contributions (identity) {
-    return json(200, kept.filter((k) => k.identity === identity).map((k) => ({ ...k.bundle, claim: k.claim })))
+    return json(200, kept.filter((k) => k.identity === identity)
+      .map((k) => (k.bundle === undefined ? { receipt: k.receipt, claim: k.claim, pending: true } : { ...k.bundle, claim: k.claim })))
   }
 
   async function handle (request) {
@@ -166,5 +209,5 @@ export function forecasts ({ origin, adapter, log, checkpoints, key, sign, clock
     return json(404, { ok: false, reason: 'not-found' })
   }
 
-  return Object.freeze({ handle, resolve })
+  return Object.freeze({ handle, ask, resolve, publish })
 }

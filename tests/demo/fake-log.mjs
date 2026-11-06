@@ -20,18 +20,20 @@ export const COSIGNER = keyPair('witness.test/demo', 4, 5)
 export const CONFIG = Object.freeze({ origin: ORIGIN, log: LOG.vkey, cosigners: [COSIGNER.vkey], quorum: 1 })
 
 // { append, checkpoint, inclusionProof, entries, published }: `cosignTime()` gives each checkpoint's cosignature
-// time; `publish` false holds checkpoints back at their last size, as a log waiting on its witnesses.
+// time; `publish` false holds checkpoints back at their last size, as a log waiting on its witnesses; `failAppend`
+// makes appends fail, before (or with `lostAnswer`, after) the entry is taken; `failProof` makes proofs fail.
 export function fakeLog ({ cosignTime, failAppend = false } = {}) {
   const entries = []
   let published = 0
-  const state = { publish: true }
+  const state = { publish: true, failAppend, lostAnswer: false, failProof: false }
   return {
     state,
     entries: () => [...entries],
     async append (text) {
-      if (failAppend) throw new Error('log down')
+      if (state.failAppend && !state.lostAnswer) throw new Error('log down')
       entries.push(text)
       if (state.publish) published = entries.length
+      if (state.failAppend) throw new Error('answer lost')
       return entries.length - 1
     },
     async checkpoint () {
@@ -40,6 +42,7 @@ export function fakeLog ({ cosignTime, failAppend = false } = {}) {
       return text + '\n' + logLine(LOG, text) + cosignLine(COSIGNER, text, cosignTime())
     },
     async inclusionProof (index, size) {
+      if (state.failProof) throw new Error('tiles unavailable')
       return path(index, entries.slice(0, size).map((t) => LEAF(Buffer.from(t, 'utf8'))))
     },
   }

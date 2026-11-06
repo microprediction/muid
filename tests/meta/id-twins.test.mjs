@@ -31,12 +31,15 @@ const TWINS = [
   ['add-edit-keeps-review', 'an edit of the new root leaves the change signable', [["for (const id of ['subject', 'aud', 'scopes', 'days', 'new-root', 'cosign-payload'])", "for (const id of ['subject', 'aud', 'scopes', 'days', 'cosign-payload'])"]], 'page.js'],
   ['authority-unchecked', 'a passkey without authority yet signs delegations', [["    if (!s.authority.includes(root.id)) throw new Error('this passkey has no authority yet: wait for the change to settle')\n", '']], 'page.js'],
   ['membership-of-epoch-1', 'delegations name the first membership whatever the current one', [['membership: s.membership, root: root.id', 'membership: root.identity, root: root.id']], 'page.js'],
-  ['root-unregistered', 'a new identity is not registered with the witness', [["      await submit(r.identity, 'root', r.text)\n", '']], 'page.js'],
+  ['root-unregistered', 'a new identity is not registered with the witness', [["    await submit(root.identity, 'root', root.text)\n", '']], 'page.js'],
   ['added-root-unsubmitted', "the added root's record is not given to the witness", [["    await submit(root.identity, 'root', c.rootText)\n", '']], 'page.js'],
   ['change-while-pending', 'a change is proposed while another is pending', [["  if (state.pending) throw new Error('a change is already pending: wait for it to settle')\n", '']], 'records.js'],
   ['roots-unsorted', "the change's roots are not sorted", [['roots: [...state.roots, r.id].sort() }', 'roots: [...state.roots, r.id] }']], 'records.js'],
   ['inline-script-allowed', "the CSP allows any inline script", [["script-src 'self' 'sha256-", "script-src 'self' 'unsafe-inline' 'sha256-"]], 'index.html'],
   ['hidden-shown', 'hidden parts of the page are displayed', [['[hidden] { display: none !important; }\n', '']], 'page.css'],
+  ['pending-forgotten', 'a root is kept as registered before the witness has it', [['joining, registered: false }', 'joining, registered: true }']], 'page.js'],
+  ['no-retry-on-load', 'a pending registration is not retried when the page loads', [['if (unregistered()) register()\n', '\n']], 'page.js'],
+  ['registered-not-saved', 'a registration that succeeded is not saved, so it is sent again', [['    root = { ...root, registered: true }\n    save()\n', '    root = { ...root, registered: true }\n']], 'page.js'],
 ]
 
 function run (dir) {
@@ -44,9 +47,12 @@ function run (dir) {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, ['--test', '--test-reporter=tap', ...SUITE], { env: { ...env, MUID_ID_DIR: dir }, stdio: ['ignore', 'pipe', 'pipe'] })
     let out = ''
+    // A suite that never ends is reported as one that did not run normally, rather than holding up every other twin.
+    const stop = setTimeout(() => child.kill('SIGKILL'), 900_000)
     child.stdout.on('data', (d) => { out += d })
     child.stderr.on('data', (d) => { out += d })
     child.on('close', (code) => {
+      clearTimeout(stop)
       const count = (k) => Number((out.match(new RegExp(`^# ${k} (\\d+)`, 'm')) ?? [])[1] ?? NaN)
       resolve({ code, pass: count('pass'), fail: count('fail') })
     })
@@ -82,7 +88,7 @@ test('id page broken twins', { timeout: 1_800_000 }, async (t) => {
       assert.ok(r.pass >= 14, `control: only ${r.pass} tests ran`)
     })
     const jobs = TWINS.map(([name, why, edits, file]) => [name, why, generate(name, edits, file)])
-    assert.equal(jobs.length, 21, 'twin count')
+    assert.equal(jobs.length, 24, 'twin count')
     const results = []
     const queue = [...jobs]
     const workers = Math.max(1, Math.floor(availableParallelism() / 4))

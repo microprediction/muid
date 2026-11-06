@@ -1,7 +1,7 @@
 // The id page in Chrome, with a virtual authenticator (Chrome DevTools Protocol, WebAuthn domain): an identity is
 // created, a worker authorised by one assertion, and what the page hands the worker, once the worker consents,
 // verifies under the core — through the witness's head and the relying party's verifier.
-import { test } from 'node:test'
+import { test, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { ed25519 } from '@noble/curves/ed25519.js'
 import { chromium } from 'playwright-core'
@@ -18,6 +18,11 @@ const WITNESS = hex(ed25519.getPublicKey(W))
 
 // A site serving the page and a witness service (in memory, its contest window a minute, its clock movable), and a
 // browser with one device; `device()` adds another, with its own profile and authenticator.
+// A test that fails or times out does not reach its own close: what it opened is closed when the file ends, so the
+// process exits and the failure is reported.
+const opened = new Set()
+after(async () => { for (const end of opened) await end() })
+
 async function open ({ init } = {}) {
   const holder = {}
   const keys = [{ key: WITNESS, nbf: 0, exp: 4_000_000_000 }]
@@ -29,6 +34,8 @@ async function open ({ init } = {}) {
   const real = witnessService({ witness: w, holdings: memoryHoldings(), log: memoryLog(), clock, headInterval: 0 })
   holder.svc = real
   const browser = await chromium.launch({ channel: 'chrome', headless: true })
+  const end = async () => { opened.delete(end); await browser.close(); site.close() }
+  opened.add(end)
   const problems = []
   const pages = []
   async function device () {
@@ -63,11 +70,17 @@ async function open ({ init } = {}) {
     }
   }
   const first = await device()
-  const witnessGet = async (path) => (await holder.svc.handle(new Request('http://witness' + path))).json()
+  // What the witness itself holds, whatever the page is shown (an outage or a refusing witness stands in front of it).
+  const witnessGet = async (path) => (await real.handle(new Request('http://witness' + path))).json()
   // `refusing(true)` puts a witness that refuses everything in front of the real one, as a test of the page's errors.
   const refusing = (on) => { holder.svc = on ? { handle: async () => Response.json({ ok: false, reason: 'test' }, { status: 422 }) } : real }
-  return { site, browser, ...first, device, problems, collect, keys, clock, witnessGet, svc: real, refusing, advance: (s) => { offset += s },
-    close: async () => { await collect(); await browser.close(); site.close() } }
+  // `outage('down')`: the witness is unreachable; `outage('lost')`: it takes each request, but its answer is lost.
+  const outage = (kind) => {
+    const unavailable = () => Response.json({ ok: false, reason: 'unavailable' }, { status: 503 })
+    holder.svc = kind === 'down' ? { handle: async () => unavailable() } : kind === 'lost' ? { handle: async (r) => { await real.handle(r); return unavailable() } } : real
+  }
+  return { site, browser, ...first, device, problems, collect, keys, clock, witnessGet, svc: real, refusing, outage, advance: (s) => { offset += s },
+    close: async () => { await collect(); await end() } }
 }
 
 const errorShown = (page) => page.waitForFunction(() => document.getElementById('error').textContent !== '')
@@ -186,6 +199,14 @@ test('the assertion requires user verification: without it, nothing is handed ov
     await t.page.waitForFunction(() => document.getElementById('error').textContent !== '')
     assert.equal(await t.page.textContent('#error'), 'The passkey request was cancelled.')
     assert.equal(await t.page.isHidden('#handoff'), true)
+    // Back on an authenticator that verifies the user, signing again hands it over, and the error is gone.
+    await t.cdp.send('WebAuthn.removeVirtualAuthenticator', { authenticatorId })
+    const again = await t.cdp.send('WebAuthn.addVirtualAuthenticator', { options: { protocol: 'ctap2', transport: 'internal',
+      hasResidentKey: true, hasUserVerification: true, isUserVerified: true, automaticPresenceSimulation: true } })
+    await t.cdp.send('WebAuthn.addCredential', { authenticatorId: again.authenticatorId, credential: credentials[0] })
+    await t.page.click('#sign')
+    await t.page.waitForSelector('#handoff:not([hidden])')
+    assert.equal(await t.page.textContent('#error'), '')
   } finally {
     await t.close()
   }
@@ -284,6 +305,12 @@ test('a second passkey: one device adds it, the other co-signs; once settled it 
     assert.equal(await b.page.isHidden('#identity'), true)
     const bRoot = await b.page.inputValue('#join-root')
     const bId = rootModule.checkRoot(bRoot, { rpId }).id
+    // A joining passkey is never registered as an identity of its own, not even when the page loads again.
+    await t.collect()
+    await b.page.reload()
+    await b.page.waitForSelector('#joining:not([hidden])')
+    await b.page.waitForLoadState('networkidle')
+    assert.equal((await t.witnessGet(`/v1/identities/${rootModule.identityOf(bId)}/records`)).ok, false)
 
     // On the first device: what is added is shown, and an edit withdraws it.
     await t.page.fill('#new-root', 'x')
@@ -322,6 +349,12 @@ test('a second passkey: one device adds it, the other co-signs; once settled it 
     await b.page.click('#cosign-sign')
     await b.page.waitForSelector('#identity:not([hidden])')
     assert.equal(await b.page.textContent('#identity-id'), a.identity)
+    // Co-signed, it is part of the identity: nothing is pending, and a reload registers nothing.
+    await t.collect()
+    await b.page.reload()
+    await b.page.waitForSelector('#identity:not([hidden])')
+    await b.page.waitForLoadState('networkidle')
+    assert.deepEqual([await b.page.isHidden('#pending'), await b.page.textContent('#status')], [true, ''])
 
     // The witness anchored the change: pending; the new root has no authority until it settles.
     const held = await t.witnessGet(`/v1/identities/${a.identity}/records`)
@@ -456,6 +489,56 @@ test('a change edited while the passkey is signing is not submitted, on either d
     await b.page.waitForTimeout(1500)
     assert.equal((await t.witnessGet(`/v1/identities/${a.identity}/records`)).memberships.length, 1, "only the first device's signature")
     assert.equal(await b.page.isHidden('#identity'), true)
+  } finally {
+    await t.close()
+  }
+})
+
+// Issue #34: the passkey and its root are kept before the witness is asked to register the root, so a failed
+// registration leaves a pending state with a retry, which sends the same root (no new passkey); a lost answer is
+// recovered too, since the witness accepts a root it already holds.
+test('a registration that fails is pending: retried with the same root, by the button and on reload', { timeout: 180_000 }, async () => {
+  const t = await open()
+  const unavailable = /^Failed to load resource: the server responded with a status of 503/
+  try {
+    t.outage('down')
+    await t.page.fill('#name', 'test')
+    await t.page.click('#create-button')
+    await t.page.waitForSelector('#pending:not([hidden])')
+    await errorShown(t.page)
+    const identity = await t.page.textContent('#identity-id')
+    const rootText = await t.page.inputValue('#root-text')
+    assert.deepEqual(await t.witnessGet(`/v1/identities/${identity}/records`), { ok: false, reason: 'unknown-identity' }, 'the witness does not have it')
+    // Retried while still down: still pending.
+    await t.page.click('#register-retry')
+    await errorShown(t.page)
+    assert.equal(await t.page.isHidden('#pending'), false)
+    // The answer is lost: a reload retries by itself, with the same root; the witness takes it, and the page,
+    // without the answer, still shows it pending.
+    t.outage('lost')
+    await t.collect()
+    await t.page.reload()
+    await errorShown(t.page)
+    assert.equal(await t.page.isHidden('#pending'), false)
+    const held = await t.witnessGet(`/v1/identities/${identity}/records`)
+    assert.deepEqual(held.roots, [rootText], 'the witness has the root')
+    // Back up: the retry button sends the same root again, which the witness already holds; the error is cleared.
+    t.outage(null)
+    await t.page.click('#register-retry')
+    await t.page.waitForFunction(() => document.getElementById('status').textContent === 'Registered with the witness.')
+    assert.equal(await t.page.textContent('#error'), '')
+    assert.equal(await t.page.isHidden('#pending'), true)
+    assert.equal(await t.page.textContent('#identity-id'), identity)
+    assert.equal(await t.page.inputValue('#root-text'), rootText)
+    // Registered: a reload does not register again, and nothing is pending.
+    await t.collect()
+    await t.page.reload()
+    await t.page.waitForSelector('#identity:not([hidden])')
+    assert.equal(await t.page.isHidden('#pending'), true)
+    assert.equal(await t.page.textContent('#status'), '')
+    const credentials = await t.cdp.send('WebAuthn.getCredentials', { authenticatorId: t.authenticatorId })
+    assert.equal(credentials.credentials.length, 1, 'one passkey, never another')
+    assert.deepEqual(t.problems.filter((p) => !unavailable.test(p)), [])
   } finally {
     await t.close()
   }

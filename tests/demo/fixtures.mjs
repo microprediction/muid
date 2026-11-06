@@ -38,11 +38,14 @@ export function worker (seed, { aud = FORECASTS, scopes = ['forecast'] } = {}) {
   return { id: d.id, subject: d.body.subject, delegation, claim, records: (data, at, opts) => ({ claim: claim(data, at, opts), delegation, root: rootText, head: head() }) }
 }
 
-// `realWait` leaves Forecasts its own pause between polls; otherwise `wait` (by default, none).
-export function setup ({ log = fakeLog({ cosignTime: () => NOW }), clock = () => NOW, wait = async () => {}, realWait = false } = {}) {
+export const CLOSES = NOW + 600
+// `realWait` leaves Forecasts its own pause between polls; otherwise `wait` (by default, none). `questions` are asked,
+// open until CLOSES.
+export function setup ({ log = fakeLog({ cosignTime: () => NOW }), clock = () => NOW, wait = async () => {}, realWait = false, questions = ['q'], store = memoryStore(), sign = (b) => hex(ed25519.sign(b, S)) } = {}) {
   const v = verifierModule.verifier({ rpId: RP_ID, origin: ORIGIN, audience: FORECASTS, witnessKeys: WITNESS_KEYS, maxStaleness: 86_400, maxClaimAge: 300, ...LIMITS })
-  const f = forecasts({ origin: FORECASTS, adapter: relyingParty({ verifier: v, store: memoryStore() }), log, checkpoints: { ...CONFIG, skew: 60 },
-    key: SERVICE_KEY, sign: (b) => hex(ed25519.sign(b, S)), clock, ...(realWait ? {} : { wait }) })
+  const f = forecasts({ origin: FORECASTS, adapter: relyingParty({ verifier: v, store }), log, checkpoints: { ...CONFIG, skew: 60 },
+    key: SERVICE_KEY, sign, clock, ...(realWait ? {} : { wait }) })
+  for (const q of questions) f.ask(q, CLOSES)
   const post = async (body, init = {}) => {
     const res = await f.handle(new Request(`${FORECASTS}/forecasts`, { method: 'POST', body: typeof body === 'string' ? body : JSON.stringify(body), ...init }))
     return { status: res.status, body: await res.json(), type: res.headers.get('content-type') }

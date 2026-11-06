@@ -77,13 +77,61 @@ test('a body past the limit is refused without being read in full', async () => 
   assert.equal((await setup().f.handle(new Request('https://forecasts.example/forecasts', { method: 'POST', body: small, duplex: 'half' }))).status, 403)
 })
 
-test('a failing log is 503, and nothing is kept; the claim stays consumed', async () => {
-  const s = setup({ log: fakeLog({ cosignTime: () => NOW, failAppend: true }) })
+// Issue #33: the claim is consumed before the action runs, so an accepted contribution is kept before its receipt
+// is published, and publication is retried from that record (an outbox), never lost with the response.
+test('a failing log: the contribution is kept, pending (202); publish appends its receipt once and bundles it', async () => {
+  const log = fakeLog({ cosignTime: () => NOW, failAppend: true })
+  const s = setup({ log })
   const records = worker(10).records({ question: 'q', forecast: 1 })
   const down = await s.post(records)
-  assert.deepEqual({ status: down.status, body: down.body }, { status: 503, body: { ok: false, reason: 'unavailable' } })
-  assert.deepEqual((await s.get(`/contributions?identity=${IDENTITY}`)).body, [])
-  assert.deepEqual((await s.post(records)).body, { ok: false, reason: 'replay' })
+  assert.equal(down.status, 202)
+  assert.deepEqual(Object.keys(down.body), ['ok', 'pending', 'receipt'])
+  assert.deepEqual([down.body.ok, down.body.pending], [true, true])
+  assert.deepEqual((await s.get(`/contributions?identity=${IDENTITY}`)).body, [{ receipt: down.body.receipt, claim: records.claim, pending: true }])
+  assert.deepEqual((await s.post(records)).body, { ok: false, reason: 'replay' }, 'the claim is spent; the contribution is not lost')
+  assert.equal(await s.f.publish(), 0, 'the log still down')
+  log.state.failAppend = false
+  assert.equal(await s.f.publish(), 1)
+  assert.deepEqual(s.log.entries(), [down.body.receipt], 'the receipt signed at acceptance, appended once')
+  const [c] = (await s.get(`/contributions?identity=${IDENTITY}`)).body
+  assert.deepEqual([c.receipt, c.index, c.claim, c.pending], [down.body.receipt, 0, records.claim, undefined])
+  const v = receiptModule.verifyReceipt({ ...c, proof: c.proof.map(bytes) }, { services: SERVICES, log: CONFIG, now: NOW, skew: 60 })
+  assert.equal(v.ok, true, JSON.stringify(v))
+  assert.equal(await s.f.publish(), 0, 'nothing left to publish')
+})
+
+test('the log took the receipt but its proof failed: publish fetches the proof without appending again', async () => {
+  const log = fakeLog({ cosignTime: () => NOW })
+  log.state.failProof = true
+  const s = setup({ log })
+  const r = await s.post(worker(10).records({ question: 'q', forecast: 1 }))
+  assert.equal(r.status, 202)
+  assert.equal(s.log.entries().length, 1)
+  log.state.failProof = false
+  assert.equal(await s.f.publish(), 1)
+  assert.equal(s.log.entries().length, 1, 'not appended twice')
+  assert.equal((await s.get(`/contributions?identity=${IDENTITY}`)).body[0].index, 0)
+})
+
+test('the log took the receipt but its answer was lost: publish appends again, and the bundle is for the entry it gets', async () => {
+  const log = fakeLog({ cosignTime: () => NOW, failAppend: true })
+  log.state.lostAnswer = true
+  const s = setup({ log })
+  assert.equal((await s.post(worker(10).records({ question: 'q', forecast: 1 }))).status, 202)
+  log.state.failAppend = false
+  assert.equal(await s.f.publish(), 1)
+  const [c] = (await s.get(`/contributions?identity=${IDENTITY}`)).body
+  assert.equal(c.index, 1, 'the second entry: a lost answer cannot be told from a failed append')
+  const v = receiptModule.verifyReceipt({ ...c, proof: c.proof.map(bytes) }, { services: SERVICES, log: CONFIG, now: NOW, skew: 60 })
+  assert.equal(v.ok, true, JSON.stringify(v))
+})
+
+test('a question resolving while a receipt is pending scores the contribution: acceptance, not publication, counts', async () => {
+  const log = fakeLog({ cosignTime: () => NOW, failAppend: true })
+  const s = setup({ log })
+  assert.equal((await s.post(worker(10).records({ question: 'q', forecast: 10_000 }))).status, 202)
+  assert.equal(s.f.resolve('q', 1), 1)
+  assert.equal((await s.get(`/earnings?identity=${IDENTITY}`)).body.earned, 10_000)
 })
 
 test('the receipt waits for a checkpoint that holds it and verifies; none in time is 503', async () => {
@@ -96,10 +144,12 @@ test('the receipt waits for a checkpoint that holds it and verifies; none in tim
   assert.equal(r.status, 200, JSON.stringify(r.body))
   assert.equal(polls, 3)
   assert.equal(r.body.bundle.index, 0)
-  // A checkpoint whose cosignature is from the future does not count toward the quorum; nor, then, does it hold.
+  // A checkpoint whose cosignature is from the future does not count toward the quorum; nor, then, does it hold. The
+  // contribution stays pending.
   let waits = 0
   const late = setup({ log: fakeLog({ cosignTime: () => NOW + 1000 }), wait: async () => { waits++ } })
-  assert.deepEqual((await late.post(worker(20).records({ question: 'q', forecast: 1 }))).body, { ok: false, reason: 'unavailable' })
+  const p = await late.post(worker(20).records({ question: 'q', forecast: 1 }))
+  assert.deepEqual([p.status, p.body.pending], [202, true])
   assert.equal(waits, 300)
 })
 
@@ -111,4 +161,14 @@ test('the default wait is a real pause of 100 ms', async () => {
   const started = Date.now()
   assert.equal((await s.post(worker(10).records({ question: 'q', forecast: 1 }))).status, 200)
   assert.ok(Date.now() - started >= 200)
+})
+
+test("a failing store is the adapter's refusal; the service unable to sign its receipt is 503, and nothing is kept", async () => {
+  const failing = { lastHead: async () => { throw new Error('store down') }, transaction: async () => { throw new Error('store down') } }
+  const r = await setup({ store: failing }).post(worker(10).records({ question: 'q', forecast: 1 }))
+  assert.deepEqual({ status: r.status, body: r.body }, { status: 403, body: { ok: false, reason: 'storage' } })
+  const s = setup({ sign: () => { throw new Error('key unavailable') } })
+  const down = await s.post(worker(10).records({ question: 'q', forecast: 1 }))
+  assert.deepEqual({ status: down.status, body: down.body }, { status: 503, body: { ok: false, reason: 'unavailable' } })
+  assert.deepEqual((await s.get(`/contributions?identity=${IDENTITY}`)).body, [])
 })

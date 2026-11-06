@@ -68,6 +68,8 @@ test('the demo: limited authority, continuity, lasting attribution, revocation, 
     }
     const f = service(FORECASTS)
     const other = service(OTHER)
+    for (const q of ['q', 'rain', 'snow', 'hail']) f.ask(q, now() + 3600)
+    other.ask('q', now() + 3600)
     const post = async (svc, origin, records) => {
       const res = await svc.handle(new Request(`${origin}/forecasts`, { method: 'POST', body: JSON.stringify(records) }))
       return { status: res.status, ...(await res.json()) }

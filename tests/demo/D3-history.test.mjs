@@ -37,6 +37,8 @@ test('refusals: unpinned service, another identity, a broken bundle, a claim tha
   for (const bad of [null, undefined, 'x', { length: 1e9 }, { 0: list[0], length: 1 }]) {
     assert.deepEqual(h.verify(IDENTITY, bad, NOW), { accepted: [], refused: [{ index: null, reason: 'bundles' }] }, JSON.stringify(bad))
   }
+  // A contribution the service has not yet published (its receipt alone, pending) has nothing to verify yet.
+  assert.deepEqual(h.verify(IDENTITY, [{ receipt: list[0].receipt, claim: list[0].claim, pending: true }], NOW).refused, [{ index: 0, reason: 'pending' }])
   // Mixed: what verifies is kept, in order.
   const mixed = h.verify(IDENTITY, [list[1], { ...list[0], proof: 'x' }, list[0]], NOW)
   assert.deepEqual(mixed.accepted.map((a) => a.claim), [list[1], list[0]].map((b) => envelope.open(b.claim, 'claim').id))

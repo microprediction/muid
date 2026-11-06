@@ -27,6 +27,7 @@ function show () {
   $('identity').hidden = root === null || joining
   $('add-root').hidden = root === null || joining
   $('authorise').hidden = root === null || joining
+  $('pending').hidden = !unregistered()
   if (root !== null) {
     $('identity-id').textContent = root.identity
     $('root-text').value = root.text
@@ -82,17 +83,30 @@ async function create (joining) {
       attestation: 'none',
     } })
     const r = rootRecord(c.response.getPublicKey(), c.response.getPublicKeyAlgorithm(), rpId)
-    root = { ...r, credential: b64u(c.rawId), joining }
+    // Kept before the witness is asked, so that a failed registration is retried with this root, not a new passkey.
+    root = { ...r, credential: b64u(c.rawId), joining, registered: false }
     save()
     show()
-    if (!joining) {
-      await submit(r.identity, 'root', r.text)
-      $('status').textContent = 'Registered with the witness.'
-    }
+  } catch (e) { fail(e); return }
+  if (!joining) await register()
+}
+
+// A root of its own identity not yet known to be registered with the witness (one stored before this was kept,
+// too): registered by sending the same root again, which the witness accepts if it already holds it.
+const unregistered = () => root !== null && root.joining !== true && root.registered !== true
+
+async function register () {
+  try {
+    await submit(root.identity, 'root', root.text)
+    root = { ...root, registered: true }
+    save()
+    show()
+    $('status').textContent = 'Registered with the witness.'
   } catch (e) { fail(e) }
 }
 
 $('create-button').addEventListener('click', () => create(false))
+$('register-retry').addEventListener('click', () => { $('error').textContent = ''; register() })
 $('join-button').addEventListener('click', () => create(true))
 for (const id of ['subject', 'aud', 'scopes', 'days', 'new-root', 'cosign-payload']) $(id).addEventListener('input', withdraw)
 
@@ -173,7 +187,7 @@ $('cosign-sign').addEventListener('click', async () => {
     const a = await sign([c.id])
     if (pending.cosign !== c) return
     await submit(c.body.identity, 'membership', rootSigned(c.payload, root.id, a))
-    root = { ...root, identity: c.body.identity, joining: false }
+    root = { ...root, identity: c.body.identity, joining: false, registered: true }
     save()
     show()
     $('status').textContent = 'Co-signed. The change settles once its contest window has passed.'
@@ -181,3 +195,4 @@ $('cosign-sign').addEventListener('click', async () => {
 })
 
 show()
+if (unregistered()) register()

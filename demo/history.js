@@ -21,8 +21,11 @@ export function history ({ services, log, skew }) {
     for (let i = 0; i < bundles.length; i++) {
       const b = bundles[i]
       const proof = Array.isArray(b?.proof) && b.proof.every((h) => typeof h === 'string' && /^(?:[0-9a-f]{2})*$/.test(h)) ? b.proof.map(bytes) : undefined
-      const r = proof === undefined
-        ? { ok: false, reason: 'bundle' }
+      // A contribution whose receipt the service has not yet published has nothing to verify yet.
+      const r = b?.pending === true
+        ? { ok: false, reason: 'pending' }
+        : proof === undefined
+          ? { ok: false, reason: 'bundle' }
         : verifyReceipt({ receipt: b.receipt, checkpoint: b.checkpoint, proof, index: b.index, claim: b.claim }, { services, log, now, skew })
       if (r.ok && r.identity !== identity) refused.push({ index: i, reason: 'identity' })
       else if (r.ok) accepted.push({ service: r.service, identity: r.identity, delegation: r.delegation, claim: r.claim, at: r.at, existedBy: r.existedBy })

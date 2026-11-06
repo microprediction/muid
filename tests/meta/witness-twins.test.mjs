@@ -85,9 +85,10 @@ function run (dir) {
     const child = spawn(process.execPath, ['--test', '--test-reporter=tap', ...SUITE], {
       env: { ...env, MUID_WITNESS_DIR: dir, FC_RUNS: '30' },
       stdio: ['ignore', 'pipe', 'pipe'],
+      detached: true, // its own process group, so that a hang is ended with every test process it started
     })
     // A twin that makes advance loop for ever is caught by the suite never finishing.
-    const timer = setTimeout(() => child.kill('SIGKILL'), HANG)
+    const timer = setTimeout(() => process.kill(-child.pid, 'SIGKILL'), HANG)
     let out = ''
     child.stdout.on('data', (d) => { out += d })
     child.stderr.on('data', (d) => { out += d })
