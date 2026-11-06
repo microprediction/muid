@@ -38,10 +38,12 @@ function raw (x, names) {
     // Stryker disable next-line EqualityOperator: equivalent; the extra element read is overwritten by the proof
     for (let i = 0; i < names.length; i++) out[i] = x[names[i]]
     const list = x.proof
+    if (!isArray(list)) return undefined
+    const n = list.length // read once: a Proxy may answer differently each time
     // Stryker disable next-line EqualityOperator: equivalent; no proof of MAX_PROOF hashes is genuine
-    if (!isArray(list) || list.length > MAX_PROOF) return undefined
+    if (!isSize(n) || n > MAX_PROOF) return undefined
     const proof = []
-    for (let i = 0; i < list.length; i++) proof[i] = list[i]
+    for (let i = 0; i < n; i++) proof[i] = list[i]
     out[names.length] = proof
     return out
   } catch { /* a hostile object: undefined */ }
