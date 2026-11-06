@@ -441,6 +441,114 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
 - `existedBy` is the quorum-th earliest cosignature; configuration read once; a foreign error fails closed.
 - Twins (13).
 
+## 4j. The witness's decisions (`witness/`, not core)
+
+- Admission (R8): each refusal by name — the type, the form, another identity, `prev` not the effective
+  membership (a rival before and after anchoring, and after settlement), another epoch, a stranger, an added root
+  before a strict majority, an added root before its root record, a forged assertion, a contest of anything but the
+  pending record or by a root outside the settled membership, a freeze of a membership outside the state or by
+  another membership's root, an unnamed root record, a dead identity, a full list (built directly; the cap is
+  checked first), and a foreign error. A record already held is accepted without being stored twice.
+- Advancing: an honest change anchored and settled at the window's end, not a second before; an incomplete change
+  not anchored; a successor held while its predecessor was pending anchored in the settling step; a contest inside the window anchored and settled as contested; one first seen after it
+  ignored; a minority contest not anchored; heads equal to `headOf`, signed, none where `headOf` gives none.
+- Revocations: by a root with authority (a delegation id and a subject key, carried in the head); refused from a
+  root without authority (added, pending), a stranger, a forgery; a delegate's own, only with its delegation —
+  refused without one, for another key, expired, under another membership or identity, with its root not held, or
+  signed by another key; under either name of a pending change; kept across a change of membership, and for a
+  delegation signed under a membership not yet anchored once it settles (review round 8); a root's revocation given
+  with its delegation lapsing at exp plus skew, not a second before, and only with the delegation it names; one
+  entry per target; form, identity,
+  dead and unknown identities; more than 64 live gives no head; the list capped at 256 live entries, stale ones
+  not counted; a foreign error refused.
+- A `sign` under another key is thrown, for anchors and heads.
+- Review round 8 (`W6-review.test.mjs`): 60 envelopes of one record by one root hold one; a stolen root's 40
+  proposals hold one, and the owner's recovery is anchored; an owner's changed proposal replaces its first; one
+  contest and one freeze per signer; W0 (an assertion covering a change and its contest, either way) refused; a
+  self-revocation under a retired root's delegation refused. The service (`S1`): a lost log answer, then a rival —
+  the outbox is appended first and the rival refused, every logged anchor the same; heads and ticks settle the
+  outbox first; a body past the limit is refused without being read in full.
+- Review round 9 (`W6`): a thief cycling proposals that name fresh roots leaves only its last one's root held, and
+  the owner can still add a root; W0 as SPEC states it — a successor's assertion covering the pending record's
+  contest, and a contest's covering a held successor, refused either way; covering other records, a non-successor
+  among them, allowed.
+- The service (`S1-service.test.mjs`): a change submitted record by record, its anchor logged and served, the tick
+  settling it at the window's end and not a second before; refusals as 422 with the reason, changing nothing; every
+  malformed request with its status and reason, the body limit at and one past it; heads reused within the
+  interval, re-signed after it or after a change, every one logged, none for a frozen identity; revocations;
+  concurrent submissions for one identity both kept; a failing log (503, nothing kept, the tick rejected and
+  retried) and a failing store; configuration.
+- The model (`W3-model.test.mjs`): random owner and thief histories in three scenarios, admitted record by record;
+  the witness's anchors and settlements equal the model witness's translated texts after every step; every refused
+  record leaves the model's witness and verifier unchanged. The walks reach settled, pending, frozen and dead states
+  and up to two settled changes.
+- The log client (`W5-log.test.mjs`), against tiles laid out from the C2SP wording by the test: proofs equal RFC
+  9162's PATH for every entry of trees of 1 to 1,000 entries and at a level-2 tile (65,836); an older tree's partial
+  tiles; a partial tile no longer served read from its full tile; each tile read once, at the right path; a missing
+  or short tile, a failing server, an index outside the tree; append's answer read strictly; the checkpoint.
+- Tessera itself (`tests/log/L1-tessera.test.mjs`, building `log/cmd/muid-log` and transparency-dev's omniwitness
+  from the pinned module): 300 entries appended, the checkpoint verified by the core under the log's key, an
+  inclusion proof from Tessera's tiles verified for every entry, and again after 21 more; another entry's hash
+  refused. With a witness policy naming the omniwitness, every published checkpoint carries its cosignature, which
+  the core counts toward a quorum of one, with the witness's clock as the time.
+- Twins (`tests/meta/witness-twins.test.mjs`, 42): each admission rule dropped in turn; the anchor kept unchecked;
+  settlement inside the window; contests never anchored, anchored unchecked, or ignored at
+  settlement; the witness's view counting contest anchors; a settlement ending the step; `sign` unchecked; heads
+  without revocations; a revocation by a root without authority or by any key without its delegation, or unverified; revocations
+  that never lapse, lapse a second late, or lapse with any delegation, or duplicated; and in the service, a holding kept before the log took its records, changes to one identity
+  interleaved, a head kept after a change or for ever, a head unlogged, an unbounded body, and any type submitted; and in the log client, halves for the split, no full-tile fallback, a
+  short tile used, unprefixed tile indices, any append answer taken, and the proof's order.
+
+## 4k. The id page (`id/`, not core)
+
+- `records.js` in Node (`P1-records.test.mjs`): the root record read by the core, and ES256 on P-256 only; base64url
+  both ways; the W1 challenge as the core computes it; the assertion object verified by `checkRootAssertion`; a
+  delegation signed by the passkey and the worker accepted by `checkDelegation`; each refusal the core would make
+  refused first, with its message.
+- The page in Chrome (`P2-page.test.mjs`, playwright-core driving the installed Chrome, a virtual authenticator
+  through the DevTools WebAuthn domain): create and authorise, the result accepted by the core, then through the
+  witness's head by the relying party's verifier; a resident credential named as asked; the identity remembered;
+  I4 (an edit, a second review and a signature returning after an edit each withdraw); user verification required
+  (the passkey moved to an authenticator that cannot verify); the identity's own passkey among others; an
+  unreadable stored identity forgotten; a refused passkey reported. Chrome's warning that only ES256 is offered is
+  the one console message allowed.
+- A second passkey (`P2`, two browser profiles with their own authenticators, the witness service in memory): one
+  device joins; the other adds it, after a refused bad root record, a shown change (the root added, the epoch) and
+  an edit that withdraws it; the new device refuses a change that does not add it and one that is not a change,
+  shows and co-signs this one; the witness anchors it; the new root is told it has no authority until settlement;
+  after the window it authorises a worker under the settled membership, which the verifier accepts. `records.js`
+  in Node: the current membership by `membershipState`, an ended identity, the change (next epoch, sorted roots,
+  what it adds) and each refusal (pending, already a root, not a root record, five roots), the root-signed envelope,
+  a change read back to co-sign.
+- The HTML (`P3-html.test.mjs`): one inline script, the import map, allowed by its hash; nothing from elsewhere.
+- Mutation testing runs inside the page: the test activates Stryker's mutant in the page and returns the page's
+  coverage to the test process. Both files at 100%.
+- Twins (`tests/meta/id-twins.test.mjs`, 21): the challenge's domain, any algorithm, unsorted scopes, an unbounded
+  lifetime, an unchecked audience, an edit that keeps the review, a late signature kept, verification preferred,
+  any passkey, a credential that is not resident, inline scripts allowed, hidden parts shown; attest granted; a change co-signed that does not add
+  this passkey, an edit of the new root kept, authority unchecked, delegations under the first membership, the root
+  or the added root not submitted, a change proposed while one is pending, its roots unsorted.
+
+## 4l. The two-application demo (`demo/`, not core)
+
+- The four scenarios end to end (`tests/demo/D1-scenarios.test.mjs`): the witness service, Tessera with
+  omniwitness cosigning, Forecasts accepting claims through the relying-party adapter, History reading receipts.
+  Limited authority (a replay, another audience and a missing scope refused); continuity (a replaced worker key,
+  one contributor in History); lasting attribution (a year after the delegations expire the claims no longer
+  verify, the receipts do; an unpinned service and another identity refused); revocation (an honest request
+  carrying the newer head moves Forecasts' memory, so the revoked worker is refused at once as stale, and as revoked
+  with the newer head; its earlier contribution stays attributed).
+- Forecasts and History against an in-memory log whose checkpoints are signed and cosigned per C2SP (`D2`, `D3`):
+  the bundle verified by `verifyReceipt`; replay; each refusal with its reason; the body limit at and one past it;
+  a failing log (503, nothing kept, the claim consumed); a checkpoint waited for, and one cosigned in the future
+  never counted; each broken bundle refused with its reason, by index.
+- Earnings (`D4`, and scenario 5 of `D1`): nothing earned before resolution; the Brier score per forecast, credited
+  to the identity with each agent's share; a question resolved once; several agents adding up, another identity's
+  apart; collection by a delegation with the collect scope, not by the agent; a contribution that is not a
+  forecast refused and its claim spent. End to end, the agent retires itself through the witness and is then
+  refused, its earnings resolved afterwards, and the owner's device collects.
+- Mutation 100%; twins (`tests/meta/demo-twins.test.mjs`, 17).
+
 ## 5. Later layers (outline; each is expanded here before its code is written)
 
 1. **Envelope and record id:** expanded as §3.

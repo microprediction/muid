@@ -28,6 +28,11 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ matrix.node }}
+      # Go runs the transparency log (Tessera, pinned in log/go.mod and log/go.sum) for tests/log/. No cache.
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: log/go.mod
+          cache: false
       - name: Install (no install scripts)
         run: npm ci --ignore-scripts
       - name: Registry signatures
@@ -36,7 +41,7 @@ jobs:
         run: npm audit signatures
       - name: Tests with full coverage of the core
         run: >-
-          node --test --experimental-test-coverage --test-coverage-include='src/**' --test-coverage-include='adapter/**'
+          node --test --experimental-test-coverage --test-coverage-include='src/**' --test-coverage-include='adapter/**' --test-coverage-include='witness/**' --test-coverage-include='id/records.js' --test-coverage-include='demo/**'
           --test-coverage-lines=100 --test-coverage-branches=100 --test-coverage-functions=100
           "tests/!(meta)/*.test.mjs"
 
@@ -62,6 +67,9 @@ jobs:
           - p256-twins.test.mjs
           - root-twins.test.mjs
           - verifier-twins.test.mjs
+          - witness-twins.test.mjs
+          - id-twins.test.mjs
+          - demo-twins.test.mjs
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -88,6 +96,9 @@ jobs:
           - stryker.note.config.json
           - stryker.receipt.config.json
           - stryker.adapter.config.json
+          - stryker.witness.config.json
+          - stryker.id.config.json
+          - stryker.demo.config.json
           - stryker.assertion.config.json
           - stryker.origin.config.json
           - stryker.delegation.config.json

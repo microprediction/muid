@@ -338,7 +338,11 @@ one envelope each, so its `sig` names the signer: `{ root, assertion }`, where `
   delegate can add more than one entry. `headOf(state, at, revoked)` builds the body from R8's result; it gives none
   for an entry that is not an id or for more than 64 distinct ones, reading no further than the 65th. A head that
   cannot carry every live revocation is not signed (fail closed); the owner then replaces roots or lets delegations
-  expire. The witness
+  expire. Each live entry counts against one root — the root that signed it, or the root of the delegate's
+  delegation — and the witness admits at most 12 per root (5 × 12 < 64), so one stolen root cannot fill a head
+  (decision 12). Entries of retired roots stay, so the witness also refuses a revocation that would make a 65th live
+  entry: revocations are then refused, never heads (the owner's fallback is to remove the root that signed the
+  delegation, R6). The witness
   signs no head for an identity that is dead or frozen or in which no root has authority, and a verifier accepts none
   older than `maxStaleness`, so a stolen retired root is refused whatever records it is shown.
 - **Head lag (residual):** a delegate chooses which head to present, so an anchored change, a freeze or a revocation
@@ -377,6 +381,68 @@ Residuals:
 - **Freshness (R9).** A verifier given only records, without a fresh head, would accept an older membership's roots
   — and a thief holding a retired root could mint new delegations under it. The guarantees above hold for a verifier
   that requires a head no older than `maxStaleness`; the residual is that window.
+
+**The witness's own decisions (`witness/`, not core).** `witness(config)` gives `empty`, `admit`, `advance`,
+`revoke` and `head`, pure functions over the records the witness holds for one identity, grouped as R8's `records`; storage,
+the network and the transparency log are the service's, and the signing key stays behind `config.sign`.
+- `admit(held, type, text)` applies R8's admission to a submitted root, membership, contest or freeze, against the
+  state of what is held: a membership record must name the effective membership as `prev` and be one epoch past it
+  (R3: a rival is refused), and be signed by one of its roots, or by a root it adds once a strict majority has
+  signed; a contest must contest the pending record, signed by a root of the settled membership (R5); a freeze must
+  name the settled or pending membership, signed by one of its roots (R2, decision 11); a root record must be the
+  first root or named by a held membership record. Each signature is verified on admission. One envelope is held per
+  record and signer (another, an assertion covering other records too, is accepted unchanged), and one proposal per
+  root and `prev`: a root's later proposal replaces its earlier one, so no root can fill a list and block its owner
+  (review round 8); root records only a replaced proposal named go with it (round 9). A replaced (record, signer) is
+  kept as a tombstone, and its resubmission refused (`replaced`), so no one holding a withdrawn envelope can make it
+  current again; a root holds at most 16 per `prev`, past which its replacements are refused (`quota`), and
+  tombstones of an earlier `prev` are dropped (round 9; a signed sequence number in membership records, as did:plc
+  operations and Safe transactions carry, is the planned replacement, since a tombstone also stops a root from
+  returning to a proposal it withdrew). W0 is applied: an assertion
+  that covers both a membership record and its contest, or a successor of a pending record and that record's
+  contest, is refused, either way round. A
+  list at `MAX_RECORDS` refuses new ones (`full`), a backstop the rules above keep out of reach; nothing is admitted
+  to a dead identity.
+- `advance(held, now)` signs what the model's witness does: with nothing pending, it anchors a held successor of
+  the settled membership (at most one has a strict majority, since each root holds one proposal per `prev`), and keeps an anchor only if `membershipState` with it shows that record
+  pending, so the witness never applies a second implementation of R1; with a record pending and the window open, it
+  anchors a held contest only if verifiers would then see the identity end; once `CONTEST_WINDOW` has passed, it
+  settles, as `contested` if a contest is anchored. At a settlement that is not contested, the proposals that lost
+  that `prev`, and the root records only they named, are dropped: they can never be anchored. A settlement can make a
+  held successor anchorable in the same step. Its own view leaves out contest anchors, as the model's does.
+- `revoke(held, text, now, delegation)` admits a revocation (R9) signed by a root with authority, or by a delegate
+  for its own key, given with the delegation that makes it a delegate of this identity under its settled or pending
+  membership from a root with authority (verified by `checkDelegation` at `now`; R6); otherwise any fresh key could add entries until, past 64, no
+  head can be signed. One entry per target. An entry is kept for the life of the identity, except a root's
+  revocation of a delegation id given with that delegation, kept until its `exp` plus `skew` (decision 12: a
+  delegation can exist under a membership before it is anchored, W0, so no change of membership bounds what a
+  revocation can affect); entries that have lapsed are dropped at the next admission. A root already counted for 12
+  live entries is refused (`quota`), and so is any revocation once 64 are live (`full`).
+- `head(held, now)` signs `headOf` of the state with the kept revocations, or nothing where `headOf` gives nothing.
+- A `sign` that does not give a valid signature under the configured key is a fault, thrown, so nothing it signs is
+  published.
+**The witness service (`witness/service.js`, not core)** puts these behind a small HTTP API, fetch-style (a
+`Request` in, a `Response` out). Records the witness signs wait in an outbox until the log has taken them, and the
+outbox is appended again, the same texts, before anything else is done for the identity: a log that took an entry
+but whose answer was lost never leads the witness to sign a rival (review round 8). Endpoints: `POST /v1/records` (`{ identity, type, text }`; a root, membership, contest or
+freeze), `POST /v1/revocations` (`{ identity, text, delegation? }`), `GET /v1/identities/{id}/records` (what R8 needs)
+and `GET /v1/identities/{id}/head` (a head, reused for `headInterval` seconds while nothing changes); `tick()`
+advances every identity, settling once windows pass. Each identity's changes are serialised by its store, and every
+record the witness signs is appended to the log before the holding that contains it is kept, so nothing is served
+that the log did not take. A failing log is 503: what was decided waits in the outbox and takes effect once the log
+has it, so a retry may answer with nothing new signed; a failing store is 503 and nothing is kept. Refusals are 422 with the witness's
+reason; malformed requests are 400, 404, 405 or 413 (a body is read only up to 131,072 bytes). The log is Tessera's POSIX
+server with a witness policy (`log/cmd/muid-log`: Tessera's own server example, plus the witness-policy option from
+its one-shot example, unchanged otherwise; `log/go.mod` pins Tessera and every module), which publishes a C2SP
+checkpoint only once the witnesses in its policy have cosigned it (tlog-witness), and serves C2SP tiles; the
+cosigner in tests is transparency-dev's omniwitness, pinned in the same module;
+`witness/log.js` appends to it and builds RFC 9162 inclusion proofs from its tiles for any entry against any
+checkpoint, which the core's `verifyCheckpoint` and `verifyInclusion` then check. Anyone can read the tiles; only the
+witness service appends (the server listens on a private address). An in-memory log and store stand in for tests.
+
+Tested against `model/settled.mjs`'s `witness` on random histories of owner and thief moves and passing time: each
+record goes through admission, the model is given what was admitted, and the anchors and settlements signed are the
+model's, text for text; a record admission refuses changes nothing the model's witness or verifier would do.
 
 **revocation** — `{ identity, target, at }`, where `target` is a delegation's record id or a subject key. It is signed
 by a root with authority (`sig = { root, assertion }`, as for membership records), or by the delegate for itself (`sig
@@ -446,7 +512,10 @@ is the text of the newest head the relying party has accepted for the identity, 
   (a canonical origin, O1, then a path of RFC 3986 characters, any escape in upper-case hex); `nonce` (optional) a
   nonce the relying party issued, as DPoP's (§8, `1*NQCHAR`); `content_digest` (optional) the body's RFC 9530
   `sha-256`, canonical base64, since DPoP does not cover the body; `at` is the signer's time (DPoP's `iat`); `data`
-  any object. A claim seen in transit therefore cannot be used on another request. `verifyClaim` takes the scope
+  any object. A claim seen in transit therefore cannot be used for another method, origin or path. As in DPoP the
+  query is not bound: a relying party that acts on query parameters takes them in the body and requires
+  `content_digest`. A path that a URL parser leaves with characters outside the grammar (`|`, `[`, `]`, a lower-case
+  escape) cannot be claimed at all, which fails closed. `verifyClaim` takes the scope
   and the request the relying party is serving: `method`, `url` (the URL it received; the query and fragment are
   dropped before comparison), and `nonce` and `contentDigest` when it issues nonces or requires the body's digest.
   It refuses, in order, with: V4's reasons for the claim (`envelope-encoding` too when the records cannot be read);
@@ -563,6 +632,23 @@ rotation and the expiry boundary.
 
 ## 8. The id origin and machine onboarding (not core)
 
+**The id page (`id/`).** A static page with a strict CSP (scripts from its own origin, plus the import map by its
+hash; no inline handlers), using the core's own modules through an import map. It creates an identity — a resident
+ES256 passkey with user verification; the root record from its public key, kept in this browser — and authorises a
+worker: the user gives the worker's Ed25519 key, the audience, scopes (never `attest`) and a lifetime of at most 7 days (decision 3); the page
+shows the fields of the exact payload it will ask the passkey to sign (I4), any edit withdraws it, and a signature
+that returns after an edit is discarded. One assertion (W1 challenge, user verification required, the identity's
+own credential only) signs it, and the page hands the worker the payload and assertion; the worker adds its own
+consent (D6). A new identity's root is registered with the witness service the page is configured with (its URL
+and pinned keys are meta tags, deployment configuration). A second passkey joins from another device: there it
+creates its passkey and shows its root record; a device of the identity reads the current membership from the
+witness's records by the core's `membershipState`, shows the root it adds and the new epoch (I4), signs the change
+(R1) and submits it with the new root record; the new device shows the change, co-signs it and submits it. The
+witness anchors it, and it settles once its contest window has passed; until then the new root has no authority
+(R6), and the page says so. Delegations name the current membership. `id/records.js` builds every record with the
+core's functions and refuses first what the core would. Not yet: removing a root, freezes and contests, and the
+I1–I3 window protocol for apps.
+
 - The id origin is a dedicated host serving nothing else, with no subdomains. `rp_id` and the exact origin are
   deployment configuration, compared exactly; no suffix or wildcard rule exists anywhere.
 - **I6 ONE CEREMONY:** the id page asks the passkey to sign only W1 challenges — never a server-chosen or login
@@ -597,6 +683,21 @@ rotation and the expiry boundary.
   rate-limited, and the result is a delegation, never a bearer token. The `attest` scope is never granted this way.
 - The witness hard-codes its issuers and their signing-key endpoints, follows no discovery redirect, and uses a
   distinct redirect URI per provider (GitHub returns no `iss`).
+
+## 8a. The two-application demo (`demo/`, not core)
+
+**Forecasts** accepts contributions: a worker POSTs a claim (C1, its forecast in `data`) with its delegation, the
+delegation's root record and a fresh head; the relying-party adapter verifies and consumes it, and only then is the
+forecast kept and a receipt (C2) signed, appended to the log and kept with the cosigned checkpoint that holds it and
+the inclusion proof, as a bundle. **History** verifies an identity's bundles under its own pinned services and log.
+A contribution's data is `{ question, forecast }` (basis points); the identity of the delegation it was made under
+is bound as its beneficiary when it is accepted, never decided later from whoever holds the agent's key. Once the
+operator resolves a question, each forecast of it earns its Brier score in basis points, credited to the identity
+with each agent's share shown (`GET /earnings`); the identity collects with a claim under any live delegation of it
+holding the `collect` scope (`POST /collect`). Five scenarios run end to end in CI: limited authority, continuity
+across a replaced worker key, attribution that lasts past the delegations' expiry, revocation that takes effect at
+once through the relying party's memory, and the organizing example — an agent authorised for an hour contributes,
+retires itself, and its earnings, resolved afterwards, are collected by the owner's own device.
 
 ## 9. Open decisions
 
