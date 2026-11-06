@@ -31,10 +31,12 @@ jobs:
       - name: Install (no install scripts)
         run: npm ci --ignore-scripts
       - name: Registry signatures
+        # Once, with the newest npm: older npm releases lack newer registry attestation keys.
+        if: matrix.node == '26'
         run: npm audit signatures
       - name: Tests with full coverage of the core
         run: >-
-          node --test --experimental-test-coverage --test-coverage-include='src/**'
+          node --test --experimental-test-coverage --test-coverage-include='src/**' --test-coverage-include='adapter/**'
           --test-coverage-lines=100 --test-coverage-branches=100 --test-coverage-functions=100
           "tests/!(meta)/*.test.mjs"
 
@@ -44,6 +46,7 @@ jobs:
       fail-fast: false
       matrix:
         suite:
+          - adapter-twins.test.mjs
           - assertion-twins.test.mjs
           - attestation-twins.test.mjs
           - bytes-twins.test.mjs
@@ -84,6 +87,7 @@ jobs:
           - stryker.merkle.config.json
           - stryker.note.config.json
           - stryker.receipt.config.json
+          - stryker.adapter.config.json
           - stryker.assertion.config.json
           - stryker.origin.config.json
           - stryker.delegation.config.json

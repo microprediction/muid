@@ -123,9 +123,10 @@ export function verifier (config) {
   const cfg = readConfig(config)
   if (cfg === undefined) throw new TypeError('verifier configuration is not well formed')
 
-  // F5 for a delegation, given its records and the call's fields.
-  function check (given, { now, scope, revoked, minHeadAt, last }) {
-    const h = headBody(given.head, cfg, now)
+  // F5's head checks: the head's form, signature and window (R9), its freshness, and its consistency with the last
+  // head accepted. Gives the head's body, or the refusal.
+  function checkHead (text, { now, minHeadAt, last }) {
+    const h = headBody(text, cfg, now)
     if (h === undefined) return refuse('head')
     if (h.at < now - cfg.maxStaleness || h.at > now + cfg.skew || h.at < minHeadAt || (last && h.at < last.at)) {
       return refuse('stale')
@@ -133,6 +134,14 @@ export function verifier (config) {
     if (last && last.identity !== h.identity) return refuse('identity')
     // Heads of one `at` may be signed in either order: such a pair is evidence only if inconsistent both ways.
     if (last && forked(last, h)) return refuse(h.at === last.at && !forked(h, last) ? 'stale' : 'equivocation')
+    return h
+  }
+
+  // F5 for a delegation, given its records and the call's fields.
+  function check (given, c) {
+    const { now, scope, revoked } = c
+    const h = checkHead(given.head, c)
+    if (h.ok === false) return h // a head body has no `ok`
     const r = checkRoot(given.root, { rpId: cfg.rpId })
     if (!r.ok) return refuse('root-record')
     const d = checkDelegation(given.delegation, { rootKey: r.key, rpId: cfg.rpId, origin: cfg.origin, now,
@@ -149,6 +158,13 @@ export function verifier (config) {
     if (b.aud !== cfg.audience) return refuse('audience')
     if (!has(b.scopes, scope)) return refuse('scope')
     return d
+  }
+
+  // F6: a head alone, under the same call: { ok, identity, at }, or F5's head refusal. A relying party may remember
+  // any head that verifies, whatever else a request carries.
+  function verifyHead (head, call) {
+    const h = checkHead(head, readCall(call, false, cfg))
+    return h.ok === false ? h : accept({ identity: h.identity, at: h.at })
   }
 
   function verifyDelegation (records, call) {
@@ -189,5 +205,5 @@ export function verifier (config) {
     return accept({ id: claim.id, body: b, delegation: freeze({ id: d.id, body: d.body }), until: b.at + cfg.maxClaimAge + 1 })
   }
 
-  return freeze({ verifyDelegation, verifyClaim })
+  return freeze({ verifyHead, verifyDelegation, verifyClaim })
 }

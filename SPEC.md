@@ -443,6 +443,11 @@ is the text of the newest head the relying party has accepted for the identity, 
   a `revoked` that is not an array of ids, is a programming error (ignoring a malformed entry would fail open on
   revocation).
 
+- **F6 THE HEAD ALONE:** `v.verifyHead(head, call)`, with a call as for `verifyDelegation`, applies F5's head checks
+  only — `head`, `stale`, `identity`, `equivocation`, under `now`, `minHeadAt` and `lastHead` — and returns
+  `{ ok: true, identity, at }` or exactly the refusal `verifyDelegation` would give for that head. A relying party
+  may remember any head that verifies, whatever else a request carries, as a TUF client keeps any metadata that
+  verifies: a head that revokes a delegation is remembered even from the request it refuses (§7).
 - **C1 CLAIMS (decision 1: ephemeral):** a **claim** `{ delegation, scope, request, at, data }` is a record signed by
   the delegation's subject key: its `sig` is `{ signature }`, an Ed25519 signature over the claim's signed bytes
   (K7). `delegation` is the id of the delegation it is made under; `scope` and `request` are the scope and the
@@ -530,6 +535,30 @@ Research: [`webauthn.md`](research/webauthn.md).
 
 `get(key)` returns `{ value }` or `{ absent: true }`, or throws. A failed read is never reported as absence. A guard
 test fails the build on any direct `indexedDB` or `localStorage` use outside the one adapter.
+
+**Relying-party adapter (`adapter/`, not core).** The verifier is pure; the state a relying party keeps around it is
+replay and head memory, and the adapter makes both atomic with the established mechanism for each. `acceptClaim`
+reads the presented records and the call's fields once (a call bringing its own `lastHead` is a programming error:
+the adapter supplies it), and verifies them without memory, outside any lock. A request refused there is refused; it
+takes the lock only when its head verifies alone (F6) and is newer than the memory, to remember that head. Otherwise,
+in one store transaction, it remembers the head if the head verifies against the memory as it stands there —
+whatever else the request carries, so a head that revokes the request's own delegation is still remembered — then
+verifies the request against the same memory and consumes the claim id; only then does it run the protected action,
+once. Heads of one second may arrive in either order (F5): of two, the memory keeps the one the verifier ranks later
+(the new one only if the stored one could not follow it). Anyone holding a fresh head can move the memory forward;
+that only obliges delegates to present heads at least as fresh, which the witness serves.
+Consumption is an insert-if-absent (a unique key, as DPoP's `jti` store), the head moves only to a later `at` (a
+conditional update, as TUF's stored metadata), and the transaction serialises requests (`BEGIN IMMEDIATE` for the
+database store, which holds its write lock for one verification), so of any number of instances receiving one claim
+exactly one runs the action, and none is verified against memory another has since moved on. A stored head the
+verifier can no longer read (corrupt, or signed by a witness key since removed from the configuration) still
+bounds rollback: its stored time becomes `minHeadAt`. Storage that fails is refused as `storage`, and the action does
+not run; an action that fails leaves its claim consumed, and the delegate makes a new claim. A claim id is kept a
+grace period past its `until` (60 s by default; set it to the largest clock difference between instances), so an
+instance whose clock is behind the one that expired it still refuses the replay. `memoryStore` serves one
+process; `sqliteStore` serves processes sharing one database file. Tests: a race of eight instances on one file,
+a transaction held behind one that revokes, restart, rollback, storage failure, corrupt storage, a witness key
+rotation and the expiry boundary.
 
 ## 8. The id origin and machine onboarding (not core)
 
@@ -620,7 +649,8 @@ test fails the build on any direct `indexedDB` or `localStorage` use outside the
    it catches a split only within what one relying party sees, and a witness that jumps two epochs ahead between
    that party's heads escapes it (committing to keep the fork going for that party); a public log closes the rest.
    A witness key is retired by its window, never removed from `witnessKeys` while a relying party may hold a last
-   head it signed (that head would become a programming error). Bounding backdated anchors needs time from outside the witness: a public log with at least one outside
+   head it signed (that head would become a programming error); when one must be removed, as after a compromise, the
+   relying-party adapter (§7) keeps the remembered head's time as `minHeadAt` instead. Bounding backdated anchors needs time from outside the witness: a public log with at least one outside
    cosigner, the contest window starting at the cosigned time of the first checkpoint that includes the anchor.
 11. **Freezes by incoming roots — decided: kept.** R2 lets any root of a pending record, new ones included, freeze it.
    None of the established systems ([`prior-art.md`](research/prior-art.md)) lets an incoming key lock anything. It is
