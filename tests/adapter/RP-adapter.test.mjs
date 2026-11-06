@@ -372,14 +372,33 @@ test('a request refused before the lock gives the reason the memory gives', asyn
   assert.deepEqual(await rp.acceptClaim(records(undefined, head(T - 10, { epoch: 2, memberships: ['6'.repeat(64)] })), CALL, () => 1), refused('stale'))
 })
 
-test('two heads of one second, each able to follow the other: the memory keeps the one it holds', async () => {
+test('two heads of one second that differ in what they revoke: the one without the revocation is stale after it', async () => {
   const T = NOW - 100
   const revoking = head(T, { revoked: ['7'.repeat(64)] }) // differs only in what it revokes
   const store = memoryStore()
   await store.transaction((tx) => tx.advanceHead(IDENTITY, revoking, T))
-  await relyingParty({ verifier: verifier(), store }).acceptClaim(records(undefined, head(T)), CALL, () => 1)
+  let runs = 0
+  assert.deepEqual(await relyingParty({ verifier: verifier(), store }).acceptClaim(records(undefined, head(T)), CALL, () => runs++), refused('stale'))
+  assert.equal(runs, 0)
   assert.equal((await store.lastHead(IDENTITY)).head, revoking, 'not replaced by a head that drops a revocation')
 })
+
+for (const [name, open] of [['memory', () => memoryStore()], ['sqlite', () => sqliteStore(join(tmp(), 'rp.db'))]]) {
+  test(`${name}: a revocation seen in a head of one second is not undone by an earlier head of that second`, async () => {
+    const T = NOW - 100
+    const before = head(T)
+    const after = head(T, { revoked: [DELEGATION_ID] })
+    const rp = relyingParty({ verifier: verifier(), store: open() })
+    let runs = 0
+    assert.equal((await rp.acceptClaim(records(claim(NOW - 9), before), CALL, () => runs++)).ok, true, 'accepted before the revocation')
+    assert.deepEqual(await rp.acceptClaim(records(claim(NOW - 8), after), CALL, () => runs++), refused('revoked'))
+    assert.deepEqual(await rp.acceptClaim(records(claim(NOW - 7), before), CALL, () => runs++), refused('stale'), 'the earlier head again')
+    assert.equal(runs, 1)
+    // A later head that no longer carries the revocation (it lapsed) is accepted.
+    assert.equal((await rp.acceptClaim(records(claim(NOW - 6), head(T + 1)), CALL, () => runs++)).ok, true)
+  })
+}
+
 
 for (const [name, open] of [['memory', () => memoryStore()], ['sqlite', () => sqliteStore(join(tmp(), 'rp.db'))]]) {
   test(`${name} store: replaceHead replaces only the head given, of the same time`, async () => {
