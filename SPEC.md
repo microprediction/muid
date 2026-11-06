@@ -728,7 +728,7 @@ never afterwards. Details and thresholds: `TESTING.md`; sources: [`assurance.md`
 | Coverage of the core | any uncovered line, branch or function |
 | Core bans (a guard test) | in core files: `async`/`await`, clock and randomness reads, `JSON.parse` outside the decoder, imports other than noble and the core itself |
 | Line budget, skipped tests, vector pinning, CI coverage of every test file and module | as named |
-| Supply chain | install scripts (`npm ci --ignore-scripts`); unverified registry signatures; a dependency not pinned exactly, a lockfile entry from another registry or without sha512 integrity, an install script, or anything at runtime but the two noble packages |
+| Supply chain | install scripts (`npm ci --ignore-scripts`); unverified registry signatures; a dependency not pinned exactly, a lockfile entry from another registry or without sha512 integrity, an install script, or anything at runtime but the two noble packages; an override other than a development package pinned to one exact release that the lockfile holds |
 | CI hardening | an action not pinned by commit SHA; a workflow with write permissions it does not need; any `pull_request_target` |
 | CodeQL (`security-extended`, over `src/`) | any result; results are printed, not uploaded, so the token stays read-only |
 | Semgrep (`.semgrep/core.yml`, image pinned by digest) | any match in `src/`, or a rule that stops firing on its own cases (`semgrep --test`) |
