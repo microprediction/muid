@@ -6,7 +6,7 @@
 import { open, seal, wrap, signedBytes, EnvelopeError } from '../src/envelope.js'
 import { checkRoot, identityOf } from '../src/root.js'
 import { checkRootAssertion } from '../src/assertion.js'
-import { membershipState, headOf, MAX_RECORDS } from '../src/membership.js'
+import { membershipState, headOf, MAX_RECORDS, MAX_REVOKED } from '../src/membership.js'
 import { checkDelegation } from '../src/delegation.js'
 import { checkEd25519 } from '../src/ed25519.js'
 import { readWitnessKeys, onlyKeys, isHex } from '../src/attestation.js'
@@ -142,12 +142,24 @@ export function witness (config) {
     if (tombs.some((x) => x.record === r.id && x.signer === signer)) return refuse('replaced')
     const mine = (x) => x.sig.root === signer && x.body.prev === b.prev
     const gone = held.memberships.map((t) => open(t, 'membership')).filter(mine)
-    if (gone.length > 0 && tombs.filter((x) => x.signer === signer).length >= TOMBSTONES) return refuse('quota')
+    // A root with tombstones for this prev always holds a proposal for it (its last), so this one replaces it.
+    if (tombs.filter((x) => x.signer === signer).length >= TOMBSTONES) return refuse('quota')
     const replaced = freeze([...tombs, ...gone.map((x) => freeze({ record: x.id, signer, prev: b.prev }))])
     const memberships = freeze([...held.memberships.filter((t) => !mine(open(t, 'membership'))), text])
+    return accept({ held: freeze({ ...held, memberships, roots: rootsNamed(held, memberships), replaced }) })
+  }
+
+  // The held root records the first root is, or a membership in `memberships` names.
+  function rootsNamed (held, memberships) {
     const named = (id) => identityOf(id) === held.identity || memberships.some((t) => has(open(t, 'membership').body.roots, id))
-    const kept = freeze(held.roots.filter((t) => named(checkRoot(t, { rpId }).id)))
-    return accept({ held: freeze({ ...held, memberships, roots: kept, replaced }) })
+    return freeze(held.roots.filter((t) => named(checkRoot(t, { rpId }).id)))
+  }
+
+  // At a settlement of `prev` as `outcome`: the proposals that lost that prev can never be anchored, so they go, with
+  // the root records only they named; the records of settled memberships stay, since the state is replayed from them.
+  function purge (held, prev, outcome) {
+    const memberships = freeze(held.memberships.filter((t) => { const x = open(t, 'membership'); return x.body.prev !== prev || x.id === outcome }))
+    return freeze({ ...held, memberships, roots: rootsNamed(held, memberships) })
   }
 
   // The id of the contest of membership record `record`: the same for every signer.
@@ -228,7 +240,7 @@ export function witness (config) {
       }
       // R4: the window has passed; the settlement is final.
       const text = make('settlement', { identity: held.identity, prev: s.settled, outcome: contested ? 'contested' : s.membership, at: now })
-      held = add(held, 'settlements', text)
+      held = contested ? add(held, 'settlements', text) : purge(add(held, 'settlements', text), s.settled, s.membership)
       sign1('settlement', text) // a contested settlement ends the identity, and the next pass signs nothing
     }
     return freeze({ held, signed: freeze(signed) })
@@ -271,7 +283,8 @@ export function witness (config) {
     if (!s.ok) return s
     const live = kept(held, now)
     if (live.some((x) => x.target === b.target)) return accept({ held })
-    if (live.length >= MAX_RECORDS) return refuse('full')
+    // At most the 64 a head carries, every root's together, so that no revocation can stop heads (R9 fails closed past it).
+    if (live.length >= MAX_REVOKED) return refuse('full')
     let root = r.sig.root
     if (bySelf) {
       if (!delegates(held, s, delegation, now, b.target)) return refuse('delegation')

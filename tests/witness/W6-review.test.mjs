@@ -189,3 +189,32 @@ test('tombstones are per root and per prev: 16 replacements each, then refused; 
   assert.ok(h.memberships.includes(signed('membership', P(16), 'a')))
   assert.equal(w.admit(h, 'membership', signed('membership', P(16), 'a')).ok, true)
 })
+
+// Found by review (round 10): proposals that lost a settled prev, and the root records only they named, stayed held
+// for good, so a root held across epochs could fill the lists and block the owner from adding roots.
+test('at settlement, proposals that lost that prev go, with the root records only they named', () => {
+  const { M, held } = settledABC()
+  // The thief (c) proposes P, naming a fresh root d whose record it submits; the owner's R, by a and b, wins.
+  const P = mBody(3, ['c', 'd'], mId(M))
+  const R = mBody(3, ['a', 'b'], mId(M))
+  let h = admitAll(held, [['membership', signed('membership', P, 'c')], ['root', rootText('d')],
+    ['membership', signed('membership', R, 'a')], ['membership', signed('membership', R, 'b')]])
+  h = w.advance(h, BASE + 2 * WINDOW).held
+  assert.ok(h.roots.includes(rootText('d')), 'held while R is pending')
+  h = w.advance(h, BASE + 3 * WINDOW).held
+  assert.equal(state(h).membership, mId(R))
+  const ids = h.memberships.map((t) => envelope.open(t, 'membership').id)
+  assert.ok(!ids.includes(mId(P)), "the loser's envelope is gone")
+  assert.deepEqual(ids.filter((x) => x === mId(R)).length, 2, "the winner's envelopes stay")
+  assert.ok(!h.roots.includes(rootText('d')), 'and the root record only it named')
+  assert.ok(['a', 'b', 'c'].every((l) => h.roots.includes(rootText(l))), "the settled memberships' roots stay")
+  // Records of earlier epochs are kept: the state is replayed from them.
+  assert.ok(ids.includes(mId(M)))
+  // A contested settlement ends the identity; nothing is purged then.
+  const pending = w.advance(admitAll(start(), [['membership', signed('membership', M2, 'a')], ['root', rootText('b')],
+    ['membership', signed('membership', M2, 'b')]]), BASE).held
+  const contested = admitAll(pending, [['contest', signed('contest', { identity: IDENTITY, record: mId(M2) }, 'a')]])
+  const ended = w.advance(w.advance(contested, BASE + 10).held, BASE + WINDOW).held
+  assert.equal(state(ended).dead, true)
+  assert.equal(ended.memberships.length, contested.memberships.length)
+})

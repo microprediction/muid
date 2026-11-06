@@ -340,7 +340,9 @@ one envelope each, so its `sig` names the signer: `{ root, assertion }`, where `
   cannot carry every live revocation is not signed (fail closed); the owner then replaces roots or lets delegations
   expire. Each live entry counts against one root — the root that signed it, or the root of the delegate's
   delegation — and the witness admits at most 12 per root (5 × 12 < 64), so one stolen root cannot fill a head
-  (decision 12). The witness
+  (decision 12). Entries of retired roots stay, so the witness also refuses a revocation that would make a 65th live
+  entry: revocations are then refused, never heads (the owner's fallback is to remove the root that signed the
+  delegation, R6). The witness
   signs no head for an identity that is dead or frozen or in which no root has authority, and a verifier accepts none
   older than `maxStaleness`, so a stolen retired root is refused whatever records it is shown.
 - **Head lag (residual):** a delegate chooses which head to present, so an anchored change, a freeze or a revocation
@@ -405,8 +407,9 @@ the network and the transparency log are the service's, and the signing key stay
   the settled membership (at most one has a strict majority, since each root holds one proposal per `prev`), and keeps an anchor only if `membershipState` with it shows that record
   pending, so the witness never applies a second implementation of R1; with a record pending and the window open, it
   anchors a held contest only if verifiers would then see the identity end; once `CONTEST_WINDOW` has passed, it
-  settles, as `contested` if a contest is anchored. A settlement can make a held successor anchorable in the same
-  step. Its own view leaves out contest anchors, as the model's does.
+  settles, as `contested` if a contest is anchored. At a settlement that is not contested, the proposals that lost
+  that `prev`, and the root records only they named, are dropped: they can never be anchored. A settlement can make a
+  held successor anchorable in the same step. Its own view leaves out contest anchors, as the model's does.
 - `revoke(held, text, now, delegation)` admits a revocation (R9) signed by a root with authority, or by a delegate
   for its own key, given with the delegation that makes it a delegate of this identity under its settled or pending
   membership from a root with authority (verified by `checkDelegation` at `now`; R6); otherwise any fresh key could add entries until, past 64, no
@@ -414,7 +417,7 @@ the network and the transparency log are the service's, and the signing key stay
   revocation of a delegation id given with that delegation, kept until its `exp` plus `skew` (decision 12: a
   delegation can exist under a membership before it is anchored, W0, so no change of membership bounds what a
   revocation can affect); entries that have lapsed are dropped at the next admission. A root already counted for 12
-  live entries is refused (`quota`).
+  live entries is refused (`quota`), and so is any revocation once 64 are live (`full`).
 - `head(held, now)` signs `headOf` of the state with the kept revocations, or nothing where `headOf` gives nothing.
 - A `sign` that does not give a valid signature under the configured key is a fault, thrown, so nothing it signs is
   published.

@@ -205,3 +205,16 @@ test("one root's quota does not touch another's: b files its own 12 after a's", 
   assert.equal(refused(w.revoke(h, byRoot(target(40), 'b', now), now)), 'quota')
   assert.equal(revokedIn(h, now).length, 24)
 })
+
+// Found by review (round 10): the quota counts only a root's own live entries, and a retired root's entries stay, so
+// rotations could take the total past the 64 a head carries and stop heads for good. A revocation that would make a
+// 65th live entry is refused instead: heads keep being signed, and the owner's fallback is to remove the root.
+test('at most 64 live revocations in all, retired roots\' included: the 65th is refused, and heads keep being signed', () => {
+  const entries = Array.from({ length: 64 }, (_, i) => Object.freeze({ text: `t${i}`, target: (i + 1).toString(16).padStart(64, '0'), until: null, root: `${i % 6}`.repeat(64) }))
+  const full = Object.freeze({ ...start(), revocations: Object.freeze(entries) })
+  assert.equal(refused(w.revoke(full, byRoot(DEL_ID), NOW)), 'full')
+  assert.equal(revokedIn(full).length, 64)
+  // One fewer: admitted.
+  const room = Object.freeze({ ...start(), revocations: Object.freeze(entries.slice(1)) })
+  assert.equal(w.revoke(room, byRoot(DEL_ID), NOW).ok, true)
+})
