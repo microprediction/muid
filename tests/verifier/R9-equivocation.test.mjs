@@ -39,8 +39,8 @@ function delegation (membership) {
 }
 const DEL = { [I]: delegation(I), [P]: delegation(P), [Q]: delegation(Q), [R]: delegation(R) }
 
-function head (epoch, memberships, at, { secret = at < NOW - 20 ? OLD : NEW, identity = I, authority = [ROOT] } = {}) {
-  const { payload } = envelope.seal('head', { identity, epoch, memberships, authority, revoked: [], at })
+function head (epoch, memberships, at, { secret = at < NOW - 20 ? OLD : NEW, identity = I, authority = [ROOT], revoked = [] } = {}) {
+  const { payload } = envelope.seal('head', { identity, epoch, memberships, authority, revoked, at })
   return envelope.wrap(payload, { signature: hex(ed25519.sign(envelope.signedBytes(payload), secret)), witness: key(secret) })
 }
 
@@ -146,4 +146,29 @@ test('F3: a last head only removes trust, over every pair of a pool of heads', (
     }
   }
   assert.ok(refusedByLast > 10, 'the last head refuses some heads accepted without it')
+})
+
+// Heads of one second are ordered by what they revoke as well: the witness only adds revocations within a second (an
+// entry lapses with time), so a head of the same `at` that drops one the last head carried was signed before it.
+test('at the same time, a head without a revocation the last head carried is stale; one with more follows it', () => {
+  const T = NOW - 10
+  const [x, y, z] = ['7'.repeat(64), '8'.repeat(64), '9'.repeat(64)]
+  const at = (revoked) => head(1, [I], T, { revoked })
+  assert.deepEqual(verify(at([]), at([x]), I), refused('stale'), 'the revocation dropped')
+  assert.deepEqual(verify(at([x]), at([x, y]), I), refused('stale'), 'one of several dropped')
+  assert.deepEqual(verify(at([x, y, z]), at([x]), I), { ok: true }, 'several added in one second')
+  assert.deepEqual(verify(at([x]), at([]), I), { ok: true }, 'the honest order')
+  assert.deepEqual(verify(at([y]), at([x]), I), refused('equivocation'), 'each without one the other carries')
+  // A second later the revocation may have lapsed: no order is implied.
+  assert.deepEqual(verify(head(1, [I], T + 1), at([x]), I), { ok: true }, 'a later head without it')
+})
+
+test('the delegation itself: revoked by id or by subject key in a head, then presented under an earlier head of that second', () => {
+  const T = NOW - 10
+  const id = envelope.open(DEL[I], 'delegation').id
+  for (const target of [id, key(APP)]) {
+    const revoking = head(1, [I], T, { revoked: [target] })
+    assert.deepEqual(verify(revoking, undefined, I), refused('revoked'))
+    assert.deepEqual(verify(head(1, [I], T), revoking, I), refused('stale'), target === id ? 'by id' : 'by subject key')
+  }
 })
