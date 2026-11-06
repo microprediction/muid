@@ -10,7 +10,7 @@ const W = Uint8Array.from({ length: 32 }, (_, i) => 140 + i)
 const WITNESS = hex(ed25519.getPublicKey(W))
 const APP = Uint8Array.from({ length: 32 }, (_, i) => 60 + i)
 const AUD = 'https://app.example'
-export const REQUEST = 'POST https://app.example/forecasts sha256:0f00'
+export const URL_ = 'https://app.example/forecasts'
 export const CONFIG = Object.freeze({ rpId: RP_ID, origin: ORIGIN, audience: AUD, witnessKeys: [{ key: WITNESS, nbf: 0, exp: 1_900_000_000 }],
   skew: 60, maxLifetime: 2_592_000, maxStaleness: 86_400, maxClaimAge: 300 })
 export const verifier = () => verifierModule.verifier(CONFIG)
@@ -38,10 +38,10 @@ export const delegation2 = envelope.wrap(del2.payload, { root: make({ covers: [d
 export const W2 = Uint8Array.from({ length: 32 }, (_, i) => 200 + i)
 export const verifierWithKey = (secret) => verifierModule.verifier({ ...CONFIG, witnessKeys: [{ key: hex(ed25519.getPublicKey(secret)), nbf: 0, exp: 1_900_000_000 }] })
 
-export function claim (at = NOW - 5, text = 'a forecast') {
-  const { payload, id } = envelope.seal('claim', { delegation: del.id, scope: 'forecast', request: REQUEST, at, data: { text } })
+export function claim (at = NOW - 5, text = 'a forecast', extra = {}) {
+  const { payload, id } = envelope.seal('claim', { delegation: del.id, scope: 'forecast', htm: 'POST', htu: URL_, at, data: { text }, ...extra })
   return { text: envelope.wrap(payload, { signature: hex(ed25519.sign(envelope.signedBytes(payload), APP)) }), id }
 }
 
 export const records = (c = claim(), h = head(NOW - 100)) => ({ claim: c.text, delegation, root, head: h })
-export const CALL = Object.freeze({ now: NOW, scope: 'forecast', request: REQUEST, revoked: [] })
+export const CALL = Object.freeze({ now: NOW, scope: 'forecast', method: 'POST', url: URL_, revoked: [] })

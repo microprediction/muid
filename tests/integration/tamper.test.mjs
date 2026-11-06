@@ -12,7 +12,7 @@ const W = Uint8Array.from({ length: 32 }, (_, i) => 7 + i)
 const WITNESS = hex(ed25519.getPublicKey(W))
 const APP = Uint8Array.from({ length: 32 }, (_, i) => 77 + i)
 const AUD = 'https://app.example'
-const REQUEST = 'POST https://app.example/posts sha256:0f00'
+const URL_ = 'https://app.example/posts'
 const v = verifierModule.verifier({ rpId: RP_ID, origin: ORIGIN, audience: AUD,
   witnessKeys: [{ key: WITNESS, nbf: 0, exp: 1_900_000_000 }], skew: 60, maxLifetime: 2_592_000, maxStaleness: 86_400,
   maxClaimAge: 300 })
@@ -26,11 +26,11 @@ const delegation = envelope.wrap(del.payload, { root: make({ covers: [del.id] })
   subject: hex(ed25519.sign(Buffer.concat([Buffer.from('muid/v1/accept\n'), Buffer.from(del.id, 'hex')]), APP)) })
 const h = envelope.seal('head', { identity: IDENTITY, epoch: 1, memberships: [IDENTITY], authority: [ROOT], revoked: [], at: NOW - 100 })
 const head = envelope.wrap(h.payload, { signature: hex(ed25519.sign(envelope.signedBytes(h.payload), W)), witness: WITNESS })
-const c = envelope.seal('claim', { delegation: del.id, scope: 'post', request: REQUEST, at: NOW - 5, data: { n: 1 } })
+const c = envelope.seal('claim', { delegation: del.id, scope: 'post', htm: 'POST', htu: URL_, at: NOW - 5, data: { n: 1 } })
 const claim = envelope.wrap(c.payload, { signature: hex(ed25519.sign(envelope.signedBytes(c.payload), APP)) })
 
 const RECORDS = Object.freeze({ claim, delegation, root, head })
-const CALL = Object.freeze({ now: NOW, scope: 'post', request: REQUEST, revoked: [] })
+const CALL = Object.freeze({ now: NOW, scope: 'post', method: 'POST', url: URL_, revoked: [] })
 
 // Two replacements that differ from the original and from each other, so each position meets a character of another
 // class as well as one of a nearby class: a hex digit becomes another hex digit, and so on.

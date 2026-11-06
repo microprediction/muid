@@ -91,14 +91,14 @@ test('receipt-time: a receipt cannot say it was accepted after the quorum saw it
 
 test('claim: when the claim is given, it must be the one the receipt names', () => {
   const sk = Uint8Array.from({ length: 32 }, (_, i) => 70 + i)
-  const { payload, id: claimId } = envelope.seal('claim', { delegation: id('2'), scope: 'post', request: 'POST /x', at: NOW - 101, data: {} })
+  const { payload, id: claimId } = envelope.seal('claim', { delegation: id('2'), scope: 'post', htm: 'POST', htu: 'https://app.example/x', at: NOW - 101, data: {} })
   const claim = envelope.wrap(payload, { signature: Buffer.from(ed25519.sign(envelope.signedBytes(payload), sk)).toString('hex') })
   const named = receiptText({ ...BODY, claim: claimId })
   assert.equal(verifyReceipt({ ...given(named), claim }, CTX).ok, true)
   assert.deepEqual(plain(verifyReceipt({ ...given(), claim }, CTX)), refused('claim'), 'another claim')
   assert.deepEqual(plain(verifyReceipt({ ...given(named), claim: 'x' }, CTX)), refused('claim'), 'not a claim')
   // Found by review: the claim must be made under the delegation the receipt names, not just carry its id.
-  const other = envelope.seal('claim', { delegation: id('a'), scope: 'post', request: 'POST /x', at: NOW - 101, data: {} })
+  const other = envelope.seal('claim', { delegation: id('a'), scope: 'post', htm: 'POST', htu: 'https://app.example/x', at: NOW - 101, data: {} })
   const otherClaim = envelope.wrap(other.payload, { signature: Buffer.from(ed25519.sign(envelope.signedBytes(other.payload), sk)).toString('hex') })
   assert.deepEqual(plain(verifyReceipt({ ...given(receiptText({ ...BODY, claim: other.id })), claim: otherClaim }, CTX)), refused('claim'), 'another delegation')
 })
