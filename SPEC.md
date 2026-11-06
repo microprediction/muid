@@ -628,18 +628,22 @@ test fails the build on any direct `indexedDB` or `localStorage` use outside the
    is hold up the change that added it, and the owner who added it can supersede that change. In return an owner whose
    new device sees an unexpected change can stop it. The alternative, limiting a pending record's freeze to the roots
    of its `prev`, stays available if a case against this appears.
-12. **Retaining subject-key revocations — decided: (b) now, (c) with the transparency log.** `exp − nbf` is
-   bounded, but `nbf` is not, so a delegation signed today may become valid long after it was signed. A witness that
-   drops a subject-key revocation once the delegations it knows of expire can therefore drop it too early: it may not
-   know every delegation to that key. (b) The witness keeps a revocation for the life of the identity, except a
-   root's revocation of a delegation id given with that delegation, kept until its `exp` plus `skew`; past 64 live
-   entries no head is signed (R9, fail closed). (c) Once the witness is a transparency log, it logs every delegation
-   it learns of, as certificate transparency logs every certificate, and relying parties may require a delegation to
-   be logged, so the witness knows them all and the rest can lapse too. Option (a), first chosen — keep a
-   revocation while the membership current when it was revoked, or its pending successor, has authority — was shown
-   unsound by review: W0 lets the owner sign a change and the delegations under it in one prompt, so a delegation can
-   exist under a membership before it is anchored, or under a chain of them, and no change of membership bounds what
-   a revocation can affect.
+12. **Retaining subject-key revocations — decided: (c), with (b') until it lands.** `exp − nbf` is bounded, but
+   `nbf` is not, so a delegation signed today may become valid long after it was signed. A witness that drops a
+   subject-key revocation once the delegations it knows of expire can therefore drop it too early: it may not know
+   every delegation to that key. (c) The witness logs every delegation it learns of, as certificate transparency logs
+   every certificate, and relying parties accept only logged delegations, so the witness knows every delegation a
+   revocation can affect and drops the revocation once all of them have expired. This changes what a relying party
+   checks and what a delegate presents, and is specified as its own step. (b') Until then the witness keeps a
+   revocation for the life of the identity, except a root's revocation of a delegation id given with that delegation,
+   kept until its `exp` plus `skew`, and except a revocation filed by a root that has since lost authority, dropped
+   then; past 64 live entries no head is signed (R9, fail closed). (b') undoes a thief's filings once the owner
+   removes the thief's root; it does not bound honest accumulation, which is why (c) is the decision. Two options were
+   rejected by review. (a) — keep a revocation while the membership current when it was revoked, or its pending
+   successor, has authority — is unsound: W0 lets the owner sign a change and the delegations under it in one prompt,
+   so a delegation can exist under a membership before it is anchored, and no change of membership bounds what a
+   revocation can affect. (b) alone — (b') without the last exception — lets anyone who briefly holds a root file 65
+   revocations and stop the identity's heads for good.
 
 ## 10. What the reputation layer consumes (not core)
 
