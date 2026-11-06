@@ -92,7 +92,7 @@ test('several faults at once: the first in V4 order wins', () => {
 })
 
 test('every V2 type opens as itself and is refused as each other type', () => {
-  assert.equal(TYPES.length, 12)
+  assert.equal(TYPES.length, 13)
   for (const t of TYPES) {
     const text = envelopeText(payloadText(t), t === 'root' ? undefined : '{}')
     assert.equal(env.open(text, t).type, t)

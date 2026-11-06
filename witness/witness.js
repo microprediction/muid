@@ -18,8 +18,11 @@ const { isSafeInteger } = Number
 const { isRefusal } = EnvelopeError
 
 const ID = /^[0-9a-f]{64}$/
-// Decision 12's quota: live revocations counted against one root (5 roots × 12 < the 64 a head carries).
-const QUOTA = 12
+// R10: head entries counted against the root that filed them (5 roots × 12 < the 64 a head carries); revocations
+// admitted per root by a token bucket of BURST, one more each DAY.
+const PER_ROOT = 12
+const BURST = 12
+const DAY = 86_400
 // Tombstones a root may hold for one prev: its replaced proposals, whose resubmission is refused.
 const TOMBSTONES = 16
 // The record types anyone may submit, and the list each is held in (R8's grouping).
@@ -82,7 +85,8 @@ export function witness (config) {
   function empty (identity) {
     if (!isHex(ID, identity)) throw new TypeError('identity must be an id')
     const none = freeze([])
-    return freeze({ identity, roots: none, memberships: none, contests: none, freezes: none, anchors: none, settlements: none, revocations: none, replaced: none })
+    return freeze({ identity, roots: none, memberships: none, contests: none, freezes: none, anchors: none, settlements: none, revocations: none,
+      replaced: none, logged: none, buckets: none })
   }
 
   // R8's admission: { ok, held } with the record added (or already held), or a refusal; the holding is not changed.
@@ -246,25 +250,72 @@ export function witness (config) {
     return freeze({ held, signed: freeze(signed) })
   }
 
-  // R9: the head for what the witness holds at `now`, signed; undefined where headOf gives none.
+  // R9: the head for what the witness holds at `now`, signed; undefined where headOf gives none. Its revocations are
+  // the kept ones that name a logged delegation still live (R10).
   function head (held, now) {
     if (!isTime(now)) throw new TypeError('now must be a non-negative integer')
     const s = stateOf(held)
-    const body = headOf(s, now, kept(held, now).map((x) => x.target))
+    const body = headOf(s, now, entries(held, s, now).map((x) => x.target))
     return body === undefined ? undefined : make('head', body)
   }
 
-  // Decision 12, after review round 8: a revocation is kept for the life of the identity, since a delegation may be
-  // signed in advance under a membership not yet anchored (W0), so no change of membership bounds what it can affect;
-  // one of a delegation id given with that delegation is kept until its expiry plus skew, after which no record it
-  // names verifies. `until` is null for the first kind.
+  // Decision 12: a revocation is kept for the life of the identity, since a delegation may be signed in advance; one
+  // of a delegation id given with that delegation is kept until its expiry plus skew, after which no record it names
+  // verifies. `until` is null for the first kind.
   const kept = (held, now) => held.revocations.filter((x) => x.until === null || now < x.until)
+
+  // R10: the logged delegations that can still verify at `now` in state `s` (R6, D7); no other can ever again.
+  const live = (held, s, now) => held.logged.filter((l) => now < l.exp + skew && (l.membership === s.settled || l.membership === s.membership) &&
+    has(s.authority, l.root))
+  const names = (x, l) => x.target === l.delegation || x.target === l.subject
+  // The head's entries: the kept revocations that name a live logged delegation.
+  const entries = (held, s, now) => {
+    const ls = live(held, s, now)
+    return kept(held, now).filter((x) => ls.some((l) => names(x, l)))
+  }
+
+  // R10: logs `text`, a delegation that verifies at `now`, is this identity's under its settled membership or pending
+  // successor, from a root with authority, and that no kept revocation names: { ok, held, logged, fresh } with the
+  // witness's signed logged record, or a refusal. A delegation already logged gives its record again (fresh false).
+  function log (held, text, now) {
+    if (!isTime(now)) throw new TypeError('now must be a non-negative integer')
+    let r
+    try {
+      r = open(text, 'delegation')
+    } catch (e) {
+      return refuse(isRefusal(e) ? e.reason : 'envelope-encoding')
+    }
+    const d = r.body
+    const s = against(held, d)
+    if (!s.ok) return s
+    if (d.membership !== s.settled && d.membership !== s.membership) return refuse('membership')
+    if (!has(s.authority, d.root)) return refuse('authority')
+    const c = checkDelegation(text, { rootKey: rootKeys(held).get(d.root), rpId, origin, now, skew, maxLifetime })
+    if (!c.ok) return c
+    if (kept(held, now).some((x) => names(x, { delegation: r.id, subject: d.subject }))) return refuse('revoked')
+    const known = held.logged.find((l) => l.delegation === r.id)
+    if (known !== undefined) return accept({ held, logged: known.text, fresh: false })
+    const ls = live(held, s, now)
+    if (ls.length >= MAX_RECORDS) return refuse('full')
+    const logged = make('logged', { identity: held.identity, delegation: r.id, at: now })
+    const entry = freeze({ text: logged, delegation: r.id, subject: d.subject, root: d.root, membership: d.membership, exp: d.exp })
+    return accept({ held: freeze({ ...held, logged: freeze([...ls, entry]) }), logged, fresh: true })
+  }
+
+  // A root's token bucket at `now`: BURST at most, one more each DAY since it was last drawn on; never less for a
+  // clock that steps back.
+  function bucket (held, root, now) {
+    const b = held.buckets.find((x) => x.root === root)
+    if (b === undefined) return { root, tokens: BURST, at: now }
+    const days = Math.max(0, Math.floor((now - b.at) / DAY))
+    return { root, tokens: Math.min(BURST, b.tokens + days), at: b.at + days * DAY }
+  }
 
   // R9's admission of a revocation `{ identity, target, at }`: signed by a root with authority, or by a delegate for
   // its own key, given with the delegation that makes it a delegate of this identity, so that no one else can add an
-  // entry (past 64, no head is signed). One entry per target; entries no longer kept are dropped. Each entry counts
-  // against one root, the signer or the delegation's, and a root holds at most QUOTA, so one stolen root cannot
-  // fill the 64.
+  // entry. One entry per target; entries no longer kept are dropped. R10: each is drawn from its root's bucket (the
+  // signer, or the delegation's root); one that would be a head entry is refused past PER_ROOT for its root or the 64
+  // a head carries, so heads are always signed.
   function revoke (held, text, now, delegation) {
     if (!isTime(now)) throw new TypeError('now must be a non-negative integer')
     let r
@@ -281,10 +332,9 @@ export function witness (config) {
     }
     const s = against(held, b)
     if (!s.ok) return s
-    const live = kept(held, now)
-    if (live.some((x) => x.target === b.target)) return accept({ held })
-    // At most the 64 a head carries, every root's together, so that no revocation can stop heads (R9 fails closed past it).
-    if (live.length >= MAX_REVOKED) return refuse('full')
+    const kept1 = kept(held, now)
+    if (kept1.some((x) => x.target === b.target)) return accept({ held })
+    if (kept1.length >= MAX_RECORDS) return refuse('full')
     let root = r.sig.root
     if (bySelf) {
       if (!delegates(held, s, delegation, now, b.target)) return refuse('delegation')
@@ -302,9 +352,15 @@ export function witness (config) {
       if (d === undefined || d.id !== b.target) return refuse('delegation')
       until = d.body.exp + skew
     }
-    if (live.filter((x) => x.root === root).length >= QUOTA) return refuse('quota')
+    const tokens = bucket(held, root, now)
+    if (tokens.tokens < 1) return refuse('quota')
     const entry = freeze({ text, target: b.target, until, root })
-    return accept({ held: freeze({ ...held, revocations: freeze([...live, entry]) }) })
+    if (live(held, s, now).some((l) => names(entry, l))) {
+      const es = entries(held, s, now)
+      if (es.length >= MAX_REVOKED || es.filter((x) => x.root === root).length >= PER_ROOT) return refuse('full')
+    }
+    const buckets = freeze([...held.buckets.filter((x) => x.root !== root), freeze({ ...tokens, tokens: tokens.tokens - 1 })])
+    return accept({ held: freeze({ ...held, revocations: freeze([...kept1, entry]), buckets }) })
   }
 
   // The delegation record a text holds, or undefined: its id is the hash of its payload, so its fields are the ones named.
@@ -324,5 +380,5 @@ export function witness (config) {
       d.subject === subject && checkDelegation(delegation, { rootKey, rpId, origin, now, skew, maxLifetime }).ok
   }
 
-  return freeze({ empty, admit, advance, head, revoke })
+  return freeze({ empty, admit, advance, head, revoke, log })
 }

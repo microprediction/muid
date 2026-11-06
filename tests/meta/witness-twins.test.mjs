@@ -61,22 +61,35 @@ const TWINS = [
   ['own-view-with-contests', "the witness's view counts contest anchors, so a contested epoch never settles", [['anchors: held.anchors.filter((t, i) => !isContest(anchors[i]))', 'anchors: held.anchors']]],
   ['one-step', 'a held successor waits for the next step after a settlement', [['      sign1(\'settlement\', text) // a contested', '      sign1(\'settlement\', text); break // a contested']]],
   ['sign-unchecked', "a signature not under the witness's key is published", [["    if (!checkEd25519(signature, signedBytes(payload), key).ok) throw new Error('sign gave no valid signature under the witness key')\n", '']]],
-  ['head-without-revocations', 'the head leaves out the revocations held', [['headOf(s, now, kept(held, now).map((x) => x.target))', 'headOf(s, now, [])']]],
+  ['head-without-revocations', 'the head leaves out the revocations held', [['headOf(s, now, entries(held, s, now).map((x) => x.target))', 'headOf(s, now, [])']]],
   ['revoke-without-authority', 'any root of the identity can revoke', [["      if (!has(s.authority, r.sig.root)) return refuse('signer')\n", '']]],
   ['self-revoke-any-key', 'a key revokes itself without the delegation that makes it a delegate', [["      if (!delegates(held, s, delegation, now, b.target)) return refuse('delegation')\n", '']]],
   ['revocation-never-lapses', "a revocation outlives the delegation it names, given with it", [['(x) => x.until === null || now < x.until)', '() => true)']]],
   ['revocation-lapses-late', 'a lapsed revocation is carried at its expiry plus skew', [['(x) => x.until === null || now < x.until)', '(x) => x.until === null || now <= x.until)']]],
   ['revocation-any-delegation', 'any delegation sets when a revocation lapses', [["      if (d === undefined || d.id !== b.target) return refuse('delegation')\n", "      if (d === undefined) return refuse('delegation')\n"]]],
-  ['revocation-duplicates', 'another revocation for a target already held adds an entry', [['    if (live.some((x) => x.target === b.target)) return accept({ held })\n', '']]],
+  ['revocation-duplicates', 'another revocation for a target already held adds an entry', [['    if (kept1.some((x) => x.target === b.target)) return accept({ held })\n', '']]],
   ['tombstone-ignored', 'a replaced proposal can be resubmitted and made current again', [["    if (tombs.some((x) => x.record === r.id && x.signer === signer)) return refuse('replaced')\n", '']]],
   ['tombstones-unbounded', 'a root may replace its proposals without limit', [["    if (tombs.filter((x) => x.signer === signer).length >= TOMBSTONES) return refuse('quota')\n", '']]],
   ['tombstones-kept-for-ever', 'tombstones of an earlier prev are kept', [['const tombs = held.replaced.filter((x) => x.prev === b.prev)', 'const tombs = held.replaced']]],
-  ['quota-ignored', 'one root may file every revocation a head carries', [["    if (live.filter((x) => x.root === root).length >= QUOTA) return refuse('quota')\n", '']]],
-  ['quota-shared', "a root's quota counts every root's entries", [['live.filter((x) => x.root === root).length >= QUOTA', 'live.length >= QUOTA']]],
+  ['bucket-ignored', 'a root may file revocations without limit', [["    if (tokens.tokens < 1) return refuse('quota')\n", '']]],
+  ['per-root-shared', "a root's head entries count every root's", [['es.filter((x) => x.root === root).length >= PER_ROOT', 'es.length >= PER_ROOT']]],
   ['quota-self-uncounted', "a delegate's revocation of itself counts against no root", [['      root = named(delegation).body.root\n', '      root = undefined\n']]],
   ['losers-kept', 'proposals that lost a settled prev stay held', [["held = contested ? add(held, 'settlements', text) : purge(add(held, 'settlements', text), s.settled, s.membership)", "held = add(held, 'settlements', text)"]]],
   ['purge-winner', 'the settled record goes with the losers', [["return x.body.prev !== prev || x.id === outcome", 'return x.body.prev !== prev']]],
-  ['revocations-past-head', 'live revocations may outnumber what a head carries', [['if (live.length >= MAX_REVOKED)', 'if (live.length >= MAX_RECORDS)']]],
+  ['head-cap-off', 'head entries may outnumber what a head carries', [['if (es.length >= MAX_REVOKED ||', 'if (']]],
+  ['head-all-kept', 'the head carries every kept revocation, logged or not', [['headOf(s, now, entries(held, s, now).map((x) => x.target))', 'headOf(s, now, kept(held, now).map((x) => x.target))']]],
+  ['log-revoked', 'a revoked delegation is logged', [["    if (kept(held, now).some((x) => names(x, { delegation: r.id, subject: d.subject }))) return refuse('revoked')\n", '']]],
+  ['log-by-id-only', 'a delegation whose subject key is revoked is logged', [['names(x, { delegation: r.id, subject: d.subject })', 'x.target === r.id']]],
+  ['log-any-membership', 'a delegation under a membership not current is logged', [["    if (d.membership !== s.settled && d.membership !== s.membership) return refuse('membership')\n", '']]],
+  ['log-any-root', 'a delegation from a root without authority is logged', [["    if (!has(s.authority, d.root)) return refuse('authority')\n", "    if (!rootKeys(held).has(d.root)) return refuse('authority')\n"]]],
+  ['log-unverified', 'a delegation is logged without being verified at now', [['    if (!c.ok) return c\n', '']]],
+  ['log-twice', 'a delegation already logged is signed again', [['    if (known !== undefined) return accept({ held, logged: known.text, fresh: false })\n', '']]],
+  ['live-past-expiry', 'a logged delegation counts as live after it expires', [['held.logged.filter((l) => now < l.exp + skew &&', 'held.logged.filter((l) =>']]],
+  ['live-without-authority', "a logged delegation counts as live after its root loses authority", [['    has(s.authority, l.root))', '    true)']]],
+  ['live-any-membership', 'a logged delegation counts as live under a membership no longer current', [['now < l.exp + skew && (l.membership === s.settled || l.membership === s.membership) &&', 'now < l.exp + skew &&']]],
+  ['bucket-unrefilled', 'a bucket never refills', [['const days = Math.max(0, Math.floor((now - b.at) / DAY))', 'const days = 0']]],
+  ['bucket-unbounded', 'a bucket saves up without limit', [['tokens: Math.min(BURST, b.tokens + days)', 'tokens: b.tokens + days']]],
+  ['bucket-backwards', 'a clock that steps back refills the bucket', [['Math.max(0, Math.floor((now - b.at) / DAY))', 'Math.abs(Math.floor((now - b.at) / DAY))']]],
 ]
 
 function run (dir) {
@@ -128,7 +141,7 @@ test('witness broken twins', { timeout: 1_800_000 }, async (t) => {
       assert.ok(r.pass >= 25, `control: only ${r.pass} tests ran`)
     })
     const jobs = TWINS.map(([name, why, edits, file]) => [name, why, generate(name, edits, file)])
-    assert.equal(jobs.length, 59, 'twin count')
+    assert.equal(jobs.length, 72, 'twin count')
     const results = []
     const queue = [...jobs]
     const workers = Math.max(1, Math.floor(availableParallelism() / 4))

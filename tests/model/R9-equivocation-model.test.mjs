@@ -128,9 +128,15 @@ const signed = (h) => once(`h ${key(h)}`, () => {
     authority: h.authority.map(rootId).sort(), revoked: [], at: NOW - 100 + h.at })
   return envelope.wrap(payload, { signature: hex(ed25519.sign(envelope.signedBytes(payload), W)), witness: hex(ed25519.getPublicKey(W)) })
 })
+// R10: the witness's logged record of a delegation.
+const loggedOf = (text) => once(`l ${text}`, () => {
+  const { payload } = envelope.seal('logged', { identity: I, delegation: envelope.open(text, 'delegation').id, at: NOW - 100 })
+  return envelope.wrap(payload, { signature: hex(ed25519.sign(envelope.signedBytes(payload), W)), witness: hex(ed25519.getPublicKey(W)) })
+})
 function verify (last, h) {
   const letter = h.authority[0]
-  const r = v.verifyDelegation({ delegation: delegationFor(idOf(h.memberships[0]), letter), root: rootText(letter), head: signed(h) },
+  const delegation = delegationFor(idOf(h.memberships[0]), letter)
+  const r = v.verifyDelegation({ delegation, root: rootText(letter), head: signed(h), logged: loggedOf(delegation) },
     { now: NOW, scope: 'post', revoked: [], lastHead: signed(last) })
   return r.ok ? 'ok' : r.reason
 }

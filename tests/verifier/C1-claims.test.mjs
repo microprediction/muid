@@ -29,6 +29,8 @@ const delegation = envelope.wrap(del.payload, { root: make({ covers: [del.id] })
   subject: hex(ed25519.sign(Buffer.concat([Buffer.from('muid/v1/accept\n'), Buffer.from(del.id, 'hex')]), APP)) })
 const h = envelope.seal('head', { identity: IDENTITY, epoch: 1, memberships: [IDENTITY], authority: [ROOT], revoked: [], at: NOW - 100 })
 const head = envelope.wrap(h.payload, { signature: hex(ed25519.sign(envelope.signedBytes(h.payload), W)), witness: WITNESS })
+const lg = envelope.seal('logged', { identity: IDENTITY, delegation: del.id, at: NOW - 100 })
+const logged = envelope.wrap(lg.payload, { signature: hex(ed25519.sign(envelope.signedBytes(lg.payload), W)), witness: WITNESS })
 
 function claim (over = {}, { secret = APP, sig } = {}) {
   const b = { delegation: del.id, scope: 'post', htm: 'POST', htu: URL_, at: NOW - 5, data: { text: 'hello' }, ...over }
@@ -39,13 +41,13 @@ function claim (over = {}, { secret = APP, sig } = {}) {
 const C = claim()
 const CALL = Object.freeze({ now: NOW, scope: 'post', method: 'POST', url: URL_, revoked: [] })
 const call = (records = {}, ctx = {}) => {
-  const r = v.verifyClaim({ claim: C.text, delegation, root, head, ...records }, { ...CALL, ...ctx })
+  const r = v.verifyClaim({ claim: C.text, delegation, root, head, logged, ...records }, { ...CALL, ...ctx })
   return r.ok ? { ok: true } : { ...r }
 }
 const refused = (reason) => ({ ok: false, reason })
 
 test('a claim under a valid delegation is accepted, with its id, body and the delegation', () => {
-  const r = v.verifyClaim({ claim: C.text, delegation, root, head }, CALL)
+  const r = v.verifyClaim({ claim: C.text, delegation, root, head, logged }, CALL)
   assert.equal(r.ok, true, JSON.stringify(r))
   assert.equal(r.id, C.id)
   assert.equal(r.body.data.text, 'hello')
@@ -132,7 +134,7 @@ test('the request is checked in order: method, url, nonce, digest; all before th
 test('revocations by subject key in the call apply to claims and delegations', () => {
   const subject = hex(ed25519.getPublicKey(APP))
   assert.deepEqual(call({}, { revoked: [subject] }), refused('revoked'))
-  const r = v.verifyDelegation({ delegation, root, head }, { now: NOW, scope: 'post', revoked: [subject] })
+  const r = v.verifyDelegation({ delegation, root, head, logged }, { now: NOW, scope: 'post', revoked: [subject] })
   assert.deepEqual({ ...r }, refused('revoked'))
 })
 
@@ -160,7 +162,7 @@ test('claim-delegation: a claim names the delegation it is made under', () => {
 })
 
 test('until: the claim verifies before it and is refused from it on, so a store that drops the id at until is enough', () => {
-  const { until } = v.verifyClaim({ claim: C.text, delegation, root, head }, CALL)
+  const { until } = v.verifyClaim({ claim: C.text, delegation, root, head, logged }, CALL)
   assert.deepEqual(call({}, { now: until - 1 }), { ok: true })
   assert.deepEqual(call({}, { now: until }), refused('claim-time'))
 })
@@ -185,9 +187,9 @@ test('programming errors and totality', () => {
   for (const c of [{ now: NOW }, { ...CALL, scope: undefined }, { ...CALL, method: undefined }, { ...CALL, method: 'post' }, { ...CALL, method: '' },
     { ...CALL, url: undefined }, { ...CALL, url: 1 }, { ...CALL, nonce: '' }, { ...CALL, nonce: 'a b' }, { ...CALL, nonce: 1 },
     { ...CALL, contentDigest: '07'.repeat(32) }, { ...CALL, contentDigest: null }]) {
-    assert.throws(() => v.verifyClaim({ claim: C.text, delegation, root, head }, c), { name: 'TypeError' })
+    assert.throws(() => v.verifyClaim({ claim: C.text, delegation, root, head, logged }, c), { name: 'TypeError' })
   }
-  for (const x of [undefined, null, 1, {}, []]) assert.equal(v.verifyClaim({ claim: x, delegation, root, head }, CALL).ok, false)
+  for (const x of [undefined, null, 1, {}, []]) assert.equal(v.verifyClaim({ claim: x, delegation, root, head, logged }, CALL).ok, false)
   const hostile = new Proxy({}, { get () { throw new Error('trap') } })
   assert.deepEqual({ ...v.verifyClaim(hostile, CALL) }, { ok: false, reason: 'envelope-encoding' })
 })
@@ -196,6 +198,6 @@ test('a foreign error opening the claim (patched built-ins in the hash library) 
   const original = Uint8Array.prototype.fill
   Uint8Array.prototype.fill = function () { throw new Error('patched') }
   let out
-  try { out = { ...v.verifyClaim({ claim: C.text, delegation, root, head }, CALL) } } catch (e) { out = { threw: String(e) } } finally { Uint8Array.prototype.fill = original }
+  try { out = { ...v.verifyClaim({ claim: C.text, delegation, root, head, logged }, CALL) } } catch (e) { out = { threw: String(e) } } finally { Uint8Array.prototype.fill = original }
   assert.deepEqual(out, { ok: false, reason: 'envelope-encoding' })
 })

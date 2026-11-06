@@ -2,9 +2,20 @@
 // store that serialises each identity's changes and a log every signed record is appended to before it is kept.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { ed25519 } from '@noble/curves/ed25519.js'
 import { envelope } from '../impl.mjs'
+import { make } from '../assertion/helpers.mjs'
+import { secretOf } from '../membership/translate.mjs'
 import { witnessService, memoryHoldings, memoryLog } from './impl.mjs'
-import { w, IDENTITY, BASE, WINDOW, M2, mBody, mId, signed, rootText } from './fixtures.mjs'
+import { w, IDENTITY, BASE, WINDOW, M2, mBody, mId, signed, rootText, rootId } from './fixtures.mjs'
+
+const hex = (b) => Buffer.from(b).toString('hex')
+// A delegation from root a to an app's key, valid from BASE - 10 for an hour.
+const APP = Uint8Array.from({ length: 32 }, (_, i) => 60 + i)
+const del = envelope.seal('delegation', { identity: IDENTITY, membership: IDENTITY, root: rootId('a'), subject: hex(ed25519.getPublicKey(APP)),
+  aud: 'https://app.example', scopes: ['post'], nbf: BASE - 10, exp: BASE + 3600 })
+const DELEGATION = envelope.wrap(del.payload, { root: make({ covers: [del.id], secret: secretOf('a') }),
+  subject: hex(ed25519.sign(Buffer.concat([Buffer.from('muid/v1/accept\n'), Buffer.from(del.id, 'hex')]), APP)) })
 
 const URL_ = 'https://witness.example'
 function setup ({ log = memoryLog(), holdings = memoryHoldings(), headInterval = 60 } = {}) {
@@ -114,11 +125,12 @@ test('heads: signed when asked, reused within headInterval while nothing changes
   s.at(BASE + 60)
   const h2 = (await s.call('GET', `/v1/identities/${IDENTITY}/head`)).body.head
   assert.equal(bodyOf(h2, 'head').at, BASE + 60)
-  // A change makes the next head fresh, even inside the interval.
-  await s.call('POST', '/v1/revocations', { identity: IDENTITY, text: signed('revocation', { identity: IDENTITY, target: 'd'.repeat(64), at: BASE }, 'a') })
+  // A change makes the next head fresh, even inside the interval: logging a delegation, then revoking it.
+  const logged = (await s.call('POST', '/v1/delegations', { identity: IDENTITY, text: DELEGATION })).body.logged
+  await s.call('POST', '/v1/revocations', { identity: IDENTITY, text: signed('revocation', { identity: IDENTITY, target: del.id, at: BASE }, 'a') })
   const h3 = (await s.call('GET', `/v1/identities/${IDENTITY}/head`)).body.head
-  assert.deepEqual(Array.from(bodyOf(h3, 'head').revoked), ['d'.repeat(64)])
-  assert.deepEqual(s.log.entries(), [h1, h2, h3])
+  assert.deepEqual(Array.from(bodyOf(h3, 'head').revoked), [del.id])
+  assert.deepEqual(s.log.entries(), [h1, h2, logged, h3])
   // Frozen: no head can be signed.
   await s.submit('freeze', signed('freeze', { identity: IDENTITY, membership: IDENTITY }, 'a'))
   assert.deepEqual((await s.call('GET', `/v1/identities/${IDENTITY}/head`)), { status: 409, body: { ok: false, reason: 'no-head' }, type: 'application/json' })
@@ -221,4 +233,25 @@ test('configuration is checked at construction', () => {
     assert.throws(() => witnessService({ ...ok, ...bad }), { name: 'TypeError', message: /^service configuration/ }, JSON.stringify(bad))
   }
   assert.doesNotThrow(() => witnessService({ ...ok, headInterval: 0 }))
+})
+
+test('delegations: logged through their own endpoint, the logged record appended once; refusals as 422', async () => {
+  const s = setup()
+  await s.submit('root', rootText('a'))
+  const r = await s.call('POST', '/v1/delegations', { identity: IDENTITY, text: DELEGATION })
+  assert.equal(r.status, 200)
+  assert.deepEqual(Object.keys(r.body), ['ok', 'signed', 'logged'])
+  assert.deepEqual(r.body.signed, [r.body.logged])
+  assert.deepEqual({ ...bodyOf(r.body.logged, 'logged') }, { at: BASE, delegation: del.id, identity: IDENTITY })
+  assert.deepEqual(s.log.entries(), [r.body.logged])
+  // Again: the same record, nothing new appended.
+  s.at(BASE + 5)
+  assert.deepEqual((await s.call('POST', '/v1/delegations', { identity: IDENTITY, text: DELEGATION })).body, { ok: true, signed: [], logged: r.body.logged })
+  assert.equal(s.log.entries().length, 1)
+  // Revoked: never logged again; refusals are 422 with the witness's reason.
+  const other = await s.call('POST', '/v1/delegations', { identity: IDENTITY, text: 'x' })
+  assert.deepEqual({ status: other.status, body: other.body }, { status: 422, body: { ok: false, reason: 'envelope-encoding' } })
+  const unknown = await s.call('POST', '/v1/delegations', { identity: 'f'.repeat(64), text: DELEGATION })
+  assert.deepEqual(unknown.body, { ok: false, reason: 'identity' })
+  assert.deepEqual((await s.call('GET', '/v1/delegations')).status, 405)
 })

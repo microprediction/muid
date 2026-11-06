@@ -21,8 +21,8 @@ function readCall (call) {
 // The presented records, each read once: what is verified is what is remembered. Undefined if reading throws.
 function readGiven (given) {
   try {
-    const { claim, delegation, root, head } = given // null and undefined throw; a primitive gives no fields
-    return { claim, delegation, root, head }
+    const { claim, delegation, root, head, logged } = given // null and undefined throw; a primitive gives no fields
+    return { claim, delegation, root, head, logged }
   } catch { /* refused by the verifier */ }
   return undefined
 }

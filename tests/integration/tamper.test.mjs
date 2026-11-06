@@ -29,7 +29,9 @@ const head = envelope.wrap(h.payload, { signature: hex(ed25519.sign(envelope.sig
 const c = envelope.seal('claim', { delegation: del.id, scope: 'post', htm: 'POST', htu: URL_, at: NOW - 5, data: { n: 1 } })
 const claim = envelope.wrap(c.payload, { signature: hex(ed25519.sign(envelope.signedBytes(c.payload), APP)) })
 
-const RECORDS = Object.freeze({ claim, delegation, root, head })
+const l = envelope.seal('logged', { identity: IDENTITY, delegation: del.id, at: NOW - 100 })
+const logged = envelope.wrap(l.payload, { signature: hex(ed25519.sign(envelope.signedBytes(l.payload), W)), witness: WITNESS })
+const RECORDS = Object.freeze({ claim, delegation, root, head, logged })
 const CALL = Object.freeze({ now: NOW, scope: 'post', method: 'POST', url: URL_, revoked: [] })
 
 // Two replacements that differ from the original and from each other, so each position meets a character of another
@@ -54,7 +56,7 @@ test('the untampered records verify', () => {
   assert.equal(v.verifyDelegation(RECORDS, CALL).ok, true)
 })
 
-for (const name of ['claim', 'delegation', 'root', 'head']) {
+for (const name of ['claim', 'delegation', 'root', 'head', 'logged']) {
   test(`every one-character change to the ${name} is refused`, () => {
     const all = variants(RECORDS[name])
     let accepted = 0

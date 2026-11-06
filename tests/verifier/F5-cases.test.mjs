@@ -38,14 +38,23 @@ function headText (over = {}, { secret = W, witness = WITNESS, type = 'head' } =
 }
 
 const D = delegationText()
+// R10: the witness's logged record of a delegation, at the head's time (so every window that holds the head holds it).
+function loggedText (id, { secret = W, at = NOW - 100 } = {}) {
+  const { payload } = envelope.seal('logged', { identity: IDENTITY, delegation: id, at })
+  return envelope.wrap(payload, { signature: hex(ed25519.sign(envelope.signedBytes(payload), secret)), witness: hex(ed25519.getPublicKey(secret)) })
+}
+const LOGGED = loggedText(D.id)
+// The logged record of whichever delegation is presented (none for one that does not open).
+const loggedOf = (text) => { try { return loggedText(envelope.open(text, 'delegation').id) } catch { return undefined } }
 const call = (over = {}, ctx = {}) => {
-  const r = v.verifyDelegation({ delegation: D.text, root: rootText, head: headText(), ...over }, { now: NOW, scope: 'post', revoked: [], ...ctx })
+  const logged = over.delegation === undefined ? LOGGED : loggedOf(over.delegation)
+  const r = v.verifyDelegation({ delegation: D.text, root: rootText, logged, head: headText(), ...over }, { now: NOW, scope: 'post', revoked: [], ...ctx })
   return r.ok ? { ok: true } : { ...r }
 }
 const refused = (reason) => ({ ok: false, reason })
 
 test('the base case is accepted, with the delegation id and body', () => {
-  const r = v.verifyDelegation({ delegation: D.text, root: rootText, head: headText() }, { now: NOW, scope: 'post', revoked: [] })
+  const r = v.verifyDelegation({ delegation: D.text, root: rootText, logged: LOGGED, head: headText() }, { now: NOW, scope: 'post', revoked: [] })
   assert.equal(r.ok, true, JSON.stringify(r))
   assert.equal(r.id, D.id)
   assert.equal(r.body.root, ROOT)
@@ -98,10 +107,10 @@ test('head: wrong type, wrong form, unpinned or out-of-window witness', () => {
   assert.deepEqual(call({ head: headText({ epoch: 2 ** 32 - 1, memberships: ['5'.repeat(64)] }) }), refused('membership'),
     'epoch 2^32 - 1 is a head\'s epoch')
   const edge = verifier({ ...CONFIG, witnessKeys: [{ key: WITNESS, nbf: 0, exp: NOW - 100 }] })
-  const e = edge.verifyDelegation({ delegation: D.text, root: rootText, head: headText() }, { now: NOW, scope: 'post', revoked: [] })
+  const e = edge.verifyDelegation({ delegation: D.text, root: rootText, logged: LOGGED, head: headText() }, { now: NOW, scope: 'post', revoked: [] })
   assert.deepEqual({ ...e }, refused('head'), 'the key\'s window ends at the head\'s at')
   const window = verifier({ ...CONFIG, witnessKeys: [{ key: WITNESS, nbf: NOW, exp: NOW + 10 }] })
-  const r = window.verifyDelegation({ delegation: D.text, root: rootText, head: headText() }, { now: NOW, scope: 'post', revoked: [] })
+  const r = window.verifyDelegation({ delegation: D.text, root: rootText, logged: LOGGED, head: headText() }, { now: NOW, scope: 'post', revoked: [] })
   assert.deepEqual({ ...r }, refused('head'), 'the key\'s window does not hold the head\'s at')
 })
 
@@ -149,16 +158,16 @@ test('minHeadAt: a relying party that has seen a newer head refuses older ones (
 
 test('the witness key must still be pinned and in its window now, not only at the head\'s at', () => {
   const retired = verifier({ ...CONFIG, witnessKeys: [{ key: WITNESS, nbf: 0, exp: NOW - 50 }] })
-  const r = retired.verifyDelegation({ delegation: D.text, root: rootText, head: headText() }, { now: NOW, scope: 'post', revoked: [] })
+  const r = retired.verifyDelegation({ delegation: D.text, root: rootText, logged: LOGGED, head: headText() }, { now: NOW, scope: 'post', revoked: [] })
   assert.deepEqual({ ...r }, refused('head'))
   const endsNow = verifier({ ...CONFIG, witnessKeys: [{ key: WITNESS, nbf: 0, exp: NOW }] })
-  assert.deepEqual({ ...endsNow.verifyDelegation({ delegation: D.text, root: rootText, head: headText() }, { now: NOW, scope: 'post', revoked: [] }) },
+  assert.deepEqual({ ...endsNow.verifyDelegation({ delegation: D.text, root: rootText, logged: LOGGED, head: headText() }, { now: NOW, scope: 'post', revoked: [] }) },
     refused('head'), 'a window ending at now does not hold now')
   const early = verifier({ ...CONFIG, witnessKeys: [{ key: WITNESS, nbf: 0, exp: NOW + 30 }] })
-  assert.deepEqual({ ...early.verifyDelegation({ delegation: D.text, root: rootText, head: headText({ at: NOW + 50 }) }, { now: NOW, scope: 'post', revoked: [] }) },
+  assert.deepEqual({ ...early.verifyDelegation({ delegation: D.text, root: rootText, logged: LOGGED, head: headText({ at: NOW + 50 }) }, { now: NOW, scope: 'post', revoked: [] }) },
     refused('head'), 'a head dated after its key\'s window, within skew')
   const late = verifier({ ...CONFIG, witnessKeys: [{ key: WITNESS, nbf: NOW + 10, exp: NOW + 1000 }] })
-  assert.deepEqual({ ...late.verifyDelegation({ delegation: D.text, root: rootText, head: headText({ at: NOW + 50 }) }, { now: NOW, scope: 'post', revoked: [] }) },
+  assert.deepEqual({ ...late.verifyDelegation({ delegation: D.text, root: rootText, logged: LOGGED, head: headText({ at: NOW + 50 }) }, { now: NOW, scope: 'post', revoked: [] }) },
     refused('head'), 'a head dated within skew, but its key not yet valid now')
 })
 
@@ -188,7 +197,7 @@ test('programming errors: configuration, now, scope, revoked', () => {
     { now: NOW, scope: 'post!', revoked: [] }, { now: NOW, scope: ['post'], revoked: [] },
     { now: NOW, scope: 'post', revoked: 'x' }, { now: NOW, scope: 'post' }, { now: NOW, scope: 'post', revoked: [D.id.toUpperCase()] },
     { now: NOW, scope: 'post', revoked: [1] }, { now: NOW, scope: 'post', revoked: [D.id + '\n'] }, { now: NOW, scope: 'post', revoked: [], minHeadAt: -1 }]) {
-    assert.throws(() => v.verifyDelegation({ delegation: D.text, root: rootText, head: headText() }, ctx),
+    assert.throws(() => v.verifyDelegation({ delegation: D.text, root: rootText, logged: LOGGED, head: headText() }, ctx),
       { name: 'TypeError', message: 'call must hold now, a scope and a revoked list' })
   }
 })
@@ -199,14 +208,14 @@ test('the verifier is frozen; the configuration is copied at construction', () =
   config.audience = 'https://evil.example'
   config.witnessKeys[0] = { key: '0'.repeat(64), nbf: 0, exp: 1 }
   assert.ok(Object.isFrozen(w))
-  const r = w.verifyDelegation({ delegation: D.text, root: rootText, head: headText() }, { now: NOW, scope: 'post', revoked: [] })
+  const r = w.verifyDelegation({ delegation: D.text, root: rootText, logged: LOGGED, head: headText() }, { now: NOW, scope: 'post', revoked: [] })
   assert.equal(r.ok, true)
 })
 
 test('arbitrary records never throw', () => {
   for (const x of [undefined, null, 1, {}, [], 'x']) {
     for (const k of ['delegation', 'root', 'head']) {
-      const r = v.verifyDelegation({ delegation: D.text, root: rootText, head: headText(), [k]: x }, { now: NOW, scope: 'post', revoked: [] })
+      const r = v.verifyDelegation({ delegation: D.text, root: rootText, logged: LOGGED, head: headText(), [k]: x }, { now: NOW, scope: 'post', revoked: [] })
       assert.ok(Object.isFrozen(r) && r.ok === false)
     }
   }

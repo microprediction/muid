@@ -19,6 +19,7 @@ const { isRefusal } = EnvelopeError
 const ID = /^[0-9a-f]{64}$/
 const SCOPE = /^[a-z][a-z0-9_.:-]{0,63}$/
 const HEAD_KEYS = freeze(['at', 'authority', 'epoch', 'identity', 'memberships', 'revoked'])
+const LOGGED_KEYS = freeze(['at', 'delegation', 'identity'])
 const MAX_REVOKED = 64
 const isId = (x) => typeof x === 'string' && apply(exec, ID, [x]) !== null
 const isTime = (x) => isSafeInteger(x) && x >= 0
@@ -57,18 +58,32 @@ function allIds (list) {
   return freeze(out)
 }
 
-// R9: the head's body if it is a head of its form, signed by a pinned witness key whose window holds its `at` and now
-// (its `at` alone when `now` is undefined, as for a relying party's last head: undefined compares false either way).
-function headBody (text, cfg, now) {
+// A record of `type` whose body's keys are among `keys`, in their order (the decoder gives them sorted), or undefined.
+function shaped (text, type, keys) {
   let r
   try {
-    r = open(text, 'head')
+    r = open(text, type)
   } catch {
     return undefined
   }
-  const b = r.body
   let i = 0
-  for (const k in b) if (k !== HEAD_KEYS[i++]) return undefined
+  for (const k in r.body) if (k !== keys[i++]) return undefined
+  return r
+}
+
+// R10: the logged record's body if it is of its form, signed by a pinned witness key whose window holds its `at`.
+function loggedBody (text, cfg) {
+  const r = shaped(text, 'logged', LOGGED_KEYS)
+  if (r === undefined || !isWitnessSig(r.sig) || witnessReason(r.sig, r.payload, cfg.keys, r.body.at, r.body.at + 1) !== undefined) return undefined
+  return r.body
+}
+
+// R9: the head's body if it is a head of its form, signed by a pinned witness key whose window holds its `at` and now
+// (its `at` alone when `now` is undefined, as for a relying party's last head: undefined compares false either way).
+function headBody (text, cfg, now) {
+  const r = shaped(text, 'head', HEAD_KEYS)
+  if (r === undefined) return undefined
+  const b = r.body
   if (!isId(b.identity) || !ids(b.memberships, 1, 2, false) || !ids(b.authority, 1, 5, true) || !isTime(b.at) ||
     !ids(b.revoked, 0, MAX_REVOKED, true) || !(isTime(b.epoch) && b.epoch > 0 && b.epoch < 2 ** 32) ||
     (b.epoch === 1) !== (b.memberships[0] === b.identity) || b.memberships[1] === b.identity) return undefined
@@ -128,8 +143,8 @@ function forked (l, h) {
 // The fields of `records`, each read once; undefined if they cannot be read.
 function readRecords (records) {
   try {
-    const { claim, delegation, root, head } = records // a primitive gives undefined fields; null and undefined throw
-    return { claim, delegation, root, head }
+    const { claim, delegation, root, head, logged } = records // a primitive gives undefined fields; null and undefined throw
+    return { claim, delegation, root, head, logged }
   } catch { /* reported by the caller */ }
   return undefined
 }
@@ -170,6 +185,8 @@ export function verifier (config) {
     const n = revoked.length
     // Stryker disable next-line EqualityOperator: equivalent; one more step reads undefined, never an id
     for (let i = 0; i < n; i++) if (revoked[i] === d.id || revoked[i] === b.subject) return refuse('revoked')
+    const l = loggedBody(given.logged, cfg)
+    if (l === undefined || l.identity !== b.identity || l.delegation !== d.id) return refuse('logged')
     if (b.aud !== cfg.audience) return refuse('audience')
     if (!has(b.scopes, scope)) return refuse('scope')
     return d

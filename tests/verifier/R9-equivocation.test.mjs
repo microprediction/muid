@@ -38,6 +38,11 @@ function delegation (membership) {
   return envelope.wrap(payload, { root: make({ covers: [id] }), subject })
 }
 const DEL = { [I]: delegation(I), [P]: delegation(P), [Q]: delegation(Q), [R]: delegation(R) }
+// R10: each delegation's logged record, signed by the current witness key.
+function loggedOf (text) {
+  const { payload } = envelope.seal('logged', { identity: I, delegation: envelope.open(text, 'delegation').id, at: NOW - 10 })
+  return envelope.wrap(payload, { signature: hex(ed25519.sign(envelope.signedBytes(payload), NEW)), witness: key(NEW) })
+}
 
 function head (epoch, memberships, at, { secret = at < NOW - 20 ? OLD : NEW, identity = I, authority = [ROOT] } = {}) {
   const { payload } = envelope.seal('head', { identity, epoch, memberships, authority, revoked: [], at })
@@ -47,7 +52,7 @@ function head (epoch, memberships, at, { secret = at < NOW - 20 ? OLD : NEW, ide
 // The head presented, under a delegation whose membership it carries, with or without the relying party's last head.
 function verify (presented, lastHead, membership) {
   const call = { now: NOW, scope: 'post', revoked: [], ...(lastHead === undefined ? {} : { lastHead }) }
-  const r = v.verifyDelegation({ delegation: DEL[membership], root: rootText, head: presented }, call)
+  const r = v.verifyDelegation({ delegation: DEL[membership], root: rootText, head: presented, logged: loggedOf(DEL[membership]) }, call)
   return r.ok ? { ok: true } : { ...r }
 }
 const refused = (reason) => ({ ok: false, reason })
