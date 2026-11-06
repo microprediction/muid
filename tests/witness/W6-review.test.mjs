@@ -34,9 +34,17 @@ test('one envelope per record and signer: others for the same record are accepte
 test("one proposal per root and prev: a root's later proposal replaces its earlier one, so a stolen root cannot fill the list", () => {
   const { M, held } = settledABC()
   let h = held
-  // The thief holds c, and proposes 40 changes (each admitted; the list does not grow).
-  for (let i = 0; i < 40; i++) h = w.admit(h, 'membership', signed('membership', { ...mBody(3, ['c'], mId(M)), roots: [rootId('c'), junk(i)].sort() }, 'c')).held
+  // The thief holds c, and proposes 40 changes: the first 17 are admitted (16 replacements), the rest refused; the
+  // list does not grow.
+  const reasons = []
+  for (let i = 0; i < 40; i++) {
+    const r = w.admit(h, 'membership', signed('membership', { ...mBody(3, ['c'], mId(M)), roots: [rootId('c'), junk(i)].sort() }, 'c'))
+    reasons[i] = refused(r)
+    if (r.ok) h = r.held
+  }
+  assert.deepEqual(reasons, [...Array(17).fill('accepted'), ...Array(23).fill('quota')])
   assert.equal(h.memberships.length, held.memberships.length + 1, "only the thief's last proposal is held")
+  assert.equal(h.replaced.length, 16)
   // The owner's recovery, by a and b, is admitted and anchored; c's lone proposal is not.
   const R = mBody(3, ['a', 'b'], mId(M))
   h = admitAll(h, [['membership', signed('membership', R, 'a')], ['membership', signed('membership', R, 'b')]])
@@ -134,4 +142,50 @@ test('W0, as SPEC states it: one assertion cannot propose a successor and contes
   const withContest = admitAll(pending, [['contest', covering('contest', { identity: IDENTITY, record: mId(M2) }, 'a', [mId(M3)])]])
   assert.equal(refused(w.admit(withContest, 'membership', covering('membership', M3, 'a', [contestId(mId(M2))]))), 'covers')
   assert.equal(w.admit(withContest, 'membership', signed('membership', M3, 'b')).ok, true, "b's own assertion is not shared")
+})
+
+// Found by review (round 9): replacement went by arrival, so anyone holding a withdrawn proposal could resubmit it and
+// make it current again. A replaced (record, signer) is kept as a tombstone and its resubmission refused, until the
+// identity moves past that prev; each root holds at most 16 per prev, past which its replacements are refused.
+test("a replaced proposal cannot be resubmitted: a root's withdrawn signature stays withdrawn", () => {
+  const { M, held } = settledABC()
+  const R = mBody(3, ['a', 'b'], mId(M))
+  const S = mBody(3, ['a'], mId(M))
+  const aR = signed('membership', R, 'a')
+  // a proposes R, then withdraws it by proposing S.
+  let h = admitAll(held, [['membership', aR], ['membership', signed('membership', S, 'a')]])
+  assert.deepEqual(Array.from(h.replaced, (x) => [x.record, x.signer, x.prev]), [[mId(R), rootId('a'), mId(M)]])
+  // Anyone holding a's envelope for R (or another envelope of a's for R) cannot bring it back.
+  assert.equal(refused(w.admit(h, 'membership', aR)), 'replaced')
+  assert.equal(refused(w.admit(h, 'membership', covering('membership', R, 'a', [junk(1)]))), 'replaced')
+  // So b's signature on R alone is no majority: nothing is anchored.
+  h = admitAll(h, [['membership', signed('membership', R, 'b')]])
+  assert.deepEqual(w.advance(h, BASE + 2 * WINDOW).signed, [])
+  // Other roots' proposals, and a's current one, are unaffected.
+  assert.equal(w.admit(h, 'membership', signed('membership', S, 'a')).ok, true)
+  assert.equal(w.admit(h, 'membership', signed('membership', R, 'c')).ok, true)
+  // Once S settles (a and b sign it), tombstones for the old prev are dropped at the next admission.
+  h = admitAll(h, [['membership', signed('membership', S, 'b')]])
+  h = w.advance(w.advance(h, BASE + 2 * WINDOW).held, BASE + 3 * WINDOW).held
+  assert.equal(state(h).membership, mId(S))
+  // b's signature on S replaced its signature on R: two tombstones now.
+  assert.deepEqual(Array.from(h.replaced, (x) => x.signer), [rootId('a'), rootId('b')])
+  h = admitAll(h, [['membership', signed('membership', mBody(4, ['a', 'b'], mId(S)), 'a')]])
+  assert.deepEqual(h.replaced, [])
+})
+
+test('tombstones are per root and per prev: 16 replacements each, then refused; held tombstones of other roots stay', () => {
+  const { M, held } = settledABC()
+  const P = (i) => ({ ...mBody(3, ['a'], mId(M)), roots: [rootId('a'), junk(i)].sort() })
+  let h = held
+  for (let i = 0; i <= 16; i++) h = admitAll(h, [['membership', signed('membership', P(i), 'a')]])
+  assert.equal(h.replaced.length, 16)
+  assert.equal(refused(w.admit(h, 'membership', signed('membership', P(17), 'a'))), 'quota')
+  // b and c still have their own.
+  h = admitAll(h, [['membership', signed('membership', P(0), 'b')], ['membership', signed('membership', P(1), 'b')]])
+  assert.equal(h.replaced.length, 17)
+  assert.deepEqual(h.replaced.at(-1), { record: mId(P(0)), signer: rootId('b'), prev: mId(M) })
+  // a's current proposal is still held, and still counts.
+  assert.ok(h.memberships.includes(signed('membership', P(16), 'a')))
+  assert.equal(w.admit(h, 'membership', signed('membership', P(16), 'a')).ok, true)
 })

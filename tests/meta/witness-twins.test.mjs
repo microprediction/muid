@@ -39,8 +39,8 @@ const TWINS = [
   ['log-append-any-body', 'whatever the log answers is taken as an index', [['if (!res.ok || !/^(?:0|[1-9][0-9]*)$/.test(body))', 'if (!res.ok)']], 'log.js'],
   ['log-proof-order', 'the proof lists the sibling before the path below it', [['[...await path(m, a, a + k), await mth(a + k, b)]', '[await mth(a + k, b), ...await path(m, a, a + k)]']], 'log.js'],
   ['envelopes-per-signer', 'every envelope of one record by one root is held', [["    if (held[list].some((t) => { const x = open(t, type); return x.id === r.id && x.sig.root === signer })) return accept({ held })\n", '']]],
-  ['proposals-accumulate', "a root's later proposal is held beside its earlier one", [["return x.sig.root !== signer || x.body.prev !== b.prev })", 'return true })']]],
-  ['replaced-roots-kept', 'root records a replaced proposal named stay held', [['memberships, roots: kept })', 'memberships })']]],
+  ['proposals-accumulate', "a root's later proposal is held beside its earlier one", [["held.memberships.filter((t) => !mine(open(t, 'membership')))", 'held.memberships']]],
+  ['replaced-roots-kept', 'root records a replaced proposal named stay held', [['memberships, roots: kept, replaced })', 'memberships, replaced })']]],
   ['w0-pending-unchecked', "a successor's assertion may cover the pending record's contest", [[' || has(covers, contestOf(held.identity, b.prev))', '']]],
   ['w0-successor-unchecked', "a contest's assertion may cover a successor of the record it contests", [[" || held.memberships.some((t) => { const x = open(t, 'membership'); return x.body.prev === b.record && has(covers, x.id) })", '']]],
   ['covers-unchecked', 'one assertion may propose a change and contest it', [["    if (shared) return refuse('covers')\n", '']]],
@@ -68,6 +68,12 @@ const TWINS = [
   ['revocation-lapses-late', 'a lapsed revocation is carried at its expiry plus skew', [['(x) => x.until === null || now < x.until)', '(x) => x.until === null || now <= x.until)']]],
   ['revocation-any-delegation', 'any delegation sets when a revocation lapses', [["      if (d === undefined || d.id !== b.target) return refuse('delegation')\n", "      if (d === undefined) return refuse('delegation')\n"]]],
   ['revocation-duplicates', 'another revocation for a target already held adds an entry', [['    if (live.some((x) => x.target === b.target)) return accept({ held })\n', '']]],
+  ['tombstone-ignored', 'a replaced proposal can be resubmitted and made current again', [["    if (tombs.some((x) => x.record === r.id && x.signer === signer)) return refuse('replaced')\n", '']]],
+  ['tombstones-unbounded', 'a root may replace its proposals without limit', [["if (gone.length > 0 && tombs.filter((x) => x.signer === signer).length >= TOMBSTONES) return refuse('quota')", '']]],
+  ['tombstones-kept-for-ever', 'tombstones of an earlier prev are kept', [['const tombs = held.replaced.filter((x) => x.prev === b.prev)', 'const tombs = held.replaced']]],
+  ['quota-ignored', 'one root may file every revocation a head carries', [["    if (live.filter((x) => x.root === root).length >= QUOTA) return refuse('quota')\n", '']]],
+  ['quota-shared', "a root's quota counts every root's entries", [['live.filter((x) => x.root === root).length >= QUOTA', 'live.length >= QUOTA']]],
+  ['quota-self-uncounted', "a delegate's revocation of itself counts against no root", [['      root = named(delegation).body.root\n', '      root = undefined\n']]],
 ]
 
 function run (dir) {
@@ -118,7 +124,7 @@ test('witness broken twins', { timeout: 1_800_000 }, async (t) => {
       assert.ok(r.pass >= 25, `control: only ${r.pass} tests ran`)
     })
     const jobs = TWINS.map(([name, why, edits, file]) => [name, why, generate(name, edits, file)])
-    assert.equal(jobs.length, 50, 'twin count')
+    assert.equal(jobs.length, 56, 'twin count')
     const results = []
     const queue = [...jobs]
     const workers = Math.max(1, Math.floor(availableParallelism() / 4))

@@ -18,6 +18,10 @@ const { isSafeInteger } = Number
 const { isRefusal } = EnvelopeError
 
 const ID = /^[0-9a-f]{64}$/
+// Decision 12's quota: live revocations counted against one root (5 roots × 12 < the 64 a head carries).
+const QUOTA = 12
+// Tombstones a root may hold for one prev: its replaced proposals, whose resubmission is refused.
+const TOMBSTONES = 16
 // The record types anyone may submit, and the list each is held in (R8's grouping).
 const LISTS = freeze({ __proto__: null, root: 'roots', membership: 'memberships', contest: 'contests', freeze: 'freezes' })
 const SHAPES = freeze({
@@ -78,7 +82,7 @@ export function witness (config) {
   function empty (identity) {
     if (!isHex(ID, identity)) throw new TypeError('identity must be an id')
     const none = freeze([])
-    return freeze({ identity, roots: none, memberships: none, contests: none, freezes: none, anchors: none, settlements: none, revocations: none })
+    return freeze({ identity, roots: none, memberships: none, contests: none, freezes: none, anchors: none, settlements: none, revocations: none, replaced: none })
   }
 
   // R8's admission: { ok, held } with the record added (or already held), or a refusal; the holding is not changed.
@@ -132,11 +136,18 @@ export function witness (config) {
     if (type !== 'membership') return accept({ held: add(held, list, text) })
     // One proposal per root and prev: a root's later proposal replaces its earlier one, so no root can fill the list;
     // root records only a replaced proposal named go with it (the first root, and every held record's roots, stay).
-    const others = held.memberships.filter((t) => { const x = open(t, 'membership'); return x.sig.root !== signer || x.body.prev !== b.prev })
-    const memberships = freeze([...others, text])
+    // A replaced (record, signer) is kept as a tombstone, so that no one holding the withdrawn envelope can bring it
+    // back; tombstones of an earlier prev are dropped, since a proposal for it is refused anyway.
+    const tombs = held.replaced.filter((x) => x.prev === b.prev)
+    if (tombs.some((x) => x.record === r.id && x.signer === signer)) return refuse('replaced')
+    const mine = (x) => x.sig.root === signer && x.body.prev === b.prev
+    const gone = held.memberships.map((t) => open(t, 'membership')).filter(mine)
+    if (gone.length > 0 && tombs.filter((x) => x.signer === signer).length >= TOMBSTONES) return refuse('quota')
+    const replaced = freeze([...tombs, ...gone.map((x) => freeze({ record: x.id, signer, prev: b.prev }))])
+    const memberships = freeze([...held.memberships.filter((t) => !mine(open(t, 'membership'))), text])
     const named = (id) => identityOf(id) === held.identity || memberships.some((t) => has(open(t, 'membership').body.roots, id))
     const kept = freeze(held.roots.filter((t) => named(checkRoot(t, { rpId }).id)))
-    return accept({ held: freeze({ ...held, memberships, roots: kept }) })
+    return accept({ held: freeze({ ...held, memberships, roots: kept, replaced }) })
   }
 
   // The id of the contest of membership record `record`: the same for every signer.
@@ -239,7 +250,9 @@ export function witness (config) {
 
   // R9's admission of a revocation `{ identity, target, at }`: signed by a root with authority, or by a delegate for
   // its own key, given with the delegation that makes it a delegate of this identity, so that no one else can add an
-  // entry (past 64, no head is signed). One entry per target; entries no longer kept are dropped.
+  // entry (past 64, no head is signed). One entry per target; entries no longer kept are dropped. Each entry counts
+  // against one root, the signer or the delegation's, and a root holds at most QUOTA, so one stolen root cannot
+  // fill the 64.
   function revoke (held, text, now, delegation) {
     if (!isTime(now)) throw new TypeError('now must be a non-negative integer')
     let r
@@ -259,9 +272,11 @@ export function witness (config) {
     const live = kept(held, now)
     if (live.some((x) => x.target === b.target)) return accept({ held })
     if (live.length >= MAX_RECORDS) return refuse('full')
+    let root = r.sig.root
     if (bySelf) {
       if (!delegates(held, s, delegation, now, b.target)) return refuse('delegation')
       if (!checkEd25519(r.sig.signature, signedBytes(r.payload), b.target).ok) return refuse('signature')
+      root = named(delegation).body.root
     } else {
       if (!has(s.authority, r.sig.root)) return refuse('signer')
       const k = rootKeys(held).get(r.sig.root)
@@ -274,7 +289,8 @@ export function witness (config) {
       if (d === undefined || d.id !== b.target) return refuse('delegation')
       until = d.body.exp + skew
     }
-    const entry = freeze({ text, target: b.target, until })
+    if (live.filter((x) => x.root === root).length >= QUOTA) return refuse('quota')
+    const entry = freeze({ text, target: b.target, until, root })
     return accept({ held: freeze({ ...held, revocations: freeze([...live, entry]) }) })
   }
 

@@ -141,10 +141,10 @@ test('form, identity and a dead identity', () => {
 })
 
 test('R9 fails closed: with more than 64 live revocations no head is signed; the list is capped at MAX_RECORDS', () => {
-  let h = start()
-  for (let i = 0; i < 65; i++) h = w.revoke(h, byRoot((i + 1).toString(16).padStart(64, '0')), NOW).held
-  assert.equal(h.revocations.length, 65)
-  assert.equal(w.head(h, NOW), undefined)
+  // Built directly: 65 live entries, spread over six roots (one root holds at most 12; past roots' entries stay).
+  const live = (n) => Array.from({ length: n }, (_, i) => Object.freeze({ text: `t${i}`, target: (i + 1).toString(16).padStart(64, '0'), until: null, root: `${i % 6}`.repeat(64) }))
+  assert.equal(w.head(Object.freeze({ ...start(), revocations: Object.freeze(live(65)) }), NOW), undefined)
+  assert.equal(revokedIn(Object.freeze({ ...start(), revocations: Object.freeze(live(64)) })).length, 64)
   // Built directly: 256 live entries.
   const entries = Array.from({ length: 256 }, (_, i) => Object.freeze({ text: `t${i}`, target: (i + 1).toString(16).padStart(64, '0'), until: null }))
   const full = Object.freeze({ ...start(), revocations: Object.freeze(entries) })
@@ -162,4 +162,46 @@ test('a foreign error opening a revocation (patched built-ins) is refused, never
   let out
   try { out = refused(w.revoke(s, text, NOW)) } catch (e) { out = 'threw ' + e } finally { Uint8Array.prototype.fill = original }
   assert.equal(out, 'envelope-encoding')
+})
+
+// Decision 12's quota: each live entry counts against one root — the root that signed it, or for a delegate's
+// revocation of itself, the root of its delegation — and a root holds at most 12, so one stolen root cannot fill the
+// 64 a head carries and stop heads for good.
+test('a root holds at most 12 live revocations, its own and its delegates\' together; lapsed ones do not count', () => {
+  const target = (i) => (i + 1).toString(16).padStart(64, '0')
+  let h = start()
+  for (let i = 0; i < 11; i++) h = w.revoke(h, byRoot(target(i)), NOW).held
+  assert.deepEqual(h.revocations.map((x) => x.root), Array(11).fill(rootId('a')))
+  // A delegate of a's revokes itself: the twelfth, counted against a.
+  h = w.revoke(h, bySelf(), NOW, delegation()).held
+  assert.equal(h.revocations.at(-1).root, rootId('a'))
+  assert.equal(refused(w.revoke(h, byRoot(target(20)), NOW)), 'quota')
+  const other = Uint8Array.from({ length: 32 }, (_, i) => 120 + i)
+  assert.equal(refused(w.revoke(h, bySelf(hex(ed25519.getPublicKey(other)), other), NOW, delegation({ subject: other }))), 'quota')
+  // A target already held is still accepted unchanged.
+  assert.equal(w.revoke(h, byRoot(target(0)), NOW).held, h)
+  // The head still carries all twelve.
+  assert.equal(revokedIn(h).length, 12)
+  // A root's revocation of a delegation id given with that delegation lapses with it, and then no longer counts.
+  const d = delegation({ exp: NOW + 100 })
+  let g = start()
+  for (let i = 0; i < 11; i++) g = w.revoke(g, byRoot(target(i)), NOW).held
+  g = w.revoke(g, byRoot(envelope.open(d, 'delegation').id), NOW, d).held
+  assert.equal(refused(w.revoke(g, byRoot(target(30)), NOW)), 'quota')
+  assert.equal(w.revoke(g, byRoot(target(30)), NOW + 100 + 60).ok, true)
+})
+
+test("one root's quota does not touch another's: b files its own 12 after a's", () => {
+  const now = BASE + WINDOW + 10
+  const settled = w.advance(w.advance(withM2(), BASE).held, BASE + WINDOW).held // {a, b} settled
+  const target = (i) => (i + 1).toString(16).padStart(64, '0')
+  let h = settled
+  for (let i = 0; i < 12; i++) h = w.revoke(h, byRoot(target(i), 'a', now), now).held
+  assert.equal(refused(w.revoke(h, byRoot(target(12), 'a', now), now)), 'quota')
+  for (let i = 12; i < 23; i++) h = w.revoke(h, byRoot(target(i), 'b', now), now).held
+  // b's delegate's self-revocation counts against b, not a.
+  h = w.revoke(h, bySelf(SUBJECT, APP, now), now, delegation({ membership: mId(M2), root: 'b', nbf: now - 10, exp: now + 3600 })).held
+  assert.equal(h.revocations.at(-1).root, rootId('b'))
+  assert.equal(refused(w.revoke(h, byRoot(target(40), 'b', now), now)), 'quota')
+  assert.equal(revokedIn(h, now).length, 24)
 })

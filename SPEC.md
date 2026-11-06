@@ -338,7 +338,9 @@ one envelope each, so its `sig` names the signer: `{ root, assertion }`, where `
   delegate can add more than one entry. `headOf(state, at, revoked)` builds the body from R8's result; it gives none
   for an entry that is not an id or for more than 64 distinct ones, reading no further than the 65th. A head that
   cannot carry every live revocation is not signed (fail closed); the owner then replaces roots or lets delegations
-  expire. The witness
+  expire. Each live entry counts against one root — the root that signed it, or the root of the delegate's
+  delegation — and the witness admits at most 12 per root (5 × 12 < 64), so one stolen root cannot fill a head
+  (decision 12). The witness
   signs no head for an identity that is dead or frozen or in which no root has authority, and a verifier accepts none
   older than `maxStaleness`, so a stolen retired root is refused whatever records it is shown.
 - **Head lag (residual):** a delegate chooses which head to present, so an anchored change, a freeze or a revocation
@@ -389,7 +391,12 @@ the network and the transparency log are the service's, and the signing key stay
   first root or named by a held membership record. Each signature is verified on admission. One envelope is held per
   record and signer (another, an assertion covering other records too, is accepted unchanged), and one proposal per
   root and `prev`: a root's later proposal replaces its earlier one, so no root can fill a list and block its owner
-  (review round 8); root records only a replaced proposal named go with it (round 9). W0 is applied: an assertion
+  (review round 8); root records only a replaced proposal named go with it (round 9). A replaced (record, signer) is
+  kept as a tombstone, and its resubmission refused (`replaced`), so no one holding a withdrawn envelope can make it
+  current again; a root holds at most 16 per `prev`, past which its replacements are refused (`quota`), and
+  tombstones of an earlier `prev` are dropped (round 9; a signed sequence number in membership records, as did:plc
+  operations and Safe transactions carry, is the planned replacement, since a tombstone also stops a root from
+  returning to a proposal it withdrew). W0 is applied: an assertion
   that covers both a membership record and its contest, or a successor of a pending record and that record's
   contest, is refused, either way round. A
   list at `MAX_RECORDS` refuses new ones (`full`), a backstop the rules above keep out of reach; nothing is admitted
@@ -406,7 +413,8 @@ the network and the transparency log are the service's, and the signing key stay
   head can be signed. One entry per target. An entry is kept for the life of the identity, except a root's
   revocation of a delegation id given with that delegation, kept until its `exp` plus `skew` (decision 12: a
   delegation can exist under a membership before it is anchored, W0, so no change of membership bounds what a
-  revocation can affect); entries that have lapsed are dropped at the next admission.
+  revocation can affect); entries that have lapsed are dropped at the next admission. A root already counted for 12
+  live entries is refused (`quota`).
 - `head(held, now)` signs `headOf` of the state with the kept revocations, or nothing where `headOf` gives nothing.
 - A `sign` that does not give a valid signature under the configured key is a fault, thrown, so nothing it signs is
   published.
