@@ -365,18 +365,20 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   successor gone or replaced, the next epoch settling another than the pending successor, one membership at two
   epochs, more or less authority over the same memberships, authority growing as a successor turns pending or shrinking as
   it settles alone, and two heads of one second inconsistent both ways round are `equivocation`; a head of the same
-  second that could honestly precede the last one is `stale`, as is an older head, even a consistent one; a last head of another identity is `identity`, never a throw; a last head signed by a key since retired
+  second that could honestly precede the last one is `stale` (including one without a revocation the last carried,
+  under the same memberships; across a membership change in that second, revocations imply no order), as is an older head, even a consistent one; a last head of another identity is `identity`, never a throw; a last head signed by a key since retired
   still works; a last head that is not a pinned head is a programming error. Over every pair of a pool of heads, a
   last head only removes trust (F3). Head form: `epoch` a positive integer, 1 exactly when the first membership is the
   identity.
 - **Equivocation against the model:** over every history the explorer reaches with an honest witness (two and three
   roots, epochs to 3, every move by an actor holding every root, and ticks; about 18,000 states), every head is
   consistent with every head signed before it on the same history (the rule restated over epochs and sets, apart from
-  the code), with every progression the rule distinguishes and changes of authority reached; stricter rules refuse
+  the code), with every progression the rule distinguishes, changes of authority, and (heads carrying R10's
+  revocations, one per live membership and root) a head of one second dropping a revocation reached; stricter rules refuse
   some honest pairs, so the check has teeth. Heads from diverging histories are refused in part. Through the real
   verifier, every distinct honest pair is accepted in order and is `stale` reversed (including pairs of one second),
   and 300 diverging pairs, some of one second, are `equivocation`.
-- **Logged (R10, `F7-logged.test.mjs`):** accepted with the witness's logged record naming the delegation; a signed logged record of the wrong form (an `at` that is an array, an object, a string, a boolean or negative; an identity or delegation that is not an id) refused as `logged`, never thrown on (found by the fuzz test); `logged`
+- **Logged (R10, `F7-logged.test.mjs`):** accepted with the witness's logged record naming the delegation; a logged record before its delegation's `nbf` less `skew`, or at its `exp`, refused, and the key window's edges tested under a delegation whose window holds them; a revocation (by id or subject key) in the last head refuses the delegation under a later head without it, another revoked does not (found by review); a signed logged record of the wrong form (an `at` that is an array, an object, a string, a boolean or negative; an identity or delegation that is not an id) refused as `logged`, never thrown on (found by the fuzz test); `logged`
   for none, a non-text, a non-envelope, a head, another delegation's or identity's record, an extra key, no time or a
   time that is not a number, an unpinned key, a forged signature, a time before or after the key's window (its first
   second counts); checked after `revoked` and before `audience`; read once.
@@ -404,7 +406,7 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   signature, scope, method, URL (or its origin, its form, or the query kept), nonce, digest or extra keys unchecked; subject keys in the call's revoked list ignored; membership, authority, identity,
   revocation (call's or head's), audience or scope unchecked; revocation by id only; the witness key's window checked
   at the head's time only; the head's signature unchecked; `until` one second early; equivocation unchecked; heads of one second taken as evidence in either
-  order; the settled or highest epoch allowed to fall; ids not tied to epochs, or tied only within one epoch;
+  order; heads of one second ordered by their revocations across a membership change, or not ordered by them at all; the settled or highest epoch allowed to fall; ids not tied to epochs, or tied only within one epoch;
   authority unchecked while the memberships stand, allowed to grow, or to shrink at settlement; a head older than the
   last accepted; the last head's identity unchecked, checked at `now`, or not verified; the head's epoch unchecked
   against its memberships, or 0 allowed.
@@ -498,6 +500,18 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   the owner can still add a root; W0 as SPEC states it — a successor's assertion covering the pending record's
   contest, and a contest's covering a held successor, refused either way; covering other records, a non-successor
   among them, allowed.
+- Escrow (`W8-escrow.test.mjs`): with `{a, b}` settled, a thief who used up b's replacements cannot stop the
+  owner's change to `{a}` (b's signature completing the majority is admitted, and anchored), while b alone is still
+  refused; once a and b sign a change adding o, neither may move to another proposal (`quorate`) and o's signature is
+  admitted and anchored; before a majority, a changed proposal still replaces the first. Against the model (`W3`),
+  every `quorate` refusal has a quorate proposal of that signer in the model's items, and such refusals are reached.
+- Found by review (`S1`, `W9`, `D2`–`D4`): resubmitting a held root and an already logged delegation five times leaves
+  the cached head and the log as they were; a holding's state is replayed once however many submissions are decided
+  against it (its `anchors` read once, through a counting proxy); the in-memory store drops a finished identity's
+  queue, keeps order and a failure's place, and a cleanup never drops a later update's place; a wrong inclusion proof
+  leaves a contribution pending and is retried, appended once; three publishes at once append each receipt once; the
+  standing forecast is the one signed last whatever the arrival order; History accepts a contribution given three
+  times once.
 - The service (`S1-service.test.mjs`): a change submitted record by record, its anchor logged and served, the tick
   settling it at the window's end and not a second before; refusals as 422 with the reason, changing nothing; every
   malformed request with its status and reason, the body limit at and one past it; heads reused within the
@@ -505,10 +519,16 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   delegations logged through their endpoint, the logged record appended once, refusals as 422;
   concurrent submissions for one identity both kept; a failing log (503, nothing kept, the tick rejected and
   retried) and a failing store; configuration.
+- Signing (`W10-sign.test.mjs`), found by review: a change without a majority advanced five times, a contest by a
+  minority, and a holding outside the witness key's window (closed, not yet open, or only another pinned key's open)
+  never call `sign`; an honest change calls it once for each record signed; a configuration pinning the trial key is
+  refused. W3 checks the same at every step of every walk.
 - The model (`W3-model.test.mjs`): random owner and thief histories in three scenarios, admitted record by record;
   the witness's anchors and settlements equal the model witness's translated texts after every step; every refused
-  record leaves the model's witness and verifier unchanged. The walks reach settled, pending, frozen and dead states
-  and up to two settled changes.
+  record leaves the model's witness and verifier unchanged, except a root's return to a proposal it withdrew: the test
+  keeps the tombstones from the rule, every `replaced` refusal must match one, and none may be admitted (found by the
+  nightly run; its counterexample is pinned). The walks reach settled, pending, frozen and dead states and up to two
+  settled changes.
 - The log client (`W5-log.test.mjs`), against tiles laid out from the C2SP wording by the test: proofs equal RFC
   9162's PATH for every entry of trees of 1 to 1,000 entries and at a level-2 tile (65,836); an older tree's partial
   tiles; a partial tile no longer served read from its full tile; each tile read once, at the right path; a missing
@@ -638,7 +658,9 @@ Three kinds of job run in parallel, so wall time is the slowest single job, not 
 Guards fail the build if a test file is in no job, a module has no mutation config, or a config is not in the
 matrix, and if a dependency is not pinned (exact versions, a lockfile that agrees, the public registry over https
 with sha512 integrity, no install scripts, nothing at runtime but the two noble packages); the pin guard runs against
-eighteen edited copies of the real files and must name each fault. The scan workflow (`.github/workflows/scan.yml`)
+eighteen edited copies of the real files and must name each fault. Every property test takes its run count from
+`tests/runs.mjs` (`FC_RUNS` sets every count, `FC_SCALE` multiplies each file's own), and a guard, shown planted
+faults, fails a test file that reads `FC_RUNS` itself or sets a count of its own. The scan workflow (`.github/workflows/scan.yml`)
 runs CodeQL, Semgrep with its rule tests, gitleaks over every commit, jscpd against its reviewed baseline, and the
 release-age check; each was shown to fail on a planted fault (a result, a broken rule, a token, a copied file, a
 too-new package) before it was relied on. `tests/assertion/W-simplewebauthn.test.mjs` is the SimpleWebAuthn

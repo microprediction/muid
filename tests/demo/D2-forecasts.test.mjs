@@ -113,6 +113,32 @@ test('the log took the receipt but its proof failed: publish fetches the proof w
   assert.equal((await s.get(`/contributions?identity=${IDENTITY}`)).body[0].index, 0)
 })
 
+// Found by review: a proof the log gave was kept unchecked, so a wrong one was served as the bundle and never retried.
+test('a proof that does not hold the receipt is not kept: the contribution stays pending, and publish retries it', async () => {
+  const log = fakeLog({ cosignTime: () => NOW })
+  log.state.badProof = true
+  const s = setup({ log })
+  assert.equal((await s.post(worker(10).records({ question: 'q', forecast: 1 }))).status, 202)
+  assert.equal(await s.f.publish(), 0, 'still wrong')
+  log.state.badProof = false
+  assert.equal(await s.f.publish(), 1)
+  assert.equal(s.log.entries().length, 1, 'appended once')
+  const [c] = (await s.get(`/contributions?identity=${IDENTITY}`)).body
+  assert.equal(receiptModule.verifyReceipt({ receipt: c.receipt, checkpoint: c.checkpoint, proof: c.proof.map(bytes), index: c.index, claim: c.claim },
+    { services: SERVICES, log: CONFIG, now: NOW, skew: 60 }).ok, true)
+})
+
+// Found by review: two publishes at once could each append the same pending receipt.
+test('publishes at once append each pending receipt once', async () => {
+  const log = fakeLog({ cosignTime: () => NOW, failAppend: true })
+  const s = setup({ log })
+  for (let i = 0; i < 3; i++) assert.equal((await s.post(worker(10 + i).records({ question: 'q', forecast: 1 }))).status, 202)
+  log.state.failAppend = false
+  const counts = await Promise.all([s.f.publish(), s.f.publish(), s.f.publish()])
+  assert.equal(counts.reduce((a, b) => a + b, 0), 3)
+  assert.equal(s.log.entries().length, 3, 'each receipt appended once')
+})
+
 test('the log took the receipt but its answer was lost: publish appends again, and the bundle is for the entry it gets', async () => {
   const log = fakeLog({ cosignTime: () => NOW, failAppend: true })
   log.state.lostAnswer = true

@@ -21,11 +21,12 @@ export const CONFIG = Object.freeze({ origin: ORIGIN, log: LOG.vkey, cosigners: 
 
 // { append, checkpoint, inclusionProof, entries, published }: `cosignTime()` gives each checkpoint's cosignature
 // time; `publish` false holds checkpoints back at their last size, as a log waiting on its witnesses; `failAppend`
-// makes appends fail, before (or with `lostAnswer`, after) the entry is taken; `failProof` makes proofs fail.
+// makes appends fail, before (or with `lostAnswer`, after) the entry is taken; `failProof` makes proofs fail, and
+// `badProof` makes them wrong.
 export function fakeLog ({ cosignTime, failAppend = false } = {}) {
   const entries = []
   let published = 0
-  const state = { publish: true, failAppend, lostAnswer: false, failProof: false }
+  const state = { publish: true, failAppend, lostAnswer: false, failProof: false, badProof: false }
   return {
     state,
     entries: () => [...entries],
@@ -43,7 +44,8 @@ export function fakeLog ({ cosignTime, failAppend = false } = {}) {
     },
     async inclusionProof (index, size) {
       if (state.failProof) throw new Error('tiles unavailable')
-      return path(index, entries.slice(0, size).map((t) => LEAF(Buffer.from(t, 'utf8'))))
+      const p = path(index, entries.slice(0, size).map((t) => LEAF(Buffer.from(t, 'utf8'))))
+      return state.badProof ? [new Uint8Array(32), ...p] : p
     },
   }
 }

@@ -354,7 +354,9 @@ one envelope each, so its `sig` names the signer: `{ root, assertion }`, where `
   older than `maxStaleness`, so a stolen retired root is refused whatever records it is shown.
 - **R10 LOGGED DELEGATIONS (decision 12):** a delegation verifies only with a **logged** record
   `{ identity, delegation, at }` naming its record id, signed by the witness (A4's `sig`) under a pinned key whose
-  window holds `at`, as browsers accept a certificate only with a log's signed timestamp (RFC 6962). The witness signs
+  window holds `at`, and whose `at` falls in the delegation's own window (from `nbf` less `skew`, before `exp`), as
+  browsers accept a certificate only with a log's signed timestamp (RFC 6962). A revocation a relying party's last
+  head carried still holds, whatever a later head says: revocations are kept for good. The witness signs
   one, and appends it to its log like every record it signs, only for a delegation that verifies at its `now` (D7), is
   the identity's under its settled membership or pending successor, from a root with authority (R6), and that no
   kept revocation names by id or subject key; a delegation signed in advance is logged once it is valid. The witness
@@ -367,7 +369,13 @@ one envelope each, so its `sig` names the signer: `{ root, assertion }`, where `
   delegation's root): a revocation that would give its root a 13th entry, or a head a 65th, is refused (`full`), so
   heads are always signed (5 × 12 < 64), and a retired root's entries leave heads as the delegations they name expire.
   Revocations are admitted per root by a token bucket (12, and one more each day; `quota`), as ACME authorities limit
-  each account, so what is kept grows with time, not with one theft.
+  each account, so what is kept grows with time, not with one theft. Limits, stated: what is kept is bounded by
+  `MAX_RECORDS` (256) for the life of the identity, past which every revocation is refused; and a delegate's
+  revocation of itself is charged to its root, so a root's own delegates can use up its 12 entries and its bucket for
+  up to `maxLifetime`. The planned replacement for the list in every head, to be designed and reviewed as R10 was, is a
+  short-lived status record per delegation, re-issued by the witness while the delegation is live and unrevoked and
+  required by the verifier, as OCSP must-staple and short-lived certificates do: revocation is then "stop issuing",
+  with no list, no per-root accounting and no bucket on the safety path.
 - **Head lag (residual):** a delegate chooses which head to present, so an anchored change, a freeze or a revocation
   reaches a verifier only once every older head has aged past `maxStaleness` — a day — unless the verifier passes
   `minHeadAt` or `lastHead` (F5), the newest head it has seen for the identity. A relying party that needs faster effect for a scope
@@ -415,13 +423,19 @@ the network and the transparency log are the service's, and the signing key stay
   name the settled or pending membership, signed by one of its roots (R2, decision 11); a root record must be the
   first root or named by a held membership record. Each signature is verified on admission. One envelope is held per
   record and signer (another, an assertion covering other records too, is accepted unchanged), and one proposal per
-  root and `prev`: a root's later proposal replaces its earlier one, so no root can fill a list and block its owner
+  root and `prev`: a root's later proposal (later admitted, not later signed: one held back on the network can arrive
+  after a newer one) replaces its earlier one, so no root can fill a list and block its owner
   (review round 8); root records only a replaced proposal named go with it (round 9). A replaced (record, signer) is
   kept as a tombstone, and its resubmission refused (`replaced`), so no one holding a withdrawn envelope can make it
-  current again; a root holds at most 16 per `prev`, past which its replacements are refused (`quota`), and
-  tombstones of an earlier `prev` are dropped (round 9; a signed sequence number in membership records, as did:plc
-  operations and Safe transactions carry, is the planned replacement, since a tombstone also stops a root from
-  returning to a proposal it withdrew). W0 is applied: an assertion
+  current again; a root holds at most 16 per `prev`, past which its replacements are refused (`quota`). A signature
+  that completes a strict majority of `prev`'s roots is kept, as multi-signature systems keep partial signatures
+  until their threshold (KERI's escrow, Safe's approvals): the quota never refuses it, and its root cannot then move
+  to another proposal for that `prev` (`quorate`), so whoever else holds a copy of that root can neither undo nor
+  block the owner's change. Tombstones of an earlier `prev` are dropped (round 9). Tombstones stay: a tombstone stops
+  a root from returning to a proposal it withdrew, but per-root sequence-numbered votes, reviewed as the replacement,
+  either let a vote filed after an anchor bring a second anchor (and with it `dead`) or let a stale envelope evict a
+  current signature, and the quota is also what bounds storage; a number cannot go in the membership record itself,
+  which every root signs alike. W0 is applied: an assertion
   that covers both a membership record and its contest, or a successor of a pending record and that record's
   contest, is refused, either way round. A
   list at `MAX_RECORDS` refuses new ones (`full`), a backstop the rules above keep out of reach; nothing is admitted
@@ -432,7 +446,11 @@ the network and the transparency log are the service's, and the signing key stay
   anchors a held contest only if verifiers would then see the identity end; once `CONTEST_WINDOW` has passed, it
   settles, as `contested` if a contest is anchored. At a settlement that is not contested, the proposals that lost
   that `prev`, and the root records only they named, are dropped: they can never be anchored. A settlement can make a
-  held successor anchorable in the same step. Its own view leaves out contest anchors, as the model's does.
+  held successor anchorable in the same step. Its own view leaves out contest anchors, as the model's does. It signs
+  only what it keeps, as a CT log signs only what it logs: each candidate anchor is tried signed by a trial key (the
+  Ed25519 key of 32 zero bytes, which no verifier pins and a configuration may not), in a copy of the witness keys
+  with the witness key's own windows, and `sign` is called only for the one kept. No valid anchor exists that the log
+  was not given.
 - `revoke(held, text, now, delegation)` admits a revocation (R9) signed by a root with authority, or by a delegate
   for its own key, given with the delegation that makes it a delegate of this identity under its settled or pending
   membership from a root with authority (verified by `checkDelegation` at `now`; R6), so that no fresh key can add
@@ -458,8 +476,11 @@ outbox is appended again, the same texts, before anything else is done for the i
 but whose answer was lost never leads the witness to sign a rival (review round 8). Endpoints: `POST /v1/records` (`{ identity, type, text }`; a root, membership, contest or
 freeze), `POST /v1/revocations` (`{ identity, text, delegation? }`), `POST /v1/delegations` (`{ identity, text }`;
 answered with the `logged` record, appended to the log first when it is new), `GET /v1/identities/{id}/records` (what R8 needs)
-and `GET /v1/identities/{id}/head` (a head, reused for `headInterval` seconds while nothing changes); `tick()`
-advances every identity, settling once windows pass. Each identity's changes are serialised by its store, and every
+and `GET /v1/identities/{id}/head` (a head, reused for `headInterval` seconds while nothing changes; a resubmission
+that changes nothing, such as a record already held, leaves it as it is); `tick()`
+advances every identity, settling once windows pass. A holding's R8 state is computed once and kept with it, so a
+flood of submissions decided against one holding replays its history once. Each identity's changes are serialised by
+its store (the in-memory store drops an identity's queue once it is idle), and every
 record the witness signs is appended to the log before the holding that contains it is kept, so nothing is served
 that the log did not take. A failing log is 503: what was decided waits in the outbox and takes effect once the log
 has it, so a retry may answer with nothing new signed; a failing store is 503 and nothing is kept. Refusals are 422 with the witness's
@@ -552,6 +573,9 @@ is the text of the newest head the relying party has accepted for the identity, 
   escape) cannot be claimed at all, which fails closed. `verifyClaim` takes the scope
   and the request the relying party is serving: `method`, `url` (the URL it received; the query and fragment are
   dropped before comparison), and `nonce` and `contentDigest` when it issues nonces or requires the body's digest.
+  Residual, as in DPoP (RFC 9449 §11.2): `at` is the signer's own, so code that can use the subject key during a
+  compromise can sign claims for later times, each accepted in its own window until the delegation expires; a
+  relying party that must rule this out issues nonces.
   It refuses, in order, with: V4's reasons for the claim (`envelope-encoding` too when the records cannot be read);
   `claim-shape` (a key other than these, a field of the wrong form, or `sig` not as above); `claim-scope`;
   `claim-method`; `claim-url` (`htu` not under the audience, or not the URL received); `claim-nonce` (not the nonce
@@ -649,7 +673,7 @@ in one store transaction, it remembers the head if the head verifies against the
 whatever else the request carries, so a head that revokes the request's own delegation is still remembered — then
 verifies the request against the same memory and consumes the claim id; only then does it run the protected action,
 once. Heads of one second may arrive in either order (F5): of two, the memory keeps the one the verifier ranks later
-(the new one only if the stored one could not follow it). Anyone holding a fresh head can move the memory forward;
+(decision 10 orders any two that differ, so a new head accepted after the stored one of its second replaces it). Anyone holding a fresh head can move the memory forward;
 that only obliges delegates to present heads at least as fresh, which the witness serves.
 Consumption is an insert-if-absent (a unique key, as DPoP's `jti` store), the head moves only to a later `at` (a
 conditional update, as TUF's stored metadata), and the transaction serialises requests (`BEGIN IMMEDIATE` for the
@@ -741,7 +765,13 @@ with each agent's share shown (`GET /earnings`); the identity collects with a cl
 holding the `collect` scope (`POST /collect`). Five scenarios run end to end in CI: limited authority, continuity
 across a replaced worker key, attribution that lasts past the delegations' expiry, revocation that takes effect at
 once through the relying party's memory, and the organizing example — an agent authorised for an hour contributes,
-retires itself, and its earnings, resolved afterwards, are collected by the owner's own device.
+retires itself, and its earnings, resolved afterwards, are collected by the owner's own device. A receipt's inclusion
+proof is checked before its bundle is kept (a wrong one is retried), and one publication of a contribution runs at a
+time. An identity's standing forecast of a question is the one its agent signed last (the claim's `at`), not the last
+to arrive, so one held back on the network cannot stand over a later one. History counts a contribution given twice
+once. The demo is not sybil-resistant: identities are free and the Brier score pays an uninformed forecast, so many
+identities can farm it; paying for real needs a scoring rule against stakes (a market scoring rule) or eligibility
+weighted by attestation.
 
 ## 9. Open decisions
 
@@ -792,12 +822,15 @@ retires itself, and its earnings, resolved afterwards, are collected by the owne
    `l`'s; when one id stands at different epochs in the two, or two ids at one epoch (each membership is of one epoch,
    and one anchor per `prev` gives each epoch one membership, R1, R3); or when authority (R6), which the memberships
    fix, does not follow them: unchanged while they stand, shrinking (to the shared roots) when a successor turns
-   pending, growing when it settles with none pending after it. Two heads of one `at` are ordered by what they revoke
-   as well: within a second the witness only adds revocations (an entry lapses with time, never within its second), so
-   a head of the last head's `at` that lacks one of its revocations was signed before it. Such a pair is refused as
+   pending, growing when it settles with none pending after it. Two heads of one `at` and the same memberships are
+   ordered by what they revoke as well: under them the witness only adds revocations within a second (an entry lapses
+   with time, or, R10, leaves with its membership or its root's authority), so such a head that lacks one of the last
+   head's revocations was signed before it. Such a pair is refused as
    `equivocation` (`stale` when the other order is consistent), and the two signed heads are evidence; checked over every history the model's explorer reaches, an honest witness never produces one. Limits:
-   it catches a split only within what one relying party sees, and a witness that jumps two epochs ahead between
-   that party's heads escapes it (committing to keep the fork going for that party); a public log closes the rest.
+   it catches a split only within what one relying party sees, and a witness that jumps ahead between that party's
+   heads escapes it — two epochs, or one when the last head had nothing pending (a successor shown settled, never
+   pending), and the one-step move from `[M, X]` to `[X, Y]` may carry any authority — committing to keep the fork
+   going for that party; a public log closes the rest.
    A witness key is retired by its window, never removed from `witnessKeys` while a relying party may hold a last
    head it signed (that head would become a programming error); when one must be removed, as after a compromise, the
    relying-party adapter (§7) keeps the remembered head's time as `minHeadAt` instead. Bounding backdated anchors needs time from outside the witness: a public log with at least one outside
@@ -891,8 +924,13 @@ never afterwards. Details and thresholds: `TESTING.md`; sources: [`assurance.md`
 
 **Scheduled, not gating**
 
+- Nightly (`fuzz.yml`): every property test at `FC_SCALE` times its usual run count, with a new seed each night, the
+  verifier's fuzz test among them (records edited, re-encoded under their old signatures, swapped, or replaced by any
+  JavaScript value: each refused with a reason, never thrown on). A failure prints the seed and the counterexample's
+  path, to replay with `FC_SEED` and `FC_RUNS`, and its counterexample becomes a pinned test.
+
 Not yet scheduled:
-- Long fuzz runs of `decode`, `verifyDelegation` and `verifyClaim` (fast-check at high iteration counts; Jazzer.js).
+- Coverage-guided fuzzing of `decode`, `verifyDelegation` and `verifyClaim` (Jazzer.js).
 - The membership model (`model/settled.mjs`) at greater depth than the pinned tests, and models of the delegation,
   revocation and time-window rules, with their traces replayed against the verifier.
 - An adversarial review agent against the core. Its findings go to a **private** security advisory, never a public

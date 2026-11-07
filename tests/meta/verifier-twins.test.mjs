@@ -27,8 +27,8 @@ const TWINS = [
   ['top-epoch-unchecked', 'a pending successor may vanish', [[' || h.epoch + hm.length < l.epoch + lm.length', '']]],
   ['ids-unbound', 'ids are not tied to epochs: another settled or pending membership is accepted', [['if ((l.epoch + i === h.epoch + j) !== (lm[i] === hm[j])) return true', 'if (false) return true']]],
   ['ids-same-epoch-only', 'one membership at two epochs is accepted', [['(l.epoch + i === h.epoch + j) !== (lm[i] === hm[j])', 'l.epoch + i === h.epoch + j && lm[i] !== hm[j]']]],
-  ['authority-unchecked-same-epoch', 'authority may change while the memberships stand', [['  if (h.epoch === l.epoch) return within(h.authority, l.authority) || (hm.length === lm.length && within(l.authority, h.authority))\n', '  if (h.epoch === l.epoch) return false\n']]],
-  ['authority-may-grow', 'authority may grow while the memberships stand or a successor turns pending', [['within(h.authority, l.authority) || (hm.length === lm.length && within(l.authority, h.authority))', 'hm.length === lm.length && within(l.authority, h.authority)']]],
+  ['authority-unchecked-same-epoch', 'authority may change while the memberships stand', [['    return within(h.authority, l.authority) || within(l.authority, h.authority) || (h.at', '    return (h.at'], ['  if (h.epoch === l.epoch) return within(h.authority, l.authority)\n', '  if (h.epoch === l.epoch) return false\n']]],
+  ['authority-may-grow', 'authority may grow while the memberships stand or a successor turns pending', [['within(h.authority, l.authority) || within(l.authority, h.authority)', 'within(l.authority, h.authority)'], ['  if (h.epoch === l.epoch) return within(h.authority, l.authority)\n', '  if (h.epoch === l.epoch) return false\n']]],
   ['authority-may-shrink-at-settlement', 'authority may shrink when the pending successor settles', [['hm.length === 1 && within(l.authority, h.authority)', 'hm.length === 1 && false']]],
   ['epoch-zero', 'a head of epoch 0 is accepted', [['(isTime(b.epoch) && b.epoch > 0 && b.epoch', '(isTime(b.epoch) && b.epoch']]],
   ['epoch-unbounded', 'an epoch near 2^53 rounds in the equivocation check', [[' && b.epoch < 2 ** 32)', ')']]],
@@ -64,14 +64,17 @@ const TWINS = [
   ['audience-unchecked', 'a delegation for another relying party is accepted', [["    if (b.aud !== cfg.audience) return refuse('audience')\n", '']]],
   ['scope-unchecked', 'any scope is granted', [["    if (!has(b.scopes, scope)) return refuse('scope')\n", '']]],
   ['head-unsigned', 'the head\'s signature is not checked', [['  if (!isWitnessSig(r.sig) || witnessReason(r.sig, r.payload, cfg.keys, from, until) !== undefined) return undefined\n', '']]],
-  ['logged-unchecked', 'a delegation is accepted without its logged record', [["    if (l === undefined || l.identity !== b.identity || l.delegation !== d.id) return refuse('logged')\n", '']]],
-  ['logged-any-delegation', "another delegation's logged record is accepted", [['l.identity !== b.identity || l.delegation !== d.id)', 'l.identity !== b.identity)']]],
+  ['logged-unchecked', 'a delegation is accepted without its logged record', [["    if (l === undefined || l.identity !== b.identity || l.delegation !== d.id || l.at < b.nbf - cfg.skew || l.at >= b.exp) return refuse('logged')\n", '']]],
+  ['logged-any-delegation', "another delegation's logged record is accepted", [['l.identity !== b.identity || l.delegation !== d.id ||', 'l.identity !== b.identity ||']]],
   ['logged-any-identity', "another identity's logged record is accepted", [['l === undefined || l.identity !== b.identity ||', 'l === undefined ||']]],
+  ['last-head-revocations-forgotten', "a revocation the last head carried is forgotten once a later head drops it", [["    if (last && (has(last.revoked, d.id) || has(last.revoked, b.subject))) return refuse('revoked')\n", '']]],
+  ['logged-any-window', "a logged record is accepted outside its delegation's window", [[' || l.at < b.nbf - cfg.skew || l.at >= b.exp) return', ') return']]],
   ['logged-form-unchecked', "a logged record's body is used before its form is checked", [["  if (r === undefined || !isId(r.body.identity) || !isId(r.body.delegation) || !isTime(r.body.at)) return undefined\n  if (", '  if (r === undefined || ']]],
   ['logged-unsigned', 'a logged record is accepted without its signature checked', [['  if (!isWitnessSig(r.sig) || witnessReason(r.sig, r.payload, cfg.keys, r.body.at, r.body.at + 1) !== undefined) return undefined\n', '']]],
   ['logged-any-time', "a logged record is accepted whatever its time against the key's window", [['witnessReason(r.sig, r.payload, cfg.keys, r.body.at, r.body.at + 1)', 'witnessReason(r.sig, r.payload, cfg.keys, 0, 1)']]],
   ['logged-any-type', 'a head is accepted as a logged record', [["shaped(text, 'logged', LOGGED_KEYS)", "shaped(text, 'head', LOGGED_KEYS)"]]],
-  ['same-second-revocation-dropped', 'a head of the same second may drop a revocation the last head carried', [['  if (h.at === l.at && within(l.revoked, h.revoked)) return true\n', '']]],
+  ['same-second-revocation-dropped', 'a head of the same second may drop a revocation the last head carried', [[' || (h.at === l.at && within(l.revoked, h.revoked))', '']]],
+  ['same-second-any-membership', 'heads of one second are ordered by revocations across a membership change', [['function forked (l, h) {\n', 'function forked (l, h) {\n  if (h.at === l.at && within(l.revoked, h.revoked)) return true\n']]],
 ]
 
 function run (implPath) {
@@ -115,7 +118,7 @@ test('verifier broken twins', { timeout: 600_000 }, async (t) => {
     })
 
     const jobs = TWINS.map(([name, why, edits]) => [name, why, generate(name, edits)])
-    assert.equal(jobs.length, 55, 'twin count')
+    assert.equal(jobs.length, 58, 'twin count')
     const results = []
     const queue = [...jobs]
     const workers = Math.max(1, Math.floor(availableParallelism() / 4))

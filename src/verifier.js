@@ -130,18 +130,21 @@ function readCall (call, claim, cfg) {
 
 const within = (a, b) => { for (let i = 0; i < a.length; i++) if (!has(b, a[i])) return true; return false } // a ⊄ b
 
-// Decision 10: `h` cannot honestly follow `l`: at one `at` it drops a revocation, an epoch falls, an id stands at two
-// epochs (R1, R3), or authority does not follow the memberships (R6: unchanged; shrinking to pending; growing as it
-// settles alone). Index reads only.
+// Decision 10: `h` cannot honestly follow `l`: an epoch falls, an id stands at two epochs (R1, R3), authority does not
+// follow the memberships (R6: unchanged; shrinking to pending; growing as it settles alone), or under the same
+// memberships and in the same second it drops a revocation. Index reads only.
 function forked (l, h) {
-  // Within one second the witness only adds revocations (an entry lapses with time).
-  if (h.at === l.at && within(l.revoked, h.revoked)) return true
   const lm = l.memberships
   const hm = h.memberships
   if (h.epoch < l.epoch || h.epoch + hm.length < l.epoch + lm.length) return true
   // Stryker disable next-line EqualityOperator: equivalent; j = hm.length matters only if the top epoch fell (above)
   for (let i = 0; i < lm.length; i++) for (let j = 0; j < hm.length; j++) if ((l.epoch + i === h.epoch + j) !== (lm[i] === hm[j])) return true
-  if (h.epoch === l.epoch) return within(h.authority, l.authority) || (hm.length === lm.length && within(l.authority, h.authority))
+  if (h.epoch === l.epoch && hm.length === lm.length) {
+    // The same memberships (the loop above). Within one second the witness then only adds revocations (R10: an entry
+    // lapses with time, or leaves with its membership or its root's authority).
+    return within(h.authority, l.authority) || within(l.authority, h.authority) || (h.at === l.at && within(l.revoked, h.revoked))
+  }
+  if (h.epoch === l.epoch) return within(h.authority, l.authority)
   return h.epoch === l.epoch + 1 && lm.length === 2 && hm.length === 1 && within(l.authority, h.authority)
 }
 
@@ -174,7 +177,7 @@ export function verifier (config) {
 
   // F5 for a delegation, given its records and the call's fields.
   function check (given, c) {
-    const { now, scope, revoked } = c
+    const { now, scope, revoked, last } = c
     const h = checkHead(given.head, c)
     if (h.ok === false) return h // a head body has no `ok`
     const r = checkRoot(given.root, { rpId: cfg.rpId })
@@ -187,11 +190,14 @@ export function verifier (config) {
     if (!has(h.memberships, b.membership)) return refuse('membership')
     if (!has(h.authority, b.root)) return refuse('authority')
     if (has(h.revoked, d.id) || has(h.revoked, b.subject)) return refuse('revoked')
+    // Revocations are kept for good (R10): one the last head accepted carried still holds, whatever a later head says.
+    if (last && (has(last.revoked, d.id) || has(last.revoked, b.subject))) return refuse('revoked')
     const n = revoked.length
     // Stryker disable next-line EqualityOperator: equivalent; one more step reads undefined, never an id
     for (let i = 0; i < n; i++) if (revoked[i] === d.id || revoked[i] === b.subject) return refuse('revoked')
     const l = loggedBody(given.logged, cfg)
-    if (l === undefined || l.identity !== b.identity || l.delegation !== d.id) return refuse('logged')
+    // The witness logs a delegation only while it verifies: its record falls in the delegation's window (R10).
+    if (l === undefined || l.identity !== b.identity || l.delegation !== d.id || l.at < b.nbf - cfg.skew || l.at >= b.exp) return refuse('logged')
     if (b.aud !== cfg.audience) return refuse('audience')
     if (!has(b.scopes, scope)) return refuse('scope')
     return d

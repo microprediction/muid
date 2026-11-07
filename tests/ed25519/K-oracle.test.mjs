@@ -4,9 +4,10 @@ import assert from 'node:assert/strict'
 import { generateKeyPairSync, sign as nodeSign } from 'node:crypto'
 import fc from 'fast-check'
 import { checkEd25519, nodeAccepts, vector, bytes, hex } from './helpers.mjs'
+import { runs } from '../runs.mjs'
 
 const SEED = Number(process.env.FC_SEED ?? 20261103)
-const RUNS = Number(process.env.FC_RUNS ?? 200)
+const RUNS = runs(200)
 
 test('whatever we accept among the vectors, Node also accepts', () => {
   const file = vector('wycheproof/ed25519_test.json')
