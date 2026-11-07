@@ -74,7 +74,8 @@ function shaped (text, type, keys) {
 // R10: the logged record's body if it is of its form, signed by a pinned witness key whose window holds its `at`.
 function loggedBody (text, cfg) {
   const r = shaped(text, 'logged', LOGGED_KEYS)
-  if (r === undefined || !isWitnessSig(r.sig) || witnessReason(r.sig, r.payload, cfg.keys, r.body.at, r.body.at + 1) !== undefined) return undefined
+  if (r === undefined || !isId(r.body.identity) || !isId(r.body.delegation) || !isTime(r.body.at)) return undefined
+  if (!isWitnessSig(r.sig) || witnessReason(r.sig, r.payload, cfg.keys, r.body.at, r.body.at + 1) !== undefined) return undefined
   return r.body
 }
 
