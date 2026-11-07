@@ -498,6 +498,10 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   delegations logged through their endpoint, the logged record appended once, refusals as 422;
   concurrent submissions for one identity both kept; a failing log (503, nothing kept, the tick rejected and
   retried) and a failing store; configuration.
+- Signing (`W10-sign.test.mjs`), found by review: a change without a majority advanced five times, a contest by a
+  minority, and a holding outside the witness key's window (closed, not yet open, or only another pinned key's open)
+  never call `sign`; an honest change calls it once for each record signed; a configuration pinning the trial key is
+  refused. W3 checks the same at every step of every walk.
 - The model (`W3-model.test.mjs`): random owner and thief histories in three scenarios, admitted record by record;
   the witness's anchors and settlements equal the model witness's translated texts after every step; every refused
   record leaves the model's witness and verifier unchanged. The walks reach settled, pending, frozen and dead states

@@ -423,7 +423,11 @@ the network and the transparency log are the service's, and the signing key stay
   anchors a held contest only if verifiers would then see the identity end; once `CONTEST_WINDOW` has passed, it
   settles, as `contested` if a contest is anchored. At a settlement that is not contested, the proposals that lost
   that `prev`, and the root records only they named, are dropped: they can never be anchored. A settlement can make a
-  held successor anchorable in the same step. Its own view leaves out contest anchors, as the model's does.
+  held successor anchorable in the same step. Its own view leaves out contest anchors, as the model's does. It signs
+  only what it keeps, as a CT log signs only what it logs: each candidate anchor is tried signed by a trial key (the
+  Ed25519 key of 32 zero bytes, which no verifier pins and a configuration may not), in a copy of the witness keys
+  with the witness key's own windows, and `sign` is called only for the one kept. No valid anchor exists that the log
+  was not given.
 - `revoke(held, text, now, delegation)` admits a revocation (R9) signed by a root with authority, or by a delegate
   for its own key, given with the delegation that makes it a delegate of this identity under its settled or pending
   membership from a root with authority (verified by `checkDelegation` at `now`; R6), so that no fresh key can add
