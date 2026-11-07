@@ -49,7 +49,8 @@ function allIds (list) {
   if (!isArray(list)) return undefined
   // Stryker disable next-line ArrayDeclaration: equivalent; every index is assigned before it is read
   const out = []
-  const n = list.length
+  const n = list.length // read once, and an array length: a Proxy may report any value
+  if (!(isSafeInteger(n) && n >= 0 && n < 2 ** 32)) return undefined
   for (let i = 0; i < n; i++) {
     const x = list[i]
     if (!isId(x)) return undefined
@@ -129,9 +130,12 @@ function readCall (call, claim, cfg) {
 
 const within = (a, b) => { for (let i = 0; i < a.length; i++) if (!has(b, a[i])) return true; return false } // a ⊄ b
 
-// Decision 10: `h` cannot honestly follow `l`: an epoch falls, an id stands at two epochs (R1, R3), or authority does
-// not follow the memberships (R6: unchanged; shrinking to pending; growing as it settles alone). Index reads only.
+// Decision 10: `h` cannot honestly follow `l`: at one `at` it drops a revocation, an epoch falls, an id stands at two
+// epochs (R1, R3), or authority does not follow the memberships (R6: unchanged; shrinking to pending; growing as it
+// settles alone). Index reads only.
 function forked (l, h) {
+  // Within one second the witness only adds revocations (an entry lapses with time).
+  if (h.at === l.at && within(l.revoked, h.revoked)) return true
   const lm = l.memberships
   const hm = h.memberships
   if (h.epoch < l.epoch || h.epoch + hm.length < l.epoch + lm.length) return true

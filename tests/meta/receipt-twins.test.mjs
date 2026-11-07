@@ -19,9 +19,11 @@ const IMPORTS = [
 
 // [name, bug class, [find, replace] pairs]
 const TWINS = [
+  ['services-length-reread', 'the pinned services have their length read at every step', [['  for (let i = 0; i < n; i++) {', '  for (let i = 0; i < services.length; i++) {']]],
+  ['service-window-inclusive', "a pinned service key's window includes its exp", [['s.nbf <= b.at && b.at < s.exp && s.exp > exp', 's.nbf <= b.at && b.at <= s.exp && s.exp > exp'], ['if (existedBy >= exp + c.skew)', 'if (existedBy > exp + c.skew)']]],
   ['service-origin-unchecked', 'a key pinned for one service vouches for receipts naming another', [['if (s.origin === b.service && s.key === sig.service', 'if (s.key === sig.service']]],
-  ['window-unchecked', 'a service key outside its window is accepted', [[' && s.nbf <= b.at && b.at <= s.exp && s.exp > exp)', ' && s.exp > exp)']]],
-  ['retired-key-backdates', 'a retired key mints receipts by backdating into its old window', [["  if (existedBy > exp + c.skew) return refuse('service')\n", '']]],
+  ['window-unchecked', 'a service key outside its window is accepted', [[' && s.nbf <= b.at && b.at < s.exp && s.exp > exp)', ' && s.exp > exp)']]],
+  ['retired-key-backdates', 'a retired key mints receipts by backdating into its old window', [["  if (existedBy >= exp + c.skew) return refuse('service')\n", '']]],
   ['signature-unchecked', 'the service signature is not checked', [['  if (!k.ok) return k\n', '']]],
   ['entry-is-payload', 'the logged entry is taken to be the payload, not the envelope as logged', [['[receipt]))', '[r.payload]))']]],
   ['inclusion-skipped', 'a receipt need not be in the log', [["root: fromHex(cp.root) })) return refuse('inclusion')", "root: fromHex(cp.root) })) {}"]]],
@@ -75,7 +77,7 @@ test('receipt broken twins', { timeout: 600_000 }, async (t) => {
     })
 
     const jobs = TWINS.map(([name, why, edits]) => [name, why, generate(name, edits)])
-    assert.equal(jobs.length, 13, 'twin count')
+    assert.equal(jobs.length, 15, 'twin count')
     const results = []
     const queue = [...jobs]
     const workers = Math.max(1, Math.floor(availableParallelism() / 4))

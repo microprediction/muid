@@ -15,6 +15,7 @@ const IMPORTS = []
 
 // [name, bug class, [find, replace] pairs]
 const TWINS = [
+  ['accept-inherited', 'a verdict copies the fields it inherits too', [['  const ks = fields === undefined ? [] : keys(fields)\n  for (let i = 0; i < ks.length; i++) out[ks[i]] = fields[ks[i]]', '  for (const k in fields) out[k] = fields[k]']]],
   ['live-builtins', 'built-ins are looked up when called, so patching them later changes results', [
     ['      const c = apply(charCodeAt, text, [2 * i + j])', '      const c = text.charCodeAt(2 * i + j)']]],
   ['no-snapshot', 'the caller\'s array is returned, so a subclass can change it while it is checked', [['    return new Bytes(x)\n', '    return x\n']]],
@@ -64,7 +65,7 @@ test('bytes broken twins', { timeout: 600_000 }, async (t) => {
     })
 
     const jobs = TWINS.map(([name, why, edits]) => [name, why, generate(name, edits)])
-    assert.equal(jobs.length, 5, 'twin count')
+    assert.equal(jobs.length, 6, 'twin count')
     const results = []
     const queue = [...jobs]
     const workers = Math.max(1, Math.floor(availableParallelism() / 4))
