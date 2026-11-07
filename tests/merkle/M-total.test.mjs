@@ -3,10 +3,11 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import fc from 'fast-check'
 import { merkle } from '../impl.mjs'
+import { runs } from '../runs.mjs'
 
 const { verifyInclusion, verifyConsistency, leafHash } = merkle
 const SEED = Number(process.env.FC_SEED ?? 20261103)
-const RUNS = Number(process.env.FC_RUNS ?? 300)
+const RUNS = runs(300)
 const H = new Uint8Array(32)
 const H1 = new Uint8Array(32).fill(1)
 const is32 = (x) => x instanceof Uint8Array && x.length === 32

@@ -5,10 +5,11 @@ import assert from 'node:assert/strict'
 import fc from 'fast-check'
 import { note } from '../impl.mjs'
 import { keyPair, logLine, cosignLine, checkpointText, ORIGIN } from './helpers.mjs'
+import { runs } from '../runs.mjs'
 
 const { verifyCheckpoint, verifyNote } = note
 const SEED = Number(process.env.FC_SEED ?? 20261103)
-const RUNS = Number(process.env.FC_RUNS ?? 300)
+const RUNS = runs(300)
 const NOW = 1_800_000_000
 const LOG = keyPair(ORIGIN, 1, 1)
 const C = [keyPair('witness.example/a', 4, 2), keyPair('witness.example/b', 4, 3)]

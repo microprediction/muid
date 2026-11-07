@@ -5,10 +5,11 @@ import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import fc from 'fast-check'
 import { merkle } from '../impl.mjs'
+import { runs } from '../runs.mjs'
 
 const { verifyInclusion, verifyConsistency, leafHash } = merkle
 const SEED = Number(process.env.FC_SEED ?? 20261103)
-const RUNS = Number(process.env.FC_RUNS ?? 200)
+const RUNS = runs(200)
 
 const sha = (...parts) => new Uint8Array(createHash('sha256').update(Buffer.concat(parts.map((p) => Buffer.from(p)))).digest())
 const LEAF = (d) => sha([0x00], d)

@@ -422,9 +422,11 @@ the network and the transparency log are the service's, and the signing key stay
   that completes a strict majority of `prev`'s roots is kept, as multi-signature systems keep partial signatures
   until their threshold (KERI's escrow, Safe's approvals): the quota never refuses it, and its root cannot then move
   to another proposal for that `prev` (`quorate`), so whoever else holds a copy of that root can neither undo nor
-  block the owner's change. Tombstones of an earlier `prev` are dropped (round 9; a signed sequence number in membership records, as did:plc
-  operations and Safe transactions carry, is the planned replacement, since a tombstone also stops a root from
-  returning to a proposal it withdrew). W0 is applied: an assertion
+  block the owner's change. Tombstones of an earlier `prev` are dropped (round 9). Tombstones stay: a tombstone stops
+  a root from returning to a proposal it withdrew, but per-root sequence-numbered votes, reviewed as the replacement,
+  either let a vote filed after an anchor bring a second anchor (and with it `dead`) or let a stale envelope evict a
+  current signature, and the quota is also what bounds storage; a number cannot go in the membership record itself,
+  which every root signs alike. W0 is applied: an assertion
   that covers both a membership record and its contest, or a successor of a pending record and that record's
   contest, is refused, either way round. A
   list at `MAX_RECORDS` refuses new ones (`full`), a backstop the rules above keep out of reach; nothing is admitted
@@ -656,7 +658,7 @@ in one store transaction, it remembers the head if the head verifies against the
 whatever else the request carries, so a head that revokes the request's own delegation is still remembered — then
 verifies the request against the same memory and consumes the claim id; only then does it run the protected action,
 once. Heads of one second may arrive in either order (F5): of two, the memory keeps the one the verifier ranks later
-(the new one only if the stored one could not follow it). Anyone holding a fresh head can move the memory forward;
+(decision 10 orders any two that differ, so a new head accepted after the stored one of its second replaces it). Anyone holding a fresh head can move the memory forward;
 that only obliges delegates to present heads at least as fresh, which the witness serves.
 Consumption is an insert-if-absent (a unique key, as DPoP's `jti` store), the head moves only to a later `at` (a
 conditional update, as TUF's stored metadata), and the transaction serialises requests (`BEGIN IMMEDIATE` for the
@@ -789,9 +791,10 @@ retires itself, and its earnings, resolved afterwards, are collected by the owne
    `l`'s; when one id stands at different epochs in the two, or two ids at one epoch (each membership is of one epoch,
    and one anchor per `prev` gives each epoch one membership, R1, R3); or when authority (R6), which the memberships
    fix, does not follow them: unchanged while they stand, shrinking (to the shared roots) when a successor turns
-   pending, growing when it settles with none pending after it. Two heads of one `at` are ordered by what they revoke
-   as well: within a second the witness only adds revocations (an entry lapses with time, never within its second), so
-   a head of the last head's `at` that lacks one of its revocations was signed before it. Such a pair is refused as
+   pending, growing when it settles with none pending after it. Two heads of one `at` and the same memberships are
+   ordered by what they revoke as well: under them the witness only adds revocations within a second (an entry lapses
+   with time, or, R10, leaves with its membership or its root's authority), so such a head that lacks one of the last
+   head's revocations was signed before it. Such a pair is refused as
    `equivocation` (`stale` when the other order is consistent), and the two signed heads are evidence; checked over every history the model's explorer reaches, an honest witness never produces one. Limits:
    it catches a split only within what one relying party sees, and a witness that jumps two epochs ahead between
    that party's heads escapes it (committing to keep the fork going for that party); a public log closes the rest.
@@ -888,8 +891,13 @@ never afterwards. Details and thresholds: `TESTING.md`; sources: [`assurance.md`
 
 **Scheduled, not gating**
 
+- Nightly (`fuzz.yml`): every property test at `FC_SCALE` times its usual run count, with a new seed each night, the
+  verifier's fuzz test among them (records edited, re-encoded under their old signatures, swapped, or replaced by any
+  JavaScript value: each refused with a reason, never thrown on). A failure prints the seed and the counterexample's
+  path, to replay with `FC_SEED` and `FC_RUNS`, and its counterexample becomes a pinned test.
+
 Not yet scheduled:
-- Long fuzz runs of `decode`, `verifyDelegation` and `verifyClaim` (fast-check at high iteration counts; Jazzer.js).
+- Coverage-guided fuzzing of `decode`, `verifyDelegation` and `verifyClaim` (Jazzer.js).
 - The membership model (`model/settled.mjs`) at greater depth than the pinned tests, and models of the delegation,
   revocation and time-window rules, with their traces replayed against the verifier.
 - An adversarial review agent against the core. Its findings go to a **private** security advisory, never a public
