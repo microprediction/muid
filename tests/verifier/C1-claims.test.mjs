@@ -29,7 +29,7 @@ const delegation = envelope.wrap(del.payload, { root: make({ covers: [del.id] })
   subject: hex(ed25519.sign(Buffer.concat([Buffer.from('muid/v1/accept\n'), Buffer.from(del.id, 'hex')]), APP)) })
 const h = envelope.seal('head', { identity: IDENTITY, epoch: 1, memberships: [IDENTITY], authority: [ROOT], revoked: [], at: NOW - 100 })
 const head = envelope.wrap(h.payload, { signature: hex(ed25519.sign(envelope.signedBytes(h.payload), W)), witness: WITNESS })
-const lg = envelope.seal('logged', { identity: IDENTITY, delegation: del.id, at: NOW - 100 })
+const lg = envelope.seal('logged', { identity: IDENTITY, delegation: del.id, at: NOW - 10 })
 const logged = envelope.wrap(lg.payload, { signature: hex(ed25519.sign(envelope.signedBytes(lg.payload), W)), witness: WITNESS })
 
 function claim (over = {}, { secret = APP, sig } = {}) {
