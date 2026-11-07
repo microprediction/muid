@@ -71,3 +71,20 @@ test('built-ins are captured at load: patching them later changes no result', ()
     assert.deepEqual(got, expected, name)
   }
 })
+
+// Found by review: accept copied fields with for-in, so properties inherited from a polluted Object.prototype were
+// copied into every verdict, and a polluted `ok` overwrote it.
+test('accept copies only the fields given, never inherited ones', () => {
+  Object.prototype.until = 1 // eslint-disable-line no-extend-native
+  Object.prototype.ok = false // eslint-disable-line no-extend-native
+  try {
+    const yes = accept({ id: 'x' })
+    assert.deepEqual(Object.keys(yes), ['ok', 'id'])
+    assert.equal(yes.ok, true)
+    assert.equal(Object.getPrototypeOf(yes), null)
+    assert.deepEqual(Object.keys(accept()), ['ok'])
+  } finally {
+    delete Object.prototype.until
+    delete Object.prototype.ok
+  }
+})

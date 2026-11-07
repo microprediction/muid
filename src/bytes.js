@@ -1,6 +1,6 @@
 // Byte and verdict helpers shared by the core, built only from built-ins captured at load (E7).
 const { apply } = Reflect
-const { create, freeze, getOwnPropertyDescriptor, getPrototypeOf } = Object
+const { create, freeze, getOwnPropertyDescriptor, getPrototypeOf, keys } = Object
 const { charCodeAt } = String.prototype
 const Bytes = Uint8Array
 const tagOf = getOwnPropertyDescriptor(getPrototypeOf(Uint8Array.prototype), Symbol.toStringTag).get
@@ -45,11 +45,12 @@ export function refuse (reason) {
   return freeze(out)
 }
 
-// { ok: true } and any fields given, in their order.
+// { ok: true } and any fields given, in their order: their own, never inherited (a polluted prototype adds nothing).
 export function accept (fields) {
   const out = create(null)
   out.ok = true
-  for (const k in fields) out[k] = fields[k]
+  const ks = fields === undefined ? [] : keys(fields)
+  for (let i = 0; i < ks.length; i++) out[ks[i]] = fields[ks[i]]
   return freeze(out)
 }
 
