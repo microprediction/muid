@@ -89,7 +89,16 @@ Generators cover deep and wide nesting, every string class in §2.2, and integer
 - **H4 patched built-ins:** 30 built-ins patched after loading (RegExp exec/test, isWellFormed, sort, Number checks,
   JSON, reflection, freeze, iteration, call/apply, the slot checks); results unchanged (E7). Results are captured
   inside the patched window and asserted after restoring, because the assertion library uses the same built-ins.
-- **E8:** decoded containers have null prototypes; Object.prototype and Array.prototype pollution does not reach them.
+  Accessors defined on Array.prototype's indices (getters supplying a descriptor of their own) change neither an
+  encoding nor a decoding, and are never called (found by review: the encoder's own descriptor list inherited them).
+- **E8:** decoded containers have null prototypes; Object.prototype and Array.prototype pollution does not reach them,
+  and the copy meets no setter planted on either.
+- **E4 order:** a string past the limit is refused as `size` before it is scanned, even with a lone surrogate; one
+  within the limit with a lone surrogate is `surrogate`.
+- **Lists read once (found by review):** the call's lists elsewhere aside, the pinned witness keys, verifier keys,
+  pinned services and a head's revoked list each have their length read once, and refuse one that is not an array
+  length without reading an entry; `accept` copies only own fields, never ones inherited from a polluted
+  Object.prototype.
 
 ### 2.4 Broken twins (each must make the suite fail)
 

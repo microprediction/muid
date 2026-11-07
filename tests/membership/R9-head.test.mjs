@@ -54,6 +54,15 @@ test('no head for a dead or frozen identity, or for a refusal', () => {
   const counted = new Proxy(long, { get (t, k) { if (typeof k === 'string' && /^[0-9]+$/.test(k)) reads++; return Reflect.get(t, k) } })
   assert.equal(headOf(s1, 3, counted), undefined, '2,000 distinct, descending')
   assert.equal(reads, 65, 'reading stops at the 65th distinct entry')
+  // Found by review: the length was read on every step, so a list whose length grows as it is read was read for ever.
+  // It is read once, and must be an array length.
+  let lengths = 0
+  const growing = new Proxy([], { get (t, k) { if (k === 'length' && ++lengths > 100) throw new Error('read for ever'); return k === 'length' ? lengths : '1'.repeat(64) } })
+  assert.notEqual(headOf(s1, 3, growing), undefined)
+  assert.equal(lengths, 1, 'the length read once')
+  for (const length of [Infinity, -1, 1.5, 2 ** 32]) {
+    assert.equal(headOf(s1, 3, new Proxy([], { get (t, k) { if (k === 'length') return length; throw new Error('read past') } })), undefined, String(length))
+  }
   const original = Array.prototype.sort
   Array.prototype.sort = function () { return this }
   let patched
