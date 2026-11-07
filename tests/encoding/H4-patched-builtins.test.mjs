@@ -120,3 +120,23 @@ test('a Symbol.toStringTag defined on Object.prototype after loading is never re
   assert.equal(bare.value, '{"a":{"b":1}}')
   assert.equal(calls, 0)
 })
+
+// Found by review: the encoder's own list of descriptors was an ordinary array, so an accessor defined on
+// Array.prototype's indices after loading saw each write, and its getter supplied what was then encoded. Its own
+// arrays now have null prototypes, so such an accessor is never reached and changes nothing.
+test('accessors defined on Array.prototype\'s indices after loading change no result, and are never called', () => {
+  let calls = 0
+  const fake = { value: 9, writable: true, enumerable: true, configurable: true }
+  const planted = ['0', '1']
+  for (const k of planted) Object.defineProperty(Array.prototype, k, { configurable: true, get () { calls++; return fake }, set () { calls++ } }) // eslint-disable-line no-extend-native
+  let encoded, decoded
+  try {
+    encoded = (() => { try { return encode({ a: [1, 2] }) } catch (e) { return e } })()
+    decoded = (() => { try { return decode('{"a":[1,2]}').a[1] } catch (e) { return e } })()
+  } finally {
+    for (const k of planted) delete Array.prototype[k]
+  }
+  assert.equal(encoded, '{"a":[1,2]}')
+  assert.equal(decoded, 2)
+  assert.equal(calls, 0)
+})
