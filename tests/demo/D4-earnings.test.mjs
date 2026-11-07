@@ -62,6 +62,20 @@ test("one standing forecast per identity and question, its latest, whichever age
   assert.deepEqual((await s.get(`/earnings?identity=${'f'.repeat(64)}`)).body, { identity: 'f'.repeat(64), earned: 0, collected: 0, balance: 0, agents: [] })
 })
 
+// Found by review: the standing forecast was the last to arrive, so a forecast held back on the network could stand
+// over the identity's later one.
+test('the standing forecast is the one signed last, whatever order they arrive in; on a tie, the later to arrive', async () => {
+  const s = setup()
+  const a1 = worker(10)
+  const a2 = worker(50)
+  await s.post(a2.records(q('q', 10000), NOW - 3)) // signed later, arrives first
+  await s.post(a1.records(q('q', 0), NOW - 5)) // signed earlier, held back
+  s.f.resolve('q', 1)
+  const e = (await s.get(`/earnings?identity=${IDENTITY}`)).body
+  assert.equal(e.earned, 10000)
+  assert.deepEqual(e.agents.map((a) => [a.agent, a.earned]), [[a2.subject, 10000], [a1.subject, 0]])
+})
+
 test('the same forecast under a new claim, or again by the same agent, does not earn twice', async () => {
   const s = setup()
   const a = worker(10)

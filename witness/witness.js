@@ -53,7 +53,17 @@ export function witness (config) {
     typeof sign !== 'function' || !isSafeInteger(contestWindow) || contestWindow < 1 || !isTime(skew) || !isTime(maxLifetime)) {
     throw new TypeError('configuration must hold rpId, origin, witnessKeys, a key among them, sign, a positive contestWindow, skew and maxLifetime')
   }
-  const stateOf = (held) => membershipState(held, { identity: held.identity, rpId, origin, witnessKeys: keys })
+  // R8's state of a holding, computed once and kept with it: a holding is never changed, only replaced, so a flood of
+  // submissions decided against one holding replays its history (every signature) once, not once each.
+  const states = new WeakMap()
+  function stateOf (held) {
+    let s = states.get(held)
+    if (s === undefined) {
+      s = membershipState(held, { identity: held.identity, rpId, origin, witnessKeys: keys })
+      states.set(held, s)
+    }
+    return s
+  }
 
   // A record signed by the witness. A signature that does not verify under the witness's key is a fault of `sign`.
   function make (type, body) {
