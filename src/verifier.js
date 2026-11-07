@@ -48,7 +48,8 @@ function allIds (list) {
   if (!isArray(list)) return undefined
   // Stryker disable next-line ArrayDeclaration: equivalent; every index is assigned before it is read
   const out = []
-  const n = list.length
+  const n = list.length // read once, and an array length: a Proxy may report any value
+  if (!(isSafeInteger(n) && n >= 0 && n < 2 ** 32)) return undefined
   for (let i = 0; i < n; i++) {
     const x = list[i]
     if (!isId(x)) return undefined
