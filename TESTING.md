@@ -377,6 +377,9 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   full; another delegation named; time at and one past `maxClaimAge` and `skew`, and outside the delegation's window;
   a signature by another key or over the payload without its prefix; subject keys in the call's revoked list; the
   call read once; `until` is the first time the claim is refused (accepted one second before it).
+- **The call's revoked list:** its length read once and required to be an array length: a Proxy reporting
+  `Infinity`, `NaN`, a negative, a fraction, 2³², a string or nothing is a programming error with no entry read; a
+  true length is read once and each entry once; 1,000 entries are accepted (the caller's own list is not bounded).
 - **Bounded head building:** `headOf` given 2,000 distinct descending revocations reads exactly 65 entries.
 - **Tamper sweep:** every position of the claim, its delegation, the root record and the head, replaced two ways
   and deleted: no variant verifies (`tests/integration/tamper.test.mjs`).
