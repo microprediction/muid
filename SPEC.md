@@ -167,7 +167,7 @@ Research: [`encoding.md`](research/encoding.md).
 - **V1 VERSION:** `v` must equal 1. Any other value is rejected.
 - **V2 TYPE:** the verifier is told which `type` it expects; a mismatch is rejected. Types form a closed list:
   `root`, `delegation`, `attestation`, `membership`, `freeze`, `contest`, `anchor`, `settlement`, `head`, `claim`,
-  `revocation`, `receipt`. Asking
+  `revocation`, `receipt`, `logged`. Asking
   for any other type is a programming error, not a reject.
 - **V3 ONE ALGORITHM PER TYPE:** the record type fixes the signature algorithm and the signer's role. Nothing in the
   record selects either.
@@ -337,14 +337,25 @@ one envelope each, so its `sig` names the signer: `{ root, assertion }`, where `
   authority, or by the delegate for itself, and carries a delegate's revocation of itself as its subject key, so no
   delegate can add more than one entry. `headOf(state, at, revoked)` builds the body from R8's result; it gives none
   for an entry that is not an id or for more than 64 distinct ones, reading no further than the 65th. A head that
-  cannot carry every live revocation is not signed (fail closed); the owner then replaces roots or lets delegations
-  expire. Each live entry counts against one root — the root that signed it, or the root of the delegate's
-  delegation — and the witness admits at most 12 per root (5 × 12 < 64), so one stolen root cannot fill a head
-  (decision 12). Entries of retired roots stay, so the witness also refuses a revocation that would make a 65th live
-  entry: revocations are then refused, never heads (the owner's fallback is to remove the root that signed the
-  delegation, R6). The witness
+  cannot carry every live revocation is not signed (fail closed); R10 keeps the entries within 64. The witness
   signs no head for an identity that is dead or frozen or in which no root has authority, and a verifier accepts none
   older than `maxStaleness`, so a stolen retired root is refused whatever records it is shown.
+- **R10 LOGGED DELEGATIONS (decision 12):** a delegation verifies only with a **logged** record
+  `{ identity, delegation, at }` naming its record id, signed by the witness (A4's `sig`) under a pinned key whose
+  window holds `at`, as browsers accept a certificate only with a log's signed timestamp (RFC 6962). The witness signs
+  one, and appends it to its log like every record it signs, only for a delegation that verifies at its `now` (D7), is
+  the identity's under its settled membership or pending successor, from a root with authority (R6), and that no
+  kept revocation names by id or subject key; a delegation signed in advance is logged once it is valid. The witness
+  therefore knows every delegation that can verify, as CRLite relies on certificate transparency's complete set, and
+  keeps every revocation it admits for the life of the identity — except a root's revocation of a delegation id given
+  with that delegation, kept until its `exp` — while a head's `revoked` is the kept targets that name a logged
+  delegation still live: before its `exp`, under the settled membership or its pending successor, from a root with
+  authority. A delegation revoked before it is logged is never logged; one logged before is in heads for as long as it
+  can verify. Each head entry counts against the root that filed it (for a delegate's revocation of itself, its
+  delegation's root): a revocation that would give its root a 13th entry, or a head a 65th, is refused (`full`), so
+  heads are always signed (5 × 12 < 64), and a retired root's entries leave heads as the delegations they name expire.
+  Revocations are admitted per root by a token bucket (12, and one more each day; `quota`), as ACME authorities limit
+  each account, so what is kept grows with time, not with one theft.
 - **Head lag (residual):** a delegate chooses which head to present, so an anchored change, a freeze or a revocation
   reaches a verifier only once every older head has aged past `maxStaleness` — a day — unless the verifier passes
   `minHeadAt` or `lastHead` (F5), the newest head it has seen for the identity. A relying party that needs faster effect for a scope
@@ -412,20 +423,29 @@ the network and the transparency log are the service's, and the signing key stay
   held successor anchorable in the same step. Its own view leaves out contest anchors, as the model's does.
 - `revoke(held, text, now, delegation)` admits a revocation (R9) signed by a root with authority, or by a delegate
   for its own key, given with the delegation that makes it a delegate of this identity under its settled or pending
-  membership from a root with authority (verified by `checkDelegation` at `now`; R6); otherwise any fresh key could add entries until, past 64, no
-  head can be signed. One entry per target. An entry is kept for the life of the identity, except a root's
-  revocation of a delegation id given with that delegation, kept until its `exp` plus `skew` (decision 12: a
-  delegation can exist under a membership before it is anchored, W0, so no change of membership bounds what a
-  revocation can affect); entries that have lapsed are dropped at the next admission. A root already counted for 12
-  live entries is refused (`quota`), and so is any revocation once 64 are live (`full`).
-- `head(held, now)` signs `headOf` of the state with the kept revocations, or nothing where `headOf` gives nothing.
+  membership from a root with authority (verified by `checkDelegation` at `now`; R6), so that no fresh key can add
+  entries. One entry per target. An entry is kept for the life of the identity, except a root's revocation of a
+  delegation id given with that delegation, kept until its `exp` plus `skew` (decision 12: a delegation can exist
+  under a membership before it is anchored, W0, so no change of membership bounds what a revocation can affect);
+  entries that have lapsed are dropped at the next admission, and at most `MAX_RECORDS` are kept (`full`). Each is
+  drawn from its root's token bucket (the signer, or the delegation's root: 12, one more a day; `quota`); one that
+  names a live logged delegation is refused (`full`) if its root already files 12 head entries, or a head holds 64
+  (R10).
+- `log(held, text, now)` logs a delegation (R10): one that verifies at `now`, is this identity's under its settled
+  membership or pending successor (`membership`), from a root with authority (`authority`), and that no kept
+  revocation names by id or subject key (`revoked`), gets a `logged` record the witness signs; one already logged
+  gives its record again, and nothing new is signed. At most `MAX_RECORDS` live delegations are held (`full`); those
+  that can no longer verify are dropped at the next logging.
+- `head(held, now)` signs `headOf` of the state with the kept revocations that name a live logged delegation (R10),
+  or nothing where `headOf` gives nothing.
 - A `sign` that does not give a valid signature under the configured key is a fault, thrown, so nothing it signs is
   published.
 **The witness service (`witness/service.js`, not core)** puts these behind a small HTTP API, fetch-style (a
 `Request` in, a `Response` out). Records the witness signs wait in an outbox until the log has taken them, and the
 outbox is appended again, the same texts, before anything else is done for the identity: a log that took an entry
 but whose answer was lost never leads the witness to sign a rival (review round 8). Endpoints: `POST /v1/records` (`{ identity, type, text }`; a root, membership, contest or
-freeze), `POST /v1/revocations` (`{ identity, text, delegation? }`), `GET /v1/identities/{id}/records` (what R8 needs)
+freeze), `POST /v1/revocations` (`{ identity, text, delegation? }`), `POST /v1/delegations` (`{ identity, text }`;
+answered with the `logged` record, appended to the log first when it is new), `GET /v1/identities/{id}/records` (what R8 needs)
 and `GET /v1/identities/{id}/head` (a head, reused for `headInterval` seconds while nothing changes); `tick()`
 advances every identity, settling once windows pass. Each identity's changes are serialised by its store, and every
 record the witness signs is appended to the log before the holding that contains it is kept, so nothing is served
@@ -490,7 +510,9 @@ is the text of the newest head the relying party has accepted for the identity, 
   reasons for `delegation`, given
   the root record's key; `identity` (the head's identity is not the delegation's); `membership` (the delegation's
   membership is not among the head's `memberships`); `authority` (its root is not among the head's `authority`);
-  `revoked` (its id or its subject key is in the head's `revoked` or the call's); `audience` (its `aud` is
+  `revoked` (its id or its subject key is in the head's `revoked` or the call's); `logged` (`logged` does not open
+  as a `logged` record of this identity naming this delegation's id, signed as A4 requires by a pinned key whose
+  window holds its `at`; R10); `audience` (its `aud` is
   not `audience`); `scope` (`scope` is not among its
   `scopes`). Records that cannot be read are `head`. It never throws for any `delegation`, `root` or `head`; a
   malformed configuration, `now`, `scope` or `minHeadAt` (when given, a non-negative integer), a `lastHead` that is
@@ -779,9 +801,10 @@ reputation layer.
 
 ## 11. Budget
 
-Trusted core ≤ 2,000 lines, so that it stays reviewable in one sitting. The budget is raised deliberately when
+Trusted core ≤ 2,050 lines, so that it stays reviewable in one sitting. The budget is raised deliberately when
 clarity needs it, and never met by compressing comments. It was raised from 1,800 for the transparency-log checks
-(`src/merkle.js`, `src/note.js`), whose adoption is to delete decision 10's rule.
+(`src/merkle.js`, `src/note.js`), whose adoption is to delete decision 10's rule, and from 2,000 for R10's logged
+record.
 
 ## 12. Automated assurance
 

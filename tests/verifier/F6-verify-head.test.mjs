@@ -27,6 +27,8 @@ function head (at, over = {}) {
   const h = envelope.seal('head', { identity: IDENTITY, epoch: 1, memberships: [IDENTITY], authority: [ROOT], revoked: [], at, ...over })
   return envelope.wrap(h.payload, { signature: hex(ed25519.sign(envelope.signedBytes(h.payload), W)), witness: WITNESS })
 }
+const lg = envelope.seal('logged', { identity: IDENTITY, delegation: del.id, at: NOW - 100 })
+const logged = envelope.wrap(lg.payload, { signature: hex(ed25519.sign(envelope.signedBytes(lg.payload), W)), witness: WITNESS })
 const CALL = Object.freeze({ now: NOW, scope: 'post', revoked: [] })
 const plain = (r) => ({ ...r })
 
@@ -34,7 +36,7 @@ test('a head that verifies gives its identity and time, whatever else a request 
   assert.deepEqual(plain(v.verifyHead(head(NOW - 100), CALL)), { ok: true, identity: IDENTITY, at: NOW - 100 })
   const revoking = head(NOW - 50, { revoked: [del.id] })
   assert.deepEqual(plain(v.verifyHead(revoking, CALL)), { ok: true, identity: IDENTITY, at: NOW - 50 }, 'one that revokes the delegation')
-  assert.deepEqual(plain(v.verifyDelegation({ delegation, root, head: revoking }, CALL)), { ok: false, reason: 'revoked' })
+  assert.deepEqual(plain(v.verifyDelegation({ delegation, root, logged, head: revoking }, CALL)), { ok: false, reason: 'revoked' })
 })
 
 test("its refusals are verifyDelegation's for the same head and call", () => {
@@ -47,7 +49,7 @@ test("its refusals are verifyDelegation's for the same head and call", () => {
   ]) {
     const a = plain(v.verifyHead(h, call))
     assert.equal(a.ok, false, name)
-    assert.deepEqual(a, plain(v.verifyDelegation({ delegation, root, head: h }, call)), name)
+    assert.deepEqual(a, plain(v.verifyDelegation({ delegation, root, logged, head: h }, call)), name)
   }
 })
 

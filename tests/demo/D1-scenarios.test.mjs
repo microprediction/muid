@@ -70,8 +70,15 @@ test('the demo: limited authority, continuity, lasting attribution, revocation, 
     const other = service(OTHER)
     for (const q of ['q', 'rain', 'snow', 'hail']) f.ask(q, now() + 3600)
     other.ask('q', now() + 3600)
+    // R10: the worker has the witness log its delegation once, and presents the logged record with it.
+    const logs = new Map()
+    const logged = async (delegation) => {
+      if (!logs.has(delegation)) logs.set(delegation, (await call('POST', '/v1/delegations', { identity: IDENTITY, text: delegation })).logged)
+      return logs.get(delegation)
+    }
     const post = async (svc, origin, records) => {
-      const res = await svc.handle(new Request(`${origin}/forecasts`, { method: 'POST', body: JSON.stringify(records) }))
+      const body = JSON.stringify({ ...records, logged: await logged(records.delegation) })
+      const res = await svc.handle(new Request(`${origin}/forecasts`, { method: 'POST', body }))
       return { status: res.status, ...(await res.json()) }
     }
     const h = history({ services: [{ origin: FORECASTS, key: SERVICE_KEY, nbf: 0, exp: 4_000_000_000 }], log: logConfig, skew: 60 })
@@ -144,7 +151,7 @@ test('the demo: limited authority, continuity, lasting attribution, revocation, 
     // The owner's own device collects; the retired agent cannot.
     const device = worker(110, { scopes: ['collect'] })
     const collect = async (w, h) => (await f.handle(new Request(`${FORECASTS}/collect`, { method: 'POST',
-      body: JSON.stringify({ claim: w.claim({}, FORECASTS, { scope: 'collect', path: '/collect' }), delegation: w.delegation, root: rootText, head: h }) }))).json()
+      body: JSON.stringify({ claim: w.claim({}, FORECASTS, { scope: 'collect', path: '/collect' }), delegation: w.delegation, root: rootText, head: h, logged: await logged(w.delegation) }) }))).json()
     assert.equal((await collect(agent, h4)).reason, 'revoked')
     assert.deepEqual(await collect(device, h4), { ok: true, collected: e.balance })
     assert.equal((await (await f.handle(new Request(`${FORECASTS}/earnings?identity=${IDENTITY}`))).json()).balance, 0)

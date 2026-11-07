@@ -7,7 +7,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { relyingParty, memoryStore, sqliteStore } from './impl.mjs'
-import { verifier, verifierWithKey, records, claim, head, CALL, NOW, IDENTITY, DELEGATION_ID, W2, delegation2 } from './fixtures.mjs'
+import { verifier, verifierWithKey, records, claim, head, CALL, NOW, IDENTITY, DELEGATION_ID, W2, delegation2, logged2 } from './fixtures.mjs'
 
 const refused = (reason) => ({ ok: false, reason })
 const tmp = () => mkdtempSync(join(tmpdir(), 'muid-rp-'))
@@ -128,8 +128,8 @@ test('a witness key rotation: memory under the removed key does not lock the ide
   const store = memoryStore()
   assert.equal((await relyingParty({ verifier: verifier(), store }).acceptClaim(records(claim(NOW - 5, 'a'), head(NOW - 60)), CALL, () => 1)).ok, true)
   const rotated = relyingParty({ verifier: verifierWithKey(W2), store })
-  assert.equal((await rotated.acceptClaim(records(claim(NOW - 4, 'b'), head(NOW - 30, { secret: W2 })), CALL, () => 1)).ok, true)
-  assert.deepEqual(await rotated.acceptClaim(records(claim(NOW - 3, 'c'), head(NOW - 90, { secret: W2 })), CALL, () => 1), refused('stale'))
+  assert.equal((await rotated.acceptClaim(records(claim(NOW - 4, 'b'), head(NOW - 30, { secret: W2 }), W2), CALL, () => 1)).ok, true)
+  assert.deepEqual(await rotated.acceptClaim(records(claim(NOW - 3, 'c'), head(NOW - 90, { secret: W2 }), W2), CALL, () => 1), refused('stale'))
 })
 
 // Found by review: the memory was read, then the records verified, then the head advanced, so a request holding an
@@ -146,7 +146,7 @@ test('a request whose transaction waits behind another is verified against the m
   let runs = 0
   const attacker = rp.acceptClaim(records(claim(NOW - 5, 'attacker'), head(NOW - 200)), CALL, () => runs++)
   const { claim: _, ...d } = records(undefined, head(NOW - 100, { revoked: [DELEGATION_ID] }))
-  assert.equal((await rp.acceptDelegation({ ...d, delegation: delegation2 }, CALL)).ok, true, 'an honest request stores a head revoking the first delegation')
+  assert.equal((await rp.acceptDelegation({ ...d, delegation: delegation2, logged: logged2 }, CALL)).ok, true, 'an honest request stores a head revoking the first delegation')
   release()
   assert.deepEqual(await attacker, refused('stale'))
   assert.equal(runs, 0)
@@ -155,11 +155,11 @@ test('a request whose transaction waits behind another is verified against the m
 // Found by review: the records were read more than once, so an object returning different heads could bypass the
 // memory or store a head under another identity.
 test('the presented records are read once each', async () => {
-  const reads = { claim: 0, delegation: 0, root: 0, head: 0 }
+  const reads = { claim: 0, delegation: 0, root: 0, head: 0, logged: 0 }
   const r = records()
   const given = Object.defineProperties({}, Object.fromEntries(Object.keys(reads).map((k) => [k, { enumerable: true, get () { reads[k]++; return r[k] } }])))
   assert.equal((await relyingParty({ verifier: verifier(), store: memoryStore() }).acceptClaim(given, CALL, () => 1)).ok, true)
-  assert.deepEqual(reads, { claim: 1, delegation: 1, root: 1, head: 1 })
+  assert.deepEqual(reads, { claim: 1, delegation: 1, root: 1, head: 1, logged: 1 })
   const throwing = Object.defineProperty({}, 'head', { get () { throw new Error('boom') } })
   assert.deepEqual(await relyingParty({ verifier: verifier(), store: memoryStore() }).acceptDelegation(throwing, CALL), refused('head'))
 })

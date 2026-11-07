@@ -367,6 +367,10 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   some honest pairs, so the check has teeth. Heads from diverging histories are refused in part. Through the real
   verifier, every distinct honest pair is accepted in order and is `stale` reversed (including pairs of one second),
   and 300 diverging pairs, some of one second, are `equivocation`.
+- **Logged (R10, `F7-logged.test.mjs`):** accepted with the witness's logged record naming the delegation; a signed logged record of the wrong form (an `at` that is an array, an object, a string, a boolean or negative; an identity or delegation that is not an id) refused as `logged`, never thrown on (found by the fuzz test); `logged`
+  for none, a non-text, a non-envelope, a head, another delegation's or identity's record, an extra key, no time or a
+  time that is not a number, an unpinned key, a forged signature, a time before or after the key's window (its first
+  second counts); checked after `revoked` and before `audience`; read once.
 - **F3:** adding revocations never turns a refusal into an accept (property).
 - **Programming errors** for configuration, `now`, `scope`, `revoked`, `minHeadAt`, a claim call's `method`, `url`,
   `nonce` and `contentDigest`, and `lastHead`; the configuration is copied at
@@ -459,8 +463,18 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   delegation signed under a membership not yet anchored once it settles (review round 8); a root's revocation given
   with its delegation lapsing at exp plus skew, not a second before, and only with the delegation it names; one
   entry per target; form, identity,
-  dead and unknown identities; more than 64 live gives no head; the list capped at 256 live entries, stale ones
-  not counted; a foreign error refused.
+  dead and unknown identities; what is kept capped at 256 entries, stale ones not counted; a foreign error refused.
+- Logged delegations (R10, `W7-logged.test.mjs`): a delegation that verifies is logged, and the verifier accepts it
+  with the logged record; logging it again gives the same record; refused not yet valid, expired, for another
+  identity, under a membership not current, from a root without authority (a pending change), not a delegation, for
+  a dead or unknown identity. A delegation signed in advance and revoked before it is logged — by id or by subject
+  key — is never logged, forty days on. A head carries a kept revocation exactly while it names a live logged
+  delegation: by id and by subject key, until its exp plus skew, and not after its root loses authority (the
+  revocation still kept). Head entries per filing root: 12, the 13th refused a day later (the bucket refilled),
+  another root's 12 of its own, a delegate's revocation counted against its delegation's root, a revocation naming
+  nothing logged kept and not counted; 64 in all, the 65th refused and the head still signed. The token bucket: 12
+  at once, one a day after, ten after ten days, never more than 12 saved, nothing for a clock that steps back, a
+  target already kept spending nothing. Logged delegations that can no longer verify dropped; at most 256.
 - A `sign` under another key is thrown, for anchors and heads.
 - Review round 8 (`W6-review.test.mjs`): 60 envelopes of one record by one root hold one; a stolen root's 40
   proposals hold one, and the owner's recovery is anchored; an owner's changed proposal replaces its first; one
@@ -476,6 +490,7 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   settling it at the window's end and not a second before; refusals as 422 with the reason, changing nothing; every
   malformed request with its status and reason, the body limit at and one past it; heads reused within the
   interval, re-signed after it or after a change, every one logged, none for a frozen identity; revocations;
+  delegations logged through their endpoint, the logged record appended once, refusals as 422;
   concurrent submissions for one identity both kept; a failing log (503, nothing kept, the tick rejected and
   retried) and a failing store; configuration.
 - The model (`W3-model.test.mjs`): random owner and thief histories in three scenarios, admitted record by record;

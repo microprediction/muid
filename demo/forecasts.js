@@ -1,9 +1,10 @@
 // Forecasts, the demo's service that accepts contributions (research/witness-api-and-demo.md). A worker POSTs a
 // claim (C1: a DPoP proof for this request, its forecast in `data`) with its delegation, the delegation's root
-// record and a fresh head. The relying-party adapter verifies the claim and consumes it once; only then is the
-// forecast kept, with a receipt (C2) the service signs at once. The receipt is then appended to the transparency log
-// and kept with the cosigned checkpoint and inclusion proof from when it was logged, as a Sigstore bundle keeps its
-// own; a contribution whose receipt is not yet published stays kept, and `publish` retries it (an outbox).
+// record, the witness's logged record of it (R10) and a fresh head. The relying-party adapter verifies the claim and
+// consumes it once; only then is the forecast kept, with a receipt (C2) the service signs at once. The receipt is then
+// appended to the transparency log and kept with the cosigned checkpoint and inclusion proof from when it was logged,
+// as a Sigstore bundle keeps its own; a contribution whose receipt is not yet published stays kept, and `publish`
+// retries it (an outbox).
 //
 // Reward policy, as forecasting tournaments score: the operator asks each question with a closing time; each identity
 // holds one standing forecast per question, its latest before the question closes, whichever of its agents made it;
@@ -89,7 +90,7 @@ export function forecasts ({ origin, adapter, log, checkpoints, key, sign, clock
     return n
   }
 
-  // The four records a request carries, read from its JSON body; or the response refusing it.
+  // The five records a request carries, read from its JSON body; or the response refusing it.
   async function read (request) {
     // Stryker disable next-line StringLiteral: equivalent; any text that is not JSON is refused as json below
     const text = request.body === null ? '' : await bounded(request, MAX_BODY)
@@ -100,7 +101,7 @@ export function forecasts ({ origin, adapter, log, checkpoints, key, sign, clock
     } catch {
       return { error: json(400, { ok: false, reason: 'json' }) }
     }
-    return { records: { claim: b?.claim, delegation: b?.delegation, root: b?.root, head: b?.head } }
+    return { records: { claim: b?.claim, delegation: b?.delegation, root: b?.root, head: b?.head, logged: b?.logged } }
   }
 
   // A claim for `scope`, verified and consumed by the adapter, then `action(accepted)`; its result as a response.

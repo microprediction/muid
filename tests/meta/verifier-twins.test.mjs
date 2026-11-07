@@ -63,6 +63,13 @@ const TWINS = [
   ['audience-unchecked', 'a delegation for another relying party is accepted', [["    if (b.aud !== cfg.audience) return refuse('audience')\n", '']]],
   ['scope-unchecked', 'any scope is granted', [["    if (!has(b.scopes, scope)) return refuse('scope')\n", '']]],
   ['head-unsigned', 'the head\'s signature is not checked', [['  if (!isWitnessSig(r.sig) || witnessReason(r.sig, r.payload, cfg.keys, from, until) !== undefined) return undefined\n', '']]],
+  ['logged-unchecked', 'a delegation is accepted without its logged record', [["    if (l === undefined || l.identity !== b.identity || l.delegation !== d.id) return refuse('logged')\n", '']]],
+  ['logged-any-delegation', "another delegation's logged record is accepted", [['l.identity !== b.identity || l.delegation !== d.id)', 'l.identity !== b.identity)']]],
+  ['logged-any-identity', "another identity's logged record is accepted", [['l === undefined || l.identity !== b.identity ||', 'l === undefined ||']]],
+  ['logged-form-unchecked', "a logged record's body is used before its form is checked", [["  if (r === undefined || !isId(r.body.identity) || !isId(r.body.delegation) || !isTime(r.body.at)) return undefined\n  if (", '  if (r === undefined || ']]],
+  ['logged-unsigned', 'a logged record is accepted without its signature checked', [['  if (!isWitnessSig(r.sig) || witnessReason(r.sig, r.payload, cfg.keys, r.body.at, r.body.at + 1) !== undefined) return undefined\n', '']]],
+  ['logged-any-time', "a logged record is accepted whatever its time against the key's window", [['witnessReason(r.sig, r.payload, cfg.keys, r.body.at, r.body.at + 1)', 'witnessReason(r.sig, r.payload, cfg.keys, 0, 1)']]],
+  ['logged-any-type', 'a head is accepted as a logged record', [["shaped(text, 'logged', LOGGED_KEYS)", "shaped(text, 'head', LOGGED_KEYS)"]]],
 ]
 
 function run (implPath) {
@@ -106,7 +113,7 @@ test('verifier broken twins', { timeout: 600_000 }, async (t) => {
     })
 
     const jobs = TWINS.map(([name, why, edits]) => [name, why, generate(name, edits)])
-    assert.equal(jobs.length, 46, 'twin count')
+    assert.equal(jobs.length, 53, 'twin count')
     const results = []
     const queue = [...jobs]
     const workers = Math.max(1, Math.floor(availableParallelism() / 4))

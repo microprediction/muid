@@ -72,6 +72,7 @@ async function open ({ init } = {}) {
   const first = await device()
   // What the witness itself holds, whatever the page is shown (an outage or a refusing witness stands in front of it).
   const witnessGet = async (path) => (await real.handle(new Request('http://witness' + path))).json()
+  const witnessPost = async (path, body) => (await real.handle(new Request('http://witness' + path, { method: 'POST', body: JSON.stringify(body) }))).json()
   // `refusing(true)` puts a witness that refuses everything in front of the real one, as a test of the page's errors.
   const refusing = (on) => { holder.svc = on ? { handle: async () => Response.json({ ok: false, reason: 'test' }, { status: 422 }) } : real }
   // `outage('down')`: the witness is unreachable; `outage('lost')`: it takes each request, but its answer is lost.
@@ -79,7 +80,7 @@ async function open ({ init } = {}) {
     const unavailable = () => Response.json({ ok: false, reason: 'unavailable' }, { status: 503 })
     holder.svc = kind === 'down' ? { handle: async () => unavailable() } : kind === 'lost' ? { handle: async (r) => { await real.handle(r); return unavailable() } } : real
   }
-  return { site, browser, ...first, device, problems, collect, keys, clock, witnessGet, svc: real, refusing, outage, advance: (s) => { offset += s },
+  return { site, browser, ...first, device, problems, collect, keys, clock, witnessGet, witnessPost, svc: real, refusing, outage, advance: (s) => { offset += s },
     close: async () => { await collect(); await end() } }
 }
 
@@ -140,11 +141,13 @@ test('create an identity and authorise a worker: the core, the witness and the v
     const d = delegationModule.checkDelegation(text, { rootKey: c.key, rpId, origin: t.site.origin, now, skew: 60, maxLifetime: 2_592_000 })
     assert.equal(d.ok, true, JSON.stringify(d))
 
-    // The page registered the root with the witness, which signs a head; a relying party at the audience accepts it.
+    // The page registered the root with the witness, which signs a head; the worker has the witness log its
+    // delegation (R10); a relying party at the audience accepts it.
     const { head } = await t.witnessGet(`/v1/identities/${r.identity}/head`)
+    const { logged } = await t.witnessPost('/v1/delegations', { identity: r.identity, text })
     const v = verifierModule.verifier({ rpId, origin: t.site.origin, audience: 'https://app.example', witnessKeys: t.keys, skew: 60,
       maxLifetime: 2_592_000, maxStaleness: 86_400, maxClaimAge: 300 })
-    const accepted = v.verifyDelegation({ delegation: text, root: r.text, head }, { now, scope: 'post', revoked: [] })
+    const accepted = v.verifyDelegation({ delegation: text, root: r.text, head, logged }, { now, scope: 'post', revoked: [] })
     assert.equal(accepted.ok, true, JSON.stringify(accepted))
     assert.deepEqual(t.problems, [])
 
@@ -376,9 +379,10 @@ test('a second passkey: one device adds it, the other co-signs; once settled it 
     const subject = hex(ed25519.sign(Buffer.concat([Buffer.from('muid/v1/accept\n'), Buffer.from(id.id, 'hex')]), WORKER))
     const text = envelope.wrap(h.payload, { root: h.root, subject })
     const { head } = await t.witnessGet(`/v1/identities/${a.identity}/head`)
+    const { logged } = await t.witnessPost('/v1/delegations', { identity: a.identity, text })
     const v = verifierModule.verifier({ rpId, origin: t.site.origin, audience: 'https://app.example', witnessKeys: t.keys, skew: 60,
       maxLifetime: 2_592_000, maxStaleness: 86_400, maxClaimAge: 300 })
-    const accepted = v.verifyDelegation({ delegation: text, root: bRoot, head }, { now: t.clock(), scope: 'post', revoked: [] })
+    const accepted = v.verifyDelegation({ delegation: text, root: bRoot, head, logged }, { now: t.clock(), scope: 'post', revoked: [] })
     assert.equal(accepted.ok, true, JSON.stringify(accepted))
     assert.deepEqual(t.problems, [])
   } finally {
