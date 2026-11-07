@@ -69,7 +69,9 @@ const TWINS = [
   ['revocation-any-delegation', 'any delegation sets when a revocation lapses', [["      if (d === undefined || d.id !== b.target) return refuse('delegation')\n", "      if (d === undefined) return refuse('delegation')\n"]]],
   ['revocation-duplicates', 'another revocation for a target already held adds an entry', [['    if (kept1.some((x) => x.target === b.target)) return accept({ held })\n', '']]],
   ['tombstone-ignored', 'a replaced proposal can be resubmitted and made current again', [["    if (tombs.some((x) => x.record === r.id && x.signer === signer)) return refuse('replaced')\n", '']]],
-  ['tombstones-unbounded', 'a root may replace its proposals without limit', [["    if (tombs.filter((x) => x.signer === signer).length >= TOMBSTONES) return refuse('quota')\n", '']]],
+  ['quorate-replaceable', 'a root may move its signature off a record a majority has signed', [["    if (gone.some((x) => quorate(x.id, 0))) return refuse('quorate')\n", '']]],
+  ['quota-blocks-majority', 'the quota refuses even the signature that completes a majority', [[" && !quorate(r.id, has(s.roots, signer) ? 1 : 0)) return refuse('quota')", ") return refuse('quota')"]]],
+  ['tombstones-unbounded', 'a root may replace its proposals without limit', [["    if (tombs.filter((x) => x.signer === signer).length >= TOMBSTONES && !quorate(r.id, has(s.roots, signer) ? 1 : 0)) return refuse('quota')\n", '']]],
   ['tombstones-kept-for-ever', 'tombstones of an earlier prev are kept', [['const tombs = held.replaced.filter((x) => x.prev === b.prev)', 'const tombs = held.replaced']]],
   ['bucket-ignored', 'a root may file revocations without limit', [["    if (tokens.tokens < 1) return refuse('quota')\n", '']]],
   ['per-root-shared', "a root's head entries count every root's", [['es.filter((x) => x.root === root).length >= PER_ROOT', 'es.length >= PER_ROOT']]],
@@ -141,7 +143,7 @@ test('witness broken twins', { timeout: 1_800_000 }, async (t) => {
       assert.ok(r.pass >= 25, `control: only ${r.pass} tests ran`)
     })
     const jobs = TWINS.map(([name, why, edits, file]) => [name, why, generate(name, edits, file)])
-    assert.equal(jobs.length, 72, 'twin count')
+    assert.equal(jobs.length, 74, 'twin count')
     const results = []
     const queue = [...jobs]
     const workers = Math.max(1, Math.floor(availableParallelism() / 4))

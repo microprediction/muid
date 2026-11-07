@@ -1,7 +1,9 @@
 // The witness agrees with the model's witness (model/settled.mjs), move by move, on random histories: owner and
 // thief sign membership records, contests and freezes, and time passes. Each record goes through admission; what is
 // admitted is what the model is given, and the anchors and settlements the witness signs are, text for text, the
-// model's translated. A record admission refuses changes nothing the model's witness or verifier would do with it.
+// model's translated. A record admission refuses changes nothing the model's witness or verifier would do with it,
+// except a signature held back because its root is held to a record a majority has signed: that record is quorate in
+// the model too.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import fc from 'fast-check'
@@ -70,6 +72,18 @@ function walk (steps, owner, thief) {
         // Refused: the model's witness and verifier do exactly the same with it as without it.
         const pick = pickFor(items)
         const reason = w.admit(held, textOf(items, it).type, textOf(items, it).text).reason
+        if (reason === 'quorate') {
+          // Held to a record a majority has signed (the escrow): in the model's items too, the signer's held proposal
+          // for this prev has a strict majority of the prev's roots. That signature is what the witness keeps.
+          const e = evaluate(G, items)
+          const prevRoots = e.record.roots
+          const mine = items.find((x) => x.kind === 'M' && x.signer === it.signer && x.prev === it.prev)
+          const same = (x) => x.kind === 'M' && x.prev === mine.prev && x.n === mine.n && x.roots.join() === mine.roots.join()
+          const signers = new Set(items.filter(same).map((x) => x.signer).filter((r) => prevRoots.includes(r)))
+          assert.ok(it.prev === e.record.id && 2 * signers.size > prevRoots.length, 'refused (quorate) without a quorate proposal')
+          kinds |= 16
+          continue
+        }
         assert.deepEqual(ws(modelWitness(G, [...items, it], pick)), ws(modelWitness(G, items, pick)), `refused (${reason}) changes the witness`)
         assert.equal(summary(evaluate(G, [...items, it])), summary(evaluate(G, items)), `refused (${reason}) changes the state`)
         kinds |= 1
@@ -100,5 +114,6 @@ for (const [name, owner, thief] of SCENARIOS) {
     assert.equal(seen & 2, 2, 'the witness signed something')
     assert.equal(seen & 1, 1, 'admission refused something')
     assert.equal(seen & 8, 8, 'a change was pending')
+    assert.equal(seen & 16, 16, 'a signature was held to a record a majority had signed')
   })
 }

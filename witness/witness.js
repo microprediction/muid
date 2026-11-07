@@ -146,8 +146,13 @@ export function witness (config) {
     if (tombs.some((x) => x.record === r.id && x.signer === signer)) return refuse('replaced')
     const mine = (x) => x.sig.root === signer && x.body.prev === b.prev
     const gone = held.memberships.map((t) => open(t, 'membership')).filter(mine)
+    // A signature that completes a strict majority is kept, as multi-signature systems keep partial signatures until
+    // their threshold (KERI's escrow; Safe's approvals): its root cannot move it off that record, and the quota never
+    // refuses the signature that completes one. So a co-holder of a root can neither undo nor block the owner's change.
+    const quorate = (id, more) => 2 * (signersOf(held, id, s.roots) + more) > s.roots.length
+    if (gone.some((x) => quorate(x.id, 0))) return refuse('quorate')
     // A root with tombstones for this prev always holds a proposal for it (its last), so this one replaces it.
-    if (tombs.filter((x) => x.signer === signer).length >= TOMBSTONES) return refuse('quota')
+    if (tombs.filter((x) => x.signer === signer).length >= TOMBSTONES && !quorate(r.id, has(s.roots, signer) ? 1 : 0)) return refuse('quota')
     const replaced = freeze([...tombs, ...gone.map((x) => freeze({ record: x.id, signer, prev: b.prev }))])
     const memberships = freeze([...held.memberships.filter((t) => !mine(open(t, 'membership'))), text])
     return accept({ held: freeze({ ...held, memberships, roots: rootsNamed(held, memberships), replaced }) })
