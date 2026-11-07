@@ -279,8 +279,8 @@ Records the witness signs about membership (V3: witness key; checked against tha
 `{ identity, membership }` complete the set. A membership, contest or freeze record may be signed by several roots,
 one envelope each, so its `sig` names the signer: `{ root, assertion }`, where `assertion` is W0–W6's object.
 
-- **R1 CHANGE BY MAJORITY:** a membership record is valid only if signed by a strict majority of `prev`'s roots and by
-  every root it adds. A root is retired by leaving it out.
+- **R1 CHANGE BY MAJORITY:** a membership record is valid only if signed by a strict majority of `prev`'s roots
+  (⌊n/2⌋ + 1 of n) and by every root it adds. A root is retired by leaving it out.
 - **R2 FREEZE BY ANY:** a freeze signed by any one root of the membership it names freezes it: delegations under it
   fail, and so do delegations under a pending successor of it. A freeze of the pending record itself, by any of its
   roots (new ones included), freezes the identity; once that record settles, the freeze holds on it as the settled
@@ -305,6 +305,16 @@ one envelope each, so its `sig` names the signer: `{ root, assertion }`, where `
   contests and freezes the verifier holds, never of their order. The only time used is the witness's `at`. Because
   only one record per `prev` is ever anchored, a verifier holding fewer records can be behind, never on another
   branch.
+- **Prior art** ([`prior-art.md`](research/prior-art.md)). R1–R6 combine three established mechanisms: rotation
+  signed by thresholds of the old and the new keys (TUF root rotation, KERI); one successor per predecessor through a
+  sequencer whose clock is the only time (did:plc's `prev` with serialised writes); and a queued change that is
+  finalized after a delay unless cancelled (Zodiac Delay, Candide's recovery module, Argent's recovery period), with
+  any one key able to lock (Argent). Four deviations are kept. Every added root signs, rather than a threshold of the
+  new set, so that each new key proves possession (as D6, and Fulcio). A freeze never expires, since a thief can wait
+  out an expiring lock. A contest ends the identity instead of reverting the change: established cancels assume the
+  canceller is not the thief, and here a thief may hold every root the owner holds, so a reverting cancel would allow
+  an endless propose-and-cancel loop. Keys are not ranked (as did:plc's are), since any one root may be stolen (§1)
+  and a top-ranked key would be a single point of failure.
 
 - **R8 STATE, AS A FUNCTION:** `membershipState(records, ctx)`, with `records` grouped by type (`roots`,
   `memberships`, `contests`, `freezes`, `anchors`, `settlements`, each a list of envelope texts) and
@@ -770,14 +780,41 @@ retires itself, and its earnings, resolved afterwards, are collected by the owne
    `l`'s; when one id stands at different epochs in the two, or two ids at one epoch (each membership is of one epoch,
    and one anchor per `prev` gives each epoch one membership, R1, R3); or when authority (R6), which the memberships
    fix, does not follow them: unchanged while they stand, shrinking (to the shared roots) when a successor turns
-   pending, growing when it settles with none pending after it. Such a pair is refused as `equivocation`, and the two
-   signed heads are evidence; checked over every history the model's explorer reaches, an honest witness never produces one. Limits:
+   pending, growing when it settles with none pending after it. Two heads of one `at` are ordered by what they revoke
+   as well: within a second the witness only adds revocations (an entry lapses with time, never within its second), so
+   a head of the last head's `at` that lacks one of its revocations was signed before it. Such a pair is refused as
+   `equivocation` (`stale` when the other order is consistent), and the two signed heads are evidence; checked over every history the model's explorer reaches, an honest witness never produces one. Limits:
    it catches a split only within what one relying party sees, and a witness that jumps two epochs ahead between
    that party's heads escapes it (committing to keep the fork going for that party); a public log closes the rest.
    A witness key is retired by its window, never removed from `witnessKeys` while a relying party may hold a last
    head it signed (that head would become a programming error); when one must be removed, as after a compromise, the
    relying-party adapter (§7) keeps the remembered head's time as `minHeadAt` instead. Bounding backdated anchors needs time from outside the witness: a public log with at least one outside
    cosigner, the contest window starting at the cosigned time of the first checkpoint that includes the anchor.
+11. **Freezes by incoming roots — decided: kept.** R2 lets any root of a pending record, new ones included, freeze it.
+   None of the established systems ([`prior-art.md`](research/prior-art.md)) lets an incoming key lock anything. It is
+   kept because a freeze only removes trust: it stops a change, never makes one, so the worst an incoming root can do
+   is hold up the change that added it, and the owner who added it can supersede that change. In return an owner whose
+   new device sees an unexpected change can stop it. The alternative, limiting a pending record's freeze to the roots
+   of its `prev`, stays available if a case against this appears.
+12. **Retaining subject-key revocations — decided: (c), with (b) and a per-root quota until it lands.** `exp − nbf`
+   is bounded, but `nbf` is not, so a delegation signed today may become valid long after it was signed. A witness
+   that drops a subject-key revocation once the delegations it knows of expire can therefore drop it too early: it
+   may not know every delegation to that key. (c) The witness logs every delegation it learns of, as certificate
+   transparency logs every certificate, and relying parties accept only logged delegations, so the witness knows
+   every delegation a revocation can affect and drops the revocation once all of them have expired. This changes
+   what a relying party checks and what a delegate presents, and is specified as its own step. (b) Until then the
+   witness keeps a revocation for the life of the identity, except a root's revocation of a delegation id given with
+   that delegation, kept until its `exp` plus `skew`; past 64 live entries no head is signed (R9, fail closed). Each
+   live entry counts against one root — the root that signed it, or for a delegate's revocation of itself, the root
+   of its delegation — and a root may hold at most 12 (5 × 12 < 64), as certificate transparency logs and ACME
+   authorities limit each submitter. Without the quota, anyone who briefly holds one root could file 65 revocations
+   and stop the identity's heads for good; with it, one stolen root fills only its own 12. Entries still never lapse
+   early, so honest accumulation over many roots can still reach 64: that is what (c) removes. Rejected: (a) — keep
+   a revocation while the membership current when it was revoked, or its pending successor, has authority — because
+   W0 lets the owner sign a change and the delegations under it in one prompt, so a delegation can exist under a
+   membership before it is anchored, and no change of membership bounds what a revocation can affect; and dropping a
+   root's revocations once that root loses authority, because a root may revoke a key that another root delegated
+   to, and that delegation would verify again once the revoking root is removed.
 
 ## 10. What the reputation layer consumes (not core)
 
@@ -790,8 +827,15 @@ whole contribution is a set of verified facts:
 - each verified claim and the delegation it was made under.
 
 The reputation layer reads these and nothing else. It never holds a secret key, never verifies a signature itself, and
-never
-writes a record the core trusts.
+never writes a record the core trusts.
+
+**Authority is not endorsement.** A delegation grants a key authority to act for an identity within its audience and
+scopes. A claim made under it is attributable to that identity — software it authorised did this — but it is not a
+statement that the identity's owner reviewed or endorses what was done. The reputation layer keeps the two apart.
+
+**One identity is correlatable.** Every service that verifies an identity's records sees the same identity id, so
+activity under it can be linked across services. For a public contributor history that is the purpose; someone who
+wants activities kept apart uses separate identities.
 
 **Memorable names (outside the core).** A root's key cannot be mined, but a name can be mined over an identity id:
 find a nonce such that SHA-256(`"muid-name\n"` ‖ identity id ‖ nonce) begins with bits that map to a readable name.

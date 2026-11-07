@@ -69,6 +69,7 @@ const TWINS = [
   ['logged-unsigned', 'a logged record is accepted without its signature checked', [['if (r === undefined || !isWitnessSig(r.sig) || witnessReason(r.sig, r.payload, cfg.keys, r.body.at, r.body.at + 1) !== undefined) return undefined', 'if (r === undefined) return undefined']]],
   ['logged-any-time', "a logged record is accepted whatever its time against the key's window", [['witnessReason(r.sig, r.payload, cfg.keys, r.body.at, r.body.at + 1)', 'witnessReason(r.sig, r.payload, cfg.keys, 0, 1)']]],
   ['logged-any-type', 'a head is accepted as a logged record', [["shaped(text, 'logged', LOGGED_KEYS)", "shaped(text, 'head', LOGGED_KEYS)"]]],
+  ['same-second-revocation-dropped', 'a head of the same second may drop a revocation the last head carried', [['  if (h.at === l.at && within(l.revoked, h.revoked)) return true\n', '']]],
 ]
 
 function run (implPath) {
@@ -112,7 +113,7 @@ test('verifier broken twins', { timeout: 600_000 }, async (t) => {
     })
 
     const jobs = TWINS.map(([name, why, edits]) => [name, why, generate(name, edits)])
-    assert.equal(jobs.length, 52, 'twin count')
+    assert.equal(jobs.length, 53, 'twin count')
     const results = []
     const queue = [...jobs]
     const workers = Math.max(1, Math.floor(availableParallelism() / 4))
