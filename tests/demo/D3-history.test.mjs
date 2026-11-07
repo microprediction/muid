@@ -23,6 +23,14 @@ test('each bundle that verifies is accepted, with when it existed by; long after
   assert.deepEqual(r.accepted[0], { service: FORECASTS, identity: IDENTITY, delegation: w1.id, claim: envelope.open(list[0].claim, 'claim').id, at: NOW, existedBy: NOW })
 })
 
+// Found by review: a list that gave a contribution twice counted it twice.
+test('a contribution given twice in a list is accepted once', async () => {
+  const { list } = await bundles()
+  const r = history({ services: SERVICES, log: CONFIG, skew: 60 }).verify(IDENTITY, [...list, ...list, list[0]], NOW)
+  assert.equal(r.accepted.length, 2)
+  assert.deepEqual(r.refused, [{ index: 2, reason: 'duplicate' }, { index: 3, reason: 'duplicate' }, { index: 4, reason: 'duplicate' }])
+})
+
 test('refusals: unpinned service, another identity, a broken bundle, a claim that is not the receipt\'s', async () => {
   const { list } = await bundles()
   const h = history({ services: SERVICES, log: CONFIG, skew: 60 })

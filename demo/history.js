@@ -16,6 +16,7 @@ export function history ({ services, log, skew }) {
   function verify (identity, bundles, now) {
     const accepted = []
     const refused = []
+    const seen = new Set() // claim ids accepted: a contribution given twice counts once
     // The answer comes from the service: anything but a list is refused as a whole.
     if (!Array.isArray(bundles)) return { accepted, refused: [{ index: null, reason: 'bundles' }] }
     for (let i = 0; i < bundles.length; i++) {
@@ -28,8 +29,13 @@ export function history ({ services, log, skew }) {
           ? { ok: false, reason: 'bundle' }
         : verifyReceipt({ receipt: b.receipt, checkpoint: b.checkpoint, proof, index: b.index, claim: b.claim }, { services, log, now, skew })
       if (r.ok && r.identity !== identity) refused.push({ index: i, reason: 'identity' })
-      else if (r.ok) accepted.push({ service: r.service, identity: r.identity, delegation: r.delegation, claim: r.claim, at: r.at, existedBy: r.existedBy })
-      else refused.push({ index: i, reason: r.reason })
+      else if (r.ok && seen.has(r.claim)) refused.push({ index: i, reason: 'duplicate' })
+      else if (r.ok) {
+        seen.add(r.claim)
+        accepted.push({ service: r.service, identity: r.identity, delegation: r.delegation, claim: r.claim, at: r.at, existedBy: r.existedBy })
+      } else {
+        refused.push({ index: i, reason: r.reason })
+      }
     }
     return { accepted, refused }
   }

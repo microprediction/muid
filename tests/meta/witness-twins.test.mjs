@@ -28,6 +28,9 @@ const TWINS = [
   ['kept-before-logged', 'a holding is kept without its outbox, before the log has taken what it signed', [['return { entry: { ...e, outbox: { entry: s.entry, texts: s.texts } }, value: { staged: s.value } }', 'return { entry: s.entry, value: { staged: s.value } }']], 'service.js'],
   ['unserialised', 'changes to one identity interleave, so one is lost', [['(queues.get(identity) ?? Promise.resolve())', 'Promise.resolve()']], 'service.js'],
   ['head-kept-after-change', 'a head signed before a change is served after it', [['return texts.length === 0 ? { entry: { held: a.held }, value } : { entry: { held: a.held }, texts, value }', 'return texts.length === 0 ? { entry: { held: a.held, head: entry?.head }, value } : { entry: { held: a.held, head: entry?.head }, texts, value }']], 'service.js'],
+  ['noop-drops-head', 'a resubmission that changes nothing drops the cached head', [['      if (entry !== undefined && a.held === entry.held) return { value }\n', '']], 'service.js'],
+  ['state-replayed', "a holding's state is replayed for every submission", [['    let s = states.get(held)\n', '    let s\n']], 'witness.js'],
+  ['queues-kept', "every identity's queue is kept for ever", [['if (queues.get(identity) === tail) queues.delete(identity)', 'if (queues.get(identity) === tail) queues.get(identity)']], 'service.js'],
   ['head-kept-for-ever', 'a head is reused however old', [['now - entry.head.at < headInterval', 'true']], 'service.js'],
   ['head-unlogged', 'a head is served that the log did not take', [['texts: [text], value: json(200, { head: text })', 'value: json(200, { head: text })']], 'service.js'],
   ['body-unbounded', 'a request body of any size is read', [["    if (text === undefined) return { error: refusal(413, 'too-large') }\n", '']], 'service.js'],
@@ -141,7 +144,7 @@ test('witness broken twins', { timeout: 1_800_000 }, async (t) => {
       assert.ok(r.pass >= 25, `control: only ${r.pass} tests ran`)
     })
     const jobs = TWINS.map(([name, why, edits, file]) => [name, why, generate(name, edits, file)])
-    assert.equal(jobs.length, 72, 'twin count')
+    assert.equal(jobs.length, 75, 'twin count')
     const results = []
     const queue = [...jobs]
     const workers = Math.max(1, Math.floor(availableParallelism() / 4))
