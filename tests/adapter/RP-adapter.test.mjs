@@ -402,9 +402,9 @@ for (const [name, open] of [['memory', () => memoryStore()], ['sqlite', () => sq
     assert.equal((await rp.acceptClaim(records(claim(NOW - 9), before), CALL, () => runs++)).ok, true, 'accepted before the revocation')
     assert.deepEqual(await rp.acceptClaim(records(claim(NOW - 8), after), CALL, () => runs++), refused('revoked'))
     assert.deepEqual(await rp.acceptClaim(records(claim(NOW - 7), before), CALL, () => runs++), refused('stale'), 'the earlier head again')
+    // A later head that no longer names it does not lift it: revocations are kept for good (R10).
+    assert.deepEqual(await rp.acceptClaim(records(claim(NOW - 6), head(T + 1)), CALL, () => runs++), refused('revoked'))
     assert.equal(runs, 1)
-    // A later head that no longer carries the revocation (it lapsed) is accepted.
-    assert.equal((await rp.acceptClaim(records(claim(NOW - 6), head(T + 1)), CALL, () => runs++)).ok, true)
   })
 }
 
