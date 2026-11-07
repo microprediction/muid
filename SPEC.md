@@ -406,8 +406,11 @@ the network and the transparency log are the service's, and the signing key stay
   root and `prev`: a root's later proposal replaces its earlier one, so no root can fill a list and block its owner
   (review round 8); root records only a replaced proposal named go with it (round 9). A replaced (record, signer) is
   kept as a tombstone, and its resubmission refused (`replaced`), so no one holding a withdrawn envelope can make it
-  current again; a root holds at most 16 per `prev`, past which its replacements are refused (`quota`), and
-  tombstones of an earlier `prev` are dropped (round 9; a signed sequence number in membership records, as did:plc
+  current again; a root holds at most 16 per `prev`, past which its replacements are refused (`quota`). A signature
+  that completes a strict majority of `prev`'s roots is kept, as multi-signature systems keep partial signatures
+  until their threshold (KERI's escrow, Safe's approvals): the quota never refuses it, and its root cannot then move
+  to another proposal for that `prev` (`quorate`), so whoever else holds a copy of that root can neither undo nor
+  block the owner's change. Tombstones of an earlier `prev` are dropped (round 9; a signed sequence number in membership records, as did:plc
   operations and Safe transactions carry, is the planned replacement, since a tombstone also stops a root from
   returning to a proposal it withdrew). W0 is applied: an assertion
   that covers both a membership record and its contest, or a successor of a pending record and that record's

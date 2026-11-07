@@ -486,6 +486,11 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   the owner can still add a root; W0 as SPEC states it — a successor's assertion covering the pending record's
   contest, and a contest's covering a held successor, refused either way; covering other records, a non-successor
   among them, allowed.
+- Escrow (`W8-escrow.test.mjs`): with `{a, b}` settled, a thief who used up b's replacements cannot stop the
+  owner's change to `{a}` (b's signature completing the majority is admitted, and anchored), while b alone is still
+  refused; once a and b sign a change adding o, neither may move to another proposal (`quorate`) and o's signature is
+  admitted and anchored; before a majority, a changed proposal still replaces the first. Against the model (`W3`),
+  every `quorate` refusal has a quorate proposal of that signer in the model's items, and such refusals are reached.
 - The service (`S1-service.test.mjs`): a change submitted record by record, its anchor logged and served, the tick
   settling it at the window's end and not a second before; refusals as 422 with the reason, changing nothing; every
   malformed request with its status and reason, the body limit at and one past it; heads reused within the
