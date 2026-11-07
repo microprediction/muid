@@ -644,8 +644,10 @@ rotation and the expiry boundary.
    `l`'s; when one id stands at different epochs in the two, or two ids at one epoch (each membership is of one epoch,
    and one anchor per `prev` gives each epoch one membership, R1, R3); or when authority (R6), which the memberships
    fix, does not follow them: unchanged while they stand, shrinking (to the shared roots) when a successor turns
-   pending, growing when it settles with none pending after it. Such a pair is refused as `equivocation`, and the two
-   signed heads are evidence; checked over every history the model's explorer reaches, an honest witness never produces one. Limits:
+   pending, growing when it settles with none pending after it. Two heads of one `at` are ordered by what they revoke
+   as well: within a second the witness only adds revocations (an entry lapses with time, never within its second), so
+   a head of the last head's `at` that lacks one of its revocations was signed before it. Such a pair is refused as
+   `equivocation` (`stale` when the other order is consistent), and the two signed heads are evidence; checked over every history the model's explorer reaches, an honest witness never produces one. Limits:
    it catches a split only within what one relying party sees, and a witness that jumps two epochs ahead between
    that party's heads escapes it (committing to keep the fork going for that party); a public log closes the rest.
    A witness key is retired by its window, never removed from `witnessKeys` while a relying party may hold a last
