@@ -50,3 +50,30 @@ test('Array.prototype pollution does not reach decoded arrays', () => {
 test('decoded values re-encode to the same text (null-prototype arrays are in the domain)', () => {
   assert.equal(encode(decode(TEXT)), TEXT)
 })
+
+// The copy is written by assignment into objects that already have null prototypes: setters planted on
+// Object.prototype for its keys, or on Array.prototype for its indices, are never reached.
+test('decoding meets no setter planted on Object.prototype or on Array.prototype\'s indices', () => {
+  let called = 0
+  const planted = [[Object.prototype, 'a'], [Object.prototype, 'b']]
+  for (const [o, k] of planted) Object.defineProperty(o, k, { configurable: true, set () { called++ }, get () { return 'planted' } })
+  try {
+    const v = decode('{"a":[["x","y"],{"a":2}],"b":1}')
+    assert.equal(called, 0)
+    assert.deepEqual(Object.keys(v), ['a', 'b'])
+    assert.equal(v.a[0][1], 'y')
+    assert.equal(v.a[1].a, 2)
+    assert.equal(v.b, 1)
+    assert.equal(Object.getPrototypeOf(v.a), null)
+    assert.equal(Object.getOwnPropertyDescriptor(v.a, '0').writable, false)
+  } finally {
+    for (const [o, k] of planted) delete o[k]
+  }
+  Object.defineProperty(Array.prototype, '1', { configurable: true, set () { called++ }, get () { return 'planted' } }) // eslint-disable-line no-extend-native
+  try {
+    assert.equal(decode('{"a":["x","y"]}').a[1], 'y')
+    assert.equal(called, 0)
+  } finally {
+    delete Array.prototype[1]
+  }
+})

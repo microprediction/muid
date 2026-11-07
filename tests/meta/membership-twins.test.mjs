@@ -17,6 +17,7 @@ const IMPORTS = ['envelope', 'assertion', 'root', 'attestation', 'bytes'].map((m
 
 // [name, bug class, [find, replace] pairs]
 const TWINS = [
+  ['head-length-reread', "a head's revoked list has its length read at every step", [['  for (let i = 0; i < n; i++) {\n    const x = revoked[i]', '  for (let i = 0; i < revoked.length; i++) {\n    const x = revoked[i]']]],
   ['half-is-majority', 'exactly half of the previous roots can change membership', [['  if (2 * yes <= cur.roots.length) return false', '  if (2 * yes < cur.roots.length) return false']]],
   ['added-roots-unsigned', 'a root can be added without its own signature', [['    if (!has(cur.roots, r) && !p.signers.has(r)) return false', '    if (false) return false']]],
   ['witness-window-ignored', 'anchors and settlements are accepted whatever the witness key\'s window', [['ctx.keys, r.body.at, r.body.at + 1)', 'ctx.keys, 0, 0)']]],
@@ -71,7 +72,7 @@ test('membership broken twins', { timeout: 600_000 }, async (t) => {
     })
 
     const jobs = TWINS.map(([name, why, edits]) => [name, why, generate(name, edits)])
-    assert.equal(jobs.length, 11, 'twin count')
+    assert.equal(jobs.length, 12, 'twin count')
     const results = []
     const queue = [...jobs]
     const workers = Math.max(1, Math.floor(availableParallelism() / 4))
