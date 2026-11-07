@@ -17,6 +17,7 @@ const IMPORTS = ['envelope', 'ed25519', 'bytes'].map((m) => ["from './" + m + ".
 
 // [name, bug class, [find, replace] pairs]
 const TWINS = [
+  ['witness-keys-length-reread', "the pinned witness keys have their length read at every step", [['  for (let i = 0; i < n; i++) {\n    const w = list[i]', '  for (let i = 0; i < list.length; i++) {\n    const w = list[i]']]],
   ['no-check-digit', 'the ORCID check digit is not checked', [['  return apply(charCodeAt, id, [18]) === (r === 10 ? 88 : 48 + r)', '  return r >= 0']]],
   ['leading-zeros', 'GitHub ids may have leading zeros', [['const GITHUB = /^[1-9][0-9]{0,19}$/', 'const GITHUB = /^[0-9]{1,20}$/']]],
   ['any-provider', 'an unknown provider is checked as GitHub', [["  if (form === undefined) return refuse('provider')", '  if (form === undefined) return refuse(ACCOUNT.github(b.account) ? undefined : \'account\')']]],
@@ -66,7 +67,7 @@ test('attestation broken twins', { timeout: 600_000 }, async (t) => {
     })
 
     const jobs = TWINS.map(([name, why, edits]) => [name, why, generate(name, edits)])
-    assert.equal(jobs.length, 6, 'twin count')
+    assert.equal(jobs.length, 7, 'twin count')
     const results = []
     const queue = [...jobs]
     const workers = Math.max(1, Math.floor(availableParallelism() / 4))

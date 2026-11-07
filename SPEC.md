@@ -140,7 +140,8 @@ object. The bytes are what get signed.
 **E7 OWN INTRINSICS:** the encoder uses only built-ins captured when its module loaded, called through a captured
 `Reflect.apply`, and no iteration protocol; code that patches a built-in afterwards changes no result, except that
 a `Symbol.toStringTag` defined on `Object.prototype` (never read) leaves no object inheriting from it plain: each is
-refused, failing closed.
+refused, failing closed. Its own working lists have null prototypes, so accessors defined on `Array.prototype`'s
+indices are never reached either.
 **E8 NULL PROTOTYPES:** `decode` returns objects and arrays with null prototypes, deeply frozen, so prototype pollution
 elsewhere in the page cannot make an absent field read as present. Arrays with a null prototype are in the domain.
 
@@ -346,7 +347,8 @@ one envelope each, so its `sig` names the signer: `{ root, assertion }`, where `
   subject key also revokes its renewals. The witness admits a revocation only when it is signed by a root with
   authority, or by the delegate for itself, and carries a delegate's revocation of itself as its subject key, so no
   delegate can add more than one entry. `headOf(state, at, revoked)` builds the body from R8's result; it gives none
-  for an entry that is not an id or for more than 64 distinct ones, reading no further than the 65th. A head that
+  for an entry that is not an id or for more than 64 distinct ones, reading no further than the 65th distinct one
+  (the list's length read once, and an array length). A head that
   cannot carry every live revocation is not signed (fail closed); R10 keeps the entries within 64. The witness
   signs no head for an identity that is dead or frozen or in which no root has authority, and a verifier accepts none
   older than `maxStaleness`, so a stolen retired root is refused whatever records it is shown.
@@ -578,7 +580,7 @@ is the text of the newest head the relying party has accepted for the identity, 
   caller's log configuration, with at least one cosigner); `inclusion` (the entry is not at `index` in the
   checkpoint's tree); `receipt-time` (`at` is later than the quorum's time, or than `now`, plus `skew`: a receipt
   cannot be accepted after it was logged, nor in the future); `service` (no pinned window for that key holds both `at` and the quorum's time, less
-  `skew`: a retired key cannot mint receipts by backdating); `claim` (a claim is given and its record id is not
+  `skew`, each window `[nbf, exp)` as A1's and D1's are: a retired key cannot mint receipts by backdating); `claim` (a claim is given and its record id is not
   `claim`, or it was made under another delegation). Within a key's window `at` is the service's word, bounded
   above by the quorum's time. A receipt is therefore kept with the checkpoint and proof obtained when it was logged,
   as a Sigstore bundle keeps its own: a checkpoint cosigned after the service key retired cannot vouch for it. It returns `{ service, identity, delegation, claim, at, existedBy }`, where `existedBy` is the
@@ -868,7 +870,7 @@ never afterwards. Details and thresholds: `TESTING.md`; sources: [`assurance.md`
 | Coverage of the core | any uncovered line, branch or function |
 | Core bans (a guard test) | in core files: `async`/`await`, clock and randomness reads, `JSON.parse` outside the decoder, imports other than noble and the core itself |
 | Line budget, skipped tests, vector pinning, CI coverage of every test file and module | as named |
-| Supply chain | install scripts (`npm ci --ignore-scripts`); unverified registry signatures; a dependency not pinned exactly, a lockfile entry from another registry or without sha512 integrity, an install script, or anything at runtime but the two noble packages |
+| Supply chain | install scripts (`npm ci --ignore-scripts`); unverified registry signatures; a dependency not pinned exactly, a lockfile entry from another registry or without sha512 integrity, an install script, or anything at runtime but the two noble packages; an override other than a development package pinned to one exact release that the lockfile holds |
 | CI hardening | an action not pinned by commit SHA; a workflow with write permissions it does not need; any `pull_request_target` |
 | CodeQL (`security-extended`, over `src/`) | any result; results are printed, not uploaded, so the token stays read-only |
 | Semgrep (`.semgrep/core.yml`, image pinned by digest) | any match in `src/`, or a rule that stops firing on its own cases (`semgrep --test`) |

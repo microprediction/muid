@@ -15,6 +15,11 @@ const SUITE = readdirSync(SUITE_DIR).filter((f) => f.endsWith('.test.mjs')).map(
 
 // [name, bug class, [find, replace] pairs]
 const TWINS = [
+  ['scan-before-size', 'a string is scanned for lone surrogates before its length is checked', [
+    ["        if (this.bytes + x.length + 3 > MAX_BYTES) fail('size')\n        if (!apply(isWellFormed, x, NO_ARGS)) fail('surrogate')\n",
+      "        if (!apply(isWellFormed, x, NO_ARGS)) fail('surrogate')\n        if (this.bytes + x.length + 3 > MAX_BYTES) fail('size')\n"]]],
+  ['descriptors-inherit', "the encoder's own list of descriptors inherits Array.prototype's indices", [
+    ['    const descriptors = setPrototypeOf([], null)', '    const descriptors = []']]],
   ['floats-accepted', 'a non-integer is encoded instead of refused', [
     ["        if (!isInteger(x)) fail('float')\n        if (!isSafeInteger(x)) fail('unsafe-integer')\n",
       "        if (x > 9007199254740991 || x < -9007199254740991) fail('unsafe-integer')\n"]]],
@@ -27,7 +32,7 @@ const TWINS = [
   ['no-depth-limit', 'nesting is unbounded', [
     ["    if (depth > MAX_DEPTH) fail('depth')\n", '']]],
   ['shallow-null-prototype', 'only the top level of a decoded value is copied, frozen and prototype-free', [
-    ['value: nullPrototypeCopy(v[k])', 'value: v[k]']]],
+    ['copy[i] = nullPrototypeCopy(v[i])', 'copy[i] = v[i]'], ['copy[keys[i]] = nullPrototypeCopy(v[keys[i]])', 'copy[keys[i]] = v[keys[i]]']]],
   ['count-only-array-check', 'an array hole hidden by an extra property passes the shape check', [
     ["      if (d === undefined) fail('array-shape')\n", '']]],
   ['utf16-size', 'size counted in UTF-16 code units instead of UTF-8 bytes', [
@@ -61,7 +66,7 @@ const TWINS = [
     ['const stringify = JSON.stringify', 'const stringify = (x) => JSON.stringify(x)'],
     ['apply(exec, KEY, [k]) === null', '!KEY.test(k)']]],
   ['inherited-output', 'decoded objects and arrays inherit from the shared prototypes', [
-    ['const copy = isArray(v) ? setPrototypeOf([], null) : create(null)', 'const copy = isArray(v) ? [] : {}']]],
+    ['    const copy = setPrototypeOf([], null)\n    const n = v.length', '    const copy = []\n    const n = v.length'], ['  const copy = create(null)\n  const keys = ownKeys(v)', '  const copy = {}\n  const keys = ownKeys(v)']]],
   ['length-read-in-loop', 'an array length is read again on every iteration', [
     ['    for (let i = 0; i < length; i++) {\n      const d', '    for (let i = 0; i < a.length; i++) {\n      const d']]],
   ['descriptor-read-twice', 'a property descriptor is read twice', [
@@ -124,7 +129,7 @@ test('broken twins', { timeout: 600_000 }, async (t) => {
         new URL('../twins/encoding/stringify.js', import.meta.url).pathname],
       ...TWINS.map(([name, why, edits]) => [name, why, generate(name, edits)]),
     ]
-    assert.equal(jobs.length, 28, 'twin count')
+    assert.equal(jobs.length, 30, 'twin count')
 
     // Each suite run already runs its files in parallel, so run only a few suites at a time.
     const results = []
