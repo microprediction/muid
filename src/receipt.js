@@ -12,6 +12,7 @@ import { isHex, isTime, onlyKeys } from './attestation.js'
 const { apply } = Reflect
 const { freeze } = Object
 const { isArray } = Array
+const { isSafeInteger } = Number
 const { isRefusal } = EnvelopeError
 const encodeText = TextEncoder.prototype.encode
 const UTF8 = new TextEncoder()
@@ -27,7 +28,9 @@ function readContext (ctx) {
   if (!isArray(services)) throw new TypeError('context must hold the pinned services')
   // Stryker disable next-line ArrayDeclaration: equivalent; every element is assigned below
   const pinned = []
-  for (let i = 0; i < services.length; i++) {
+  const n = services.length // read once, and an array length
+  if (!(isSafeInteger(n) && n >= 0 && n < 2 ** 32)) throw new TypeError('context must hold the pinned services')
+  for (let i = 0; i < n; i++) {
     const { origin, key, nbf, exp } = { ...services[i] } // null and primitives give no fields, and fail below
     if (!isCanonicalOrigin(origin) || !isHex(HEX64, key) || !isTime(nbf) || !isTime(exp)) throw new TypeError('malformed entry in the pinned services')
     pinned[i] = { origin, key, nbf, exp }
@@ -59,14 +62,16 @@ export function verifyReceipt (given, ctx) {
   if (!onlyKeys(b, BODY_KEYS) || !isHex(HEX64, b.identity) || !isHex(HEX64, b.delegation) || !isHex(HEX64, b.claim) ||
     !isCanonicalOrigin(b.service) || !isTime(b.at) || !onlyKeys(sig, SIG_KEYS) || !isHex(HEX128, sig.signature) ||
     !isHex(HEX64, sig.service)) return refuse('receipt-shape')
-  // The latest expiry among the windows pinned for this origin and key that hold `at`; none means unpinned, refused
+  // The latest expiry among the windows pinned for this origin and key that hold `at` (each [nbf, exp), as A1's and
+  // D1's are); none means unpinned, refused
   // before the signature is tried (keys are named, never found by trying, as A4).
   let exp = -1
   for (let i = 0; i < c.pinned.length; i++) {
     const s = c.pinned[i]
     // Stryker disable next-line EqualityOperator: equivalent for s.exp > exp; an equal expiry gives the same value
-    if (s.origin === b.service && s.key === sig.service && s.nbf <= b.at && b.at <= s.exp && s.exp > exp) exp = s.exp
+    if (s.origin === b.service && s.key === sig.service && s.nbf <= b.at && b.at < s.exp && s.exp > exp) exp = s.exp
   }
+  // Stryker disable next-line EqualityOperator: equivalent; a window holding `at` ends after it, so exp is never 0
   if (exp < 0) return refuse('service')
   const k = checkEd25519(sig.signature, signedBytes(r.payload), sig.service)
   if (!k.ok) return k
@@ -77,7 +82,7 @@ export function verifyReceipt (given, ctx) {
   const existedBy = cp.times[c.quorum - 1] // the quorum-th earliest: unless the quorum lies, logged by then
   if (b.at > existedBy + c.skew || b.at > c.now + c.skew) return refuse('receipt-time')
   // That window also holds, within skew, the time the receipt was logged by: a retired key cannot backdate.
-  if (existedBy > exp + c.skew) return refuse('service')
+  if (existedBy >= exp + c.skew) return refuse('service')
   if (claim !== undefined) {
     let named
     try {

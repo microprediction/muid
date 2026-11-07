@@ -231,7 +231,9 @@ export function headOf (state, at, revoked = []) {
     !isArray(revoked)) return undefined
   // Distinct ids, sorted by insertion (no built-in sort to patch), at most 64: reading stops at the 65th.
   const list = []
-  for (let i = 0; i < revoked.length; i++) {
+  const n = revoked.length // read once, and an array length: a Proxy may report any value, or another each time
+  if (!(isInteger(n) && n >= 0 && n < 2 ** 32)) return undefined
+  for (let i = 0; i < n; i++) {
     const x = revoked[i]
     if (!isId(x)) return undefined
     let j = list.length
