@@ -417,9 +417,11 @@ the network and the transparency log are the service's, and the signing key stay
   (review round 8); root records only a replaced proposal named go with it (round 9). A replaced (record, signer) is
   kept as a tombstone, and its resubmission refused (`replaced`), so no one holding a withdrawn envelope can make it
   current again; a root holds at most 16 per `prev`, past which its replacements are refused (`quota`), and
-  tombstones of an earlier `prev` are dropped (round 9; a signed sequence number in membership records, as did:plc
-  operations and Safe transactions carry, is the planned replacement, since a tombstone also stops a root from
-  returning to a proposal it withdrew). W0 is applied: an assertion
+  tombstones of an earlier `prev` are dropped (round 9). Tombstones stay: a tombstone stops a root from returning to
+  a proposal it withdrew, but per-root sequence-numbered votes, reviewed as the replacement, either let a vote filed
+  after an anchor bring a second anchor (and with it `dead`) or let a stale envelope evict a current signature, and
+  the quota is also what bounds storage; a number cannot go in the membership record itself, which every root signs
+  alike. W0 is applied: an assertion
   that covers both a membership record and its contest, or a successor of a pending record and that record's
   contest, is refused, either way round. A
   list at `MAX_RECORDS` refuses new ones (`full`), a backstop the rules above keep out of reach; nothing is admitted
