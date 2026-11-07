@@ -136,6 +136,22 @@ test('heads: signed when asked, reused within headInterval while nothing changes
   assert.deepEqual((await s.call('GET', `/v1/identities/${IDENTITY}/head`)), { status: 409, body: { ok: false, reason: 'no-head' }, type: 'application/json' })
 })
 
+// Found by review: a resubmission that changed nothing (a record already held, a delegation already logged) still
+// dropped the cached head, so anyone could have the witness sign and log a new head on every request.
+test('a resubmission that changes nothing keeps the cached head: no new head is signed or logged', async () => {
+  const s = setup()
+  await s.submit('root', rootText('a'))
+  const logged = (await s.call('POST', '/v1/delegations', { identity: IDENTITY, text: DELEGATION })).body.logged
+  const h1 = (await s.call('GET', `/v1/identities/${IDENTITY}/head`)).body.head
+  for (let i = 0; i < 5; i++) {
+    s.at(BASE + 1 + i)
+    assert.equal((await s.submit('root', rootText('a'))).status, 200)
+    assert.equal((await s.call('POST', '/v1/delegations', { identity: IDENTITY, text: DELEGATION })).body.logged, logged)
+    assert.equal((await s.call('GET', `/v1/identities/${IDENTITY}/head`)).body.head, h1)
+  }
+  assert.deepEqual(s.log.entries(), [logged, h1])
+})
+
 test('revocations: admitted through their own endpoint, refusals as 422', async () => {
   const s = setup()
   await s.submit('root', rootText('a'))
@@ -254,4 +270,38 @@ test('delegations: logged through their own endpoint, the logged record appended
   const unknown = await s.call('POST', '/v1/delegations', { identity: 'f'.repeat(64), text: DELEGATION })
   assert.deepEqual(unknown.body, { ok: false, reason: 'identity' })
   assert.deepEqual((await s.call('GET', '/v1/delegations')).status, 405)
+})
+
+// Found by review: the in-memory holdings kept a queue for every identity ever named, each holding its last answer.
+test('memory holdings: an identity\'s queue is dropped once its last update is done, in order, failures included', async () => {
+  const h = memoryHoldings()
+  const order = []
+  let release
+  const gate = new Promise((resolve) => { release = resolve })
+  const first = h.update('i', async () => { await gate; order.push(1); return { entry: 'one', value: 1 } })
+  const second = h.update('i', async (e) => { order.push(e); throw new Error('x') })
+  const third = h.update('i', async (e) => { order.push(e); return { value: 3 } })
+  for (let i = 0; i < 100; i++) await h.update('u' + i, async () => ({ value: 0 }))
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal(h.inFlight(), 1, 'the hundred done are dropped; one identity still waits')
+  release()
+  assert.equal(await first, 1)
+  await assert.rejects(second)
+  assert.equal(await third, 3)
+  assert.deepEqual(order, [1, 'one', 'one'])
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal(h.inFlight(), 0)
+  assert.equal(await h.get('i'), 'one')
+  // A queue's cleanup never drops a later update's place: one queued after it still waits for the one before.
+  const seen = []
+  let open
+  const held = new Promise((resolve) => { open = resolve })
+  const quick = h.update('j', async () => ({ value: 'first' }))
+  const slow = h.update('j', async () => { await held; seen.push('slow'); return { value: 0 } }) // queued behind it
+  await quick
+  await new Promise((resolve) => setImmediate(resolve)) // the first update's cleanup has run, with slow queued
+  const after = h.update('j', async () => { seen.push('after'); return { value: 0 } })
+  open()
+  await Promise.all([slow, after])
+  assert.deepEqual(seen, ['slow', 'after'])
 })

@@ -427,12 +427,15 @@ the network and the transparency log are the service's, and the signing key stay
   after a newer one) replaces its earlier one, so no root can fill a list and block its owner
   (review round 8); root records only a replaced proposal named go with it (round 9). A replaced (record, signer) is
   kept as a tombstone, and its resubmission refused (`replaced`), so no one holding a withdrawn envelope can make it
-  current again; a root holds at most 16 per `prev`, past which its replacements are refused (`quota`), and
-  tombstones of an earlier `prev` are dropped (round 9). Tombstones stay: a tombstone stops a root from returning to
-  a proposal it withdrew, but per-root sequence-numbered votes, reviewed as the replacement, either let a vote filed
-  after an anchor bring a second anchor (and with it `dead`) or let a stale envelope evict a current signature, and
-  the quota is also what bounds storage; a number cannot go in the membership record itself, which every root signs
-  alike. W0 is applied: an assertion
+  current again; a root holds at most 16 per `prev`, past which its replacements are refused (`quota`). A signature
+  that completes a strict majority of `prev`'s roots is kept, as multi-signature systems keep partial signatures
+  until their threshold (KERI's escrow, Safe's approvals): the quota never refuses it, and its root cannot then move
+  to another proposal for that `prev` (`quorate`), so whoever else holds a copy of that root can neither undo nor
+  block the owner's change. Tombstones of an earlier `prev` are dropped (round 9). Tombstones stay: a tombstone stops
+  a root from returning to a proposal it withdrew, but per-root sequence-numbered votes, reviewed as the replacement,
+  either let a vote filed after an anchor bring a second anchor (and with it `dead`) or let a stale envelope evict a
+  current signature, and the quota is also what bounds storage; a number cannot go in the membership record itself,
+  which every root signs alike. W0 is applied: an assertion
   that covers both a membership record and its contest, or a successor of a pending record and that record's
   contest, is refused, either way round. A
   list at `MAX_RECORDS` refuses new ones (`full`), a backstop the rules above keep out of reach; nothing is admitted
@@ -443,7 +446,11 @@ the network and the transparency log are the service's, and the signing key stay
   anchors a held contest only if verifiers would then see the identity end; once `CONTEST_WINDOW` has passed, it
   settles, as `contested` if a contest is anchored. At a settlement that is not contested, the proposals that lost
   that `prev`, and the root records only they named, are dropped: they can never be anchored. A settlement can make a
-  held successor anchorable in the same step. Its own view leaves out contest anchors, as the model's does.
+  held successor anchorable in the same step. Its own view leaves out contest anchors, as the model's does. It signs
+  only what it keeps, as a CT log signs only what it logs: each candidate anchor is tried signed by a trial key (the
+  Ed25519 key of 32 zero bytes, which no verifier pins and a configuration may not), in a copy of the witness keys
+  with the witness key's own windows, and `sign` is called only for the one kept. No valid anchor exists that the log
+  was not given.
 - `revoke(held, text, now, delegation)` admits a revocation (R9) signed by a root with authority, or by a delegate
   for its own key, given with the delegation that makes it a delegate of this identity under its settled or pending
   membership from a root with authority (verified by `checkDelegation` at `now`; R6), so that no fresh key can add
@@ -469,8 +476,11 @@ outbox is appended again, the same texts, before anything else is done for the i
 but whose answer was lost never leads the witness to sign a rival (review round 8). Endpoints: `POST /v1/records` (`{ identity, type, text }`; a root, membership, contest or
 freeze), `POST /v1/revocations` (`{ identity, text, delegation? }`), `POST /v1/delegations` (`{ identity, text }`;
 answered with the `logged` record, appended to the log first when it is new), `GET /v1/identities/{id}/records` (what R8 needs)
-and `GET /v1/identities/{id}/head` (a head, reused for `headInterval` seconds while nothing changes); `tick()`
-advances every identity, settling once windows pass. Each identity's changes are serialised by its store, and every
+and `GET /v1/identities/{id}/head` (a head, reused for `headInterval` seconds while nothing changes; a resubmission
+that changes nothing, such as a record already held, leaves it as it is); `tick()`
+advances every identity, settling once windows pass. A holding's R8 state is computed once and kept with it, so a
+flood of submissions decided against one holding replays its history once. Each identity's changes are serialised by
+its store (the in-memory store drops an identity's queue once it is idle), and every
 record the witness signs is appended to the log before the holding that contains it is kept, so nothing is served
 that the log did not take. A failing log is 503: what was decided waits in the outbox and takes effect once the log
 has it, so a retry may answer with nothing new signed; a failing store is 503 and nothing is kept. Refusals are 422 with the witness's
@@ -745,7 +755,13 @@ with each agent's share shown (`GET /earnings`); the identity collects with a cl
 holding the `collect` scope (`POST /collect`). Five scenarios run end to end in CI: limited authority, continuity
 across a replaced worker key, attribution that lasts past the delegations' expiry, revocation that takes effect at
 once through the relying party's memory, and the organizing example — an agent authorised for an hour contributes,
-retires itself, and its earnings, resolved afterwards, are collected by the owner's own device.
+retires itself, and its earnings, resolved afterwards, are collected by the owner's own device. A receipt's inclusion
+proof is checked before its bundle is kept (a wrong one is retried), and one publication of a contribution runs at a
+time. An identity's standing forecast of a question is the one its agent signed last (the claim's `at`), not the last
+to arrive, so one held back on the network cannot stand over a later one. History counts a contribution given twice
+once. The demo is not sybil-resistant: identities are free and the Brier score pays an uninformed forecast, so many
+identities can farm it; paying for real needs a scoring rule against stakes (a market scoring rule) or eligibility
+weighted by attestation.
 
 ## 9. Open decisions
 
