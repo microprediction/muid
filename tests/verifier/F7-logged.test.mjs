@@ -86,3 +86,16 @@ test('the logged record is read once from the records', () => {
   assert.equal(v.verifyDelegation(records, { now: NOW, scope: 'post', revoked: [] }).ok, true)
   assert.equal(reads, 1)
 })
+
+// Found by fuzzing: a signed logged record whose `at` was not a time threw (its `at + 1` on a decoded object) where
+// it should be refused. Its body is now checked for its form before its signature, as a head's is.
+test('a logged record of the wrong form is refused, never thrown on, even when the witness signed it', () => {
+  // Values the encoder accepts (it refuses floats and unsafe integers outright).
+  for (const over of [{ at: [] }, { at: {} }, { at: [1] }, { at: '1' }, { at: true }, { at: -1 },
+    { identity: [] }, { identity: 'x' }, { delegation: {} }, { delegation: D.id.toUpperCase() }]) {
+    const text = logged(over)
+    let r
+    assert.doesNotThrow(() => { r = verify({ logged: text }) }, JSON.stringify(over))
+    assert.deepEqual(r, refused('logged'), JSON.stringify(over))
+  }
+})
