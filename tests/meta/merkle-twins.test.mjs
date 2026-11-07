@@ -28,7 +28,9 @@ const TWINS = [
   ['equal-sizes-any-roots', 'equal sizes are consistent whatever their roots', [['  if (size1 === size2) return proof.length === 0 && same(root1, root2)', '  if (size1 === size2) return proof.length === 0']]],
   ['short-hashes', 'a hash of any length is accepted', [['  return b !== undefined && b.length === 32', '  return b !== undefined']]],
   ['bit-shift-halving', 'halving by a 32-bit shift, wrong for sizes past 2^31', [['const half = (n) => (n - (n % 2)) / 2', 'const half = (n) => n >> 1']]],
-  ['proof-unbounded', 'a proof of any length is read in full', [['list.length > MAX_PROOF) return undefined', 'false) return undefined']]],
+  ['proof-unbounded', 'a proof of any length is read in full', [['n > MAX_PROOF) return undefined', 'false) return undefined']]],
+  ['length-reread', "a proof's length is read again as the loop bound", [['for (let i = 0; i < n; i++) proof[i] = list[i]', 'for (let i = 0; i < list.length; i++) proof[i] = list[i]']]],
+  ['length-unchecked', 'a length that is not a size is used', [['if (!isSize(n) || n > MAX_PROOF)', 'if (n > MAX_PROOF)']]],
 ]
 
 function run (implPath) {
@@ -72,7 +74,7 @@ test('merkle broken twins', { timeout: 600_000 }, async (t) => {
     })
 
     const jobs = TWINS.map(([name, why, edits]) => [name, why, generate(name, edits)])
-    assert.equal(jobs.length, 10, 'twin count')
+    assert.equal(jobs.length, 12, 'twin count')
     const results = []
     const queue = [...jobs]
     const workers = Math.max(1, Math.floor(availableParallelism() / 4))

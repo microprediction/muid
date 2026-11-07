@@ -57,6 +57,25 @@ test('a proof longer than 64 is refused before any of its elements is read', () 
   assert.equal(reads, 0)
 })
 
+// Found by automated review: the length was read for the cap and read again as the loop bound, so a Proxy could
+// pass the cap with one length and be copied with another.
+test("a proof's length is read once: a length that grows after the cap is never enumerated", () => {
+  for (const later of [65, 1_000_000_000]) {
+    let lengths = 0
+    let reads = 0
+    const growing = new Proxy([], { get (t, k) { if (k === 'length') return lengths++ === 0 ? 0 : later; reads++; return H } })
+    assert.equal(verifyInclusion({ leafHash: H, index: 0, size: 1, proof: growing, root: H }), true, 'the proof as first measured: empty')
+    assert.deepEqual({ lengths, reads }, { lengths: 1, reads: 0 })
+  }
+  // And a length that is not a safe integer is refused before any element is read.
+  for (const length of [-1, 1.5, NaN, '1', 2 ** 53]) {
+    let reads = 0
+    const odd = new Proxy([], { get (t, k) { if (k === 'length') return length; reads++; return H } })
+    assert.equal(verifyInclusion({ leafHash: H, index: 0, size: 1, proof: odd, root: H }), false, String(length))
+    assert.equal(reads, 0)
+  }
+})
+
 test('leafHash takes a Uint8Array; anything else is a programming error', () => {
   for (const x of [undefined, 'ab', [1, 2], new Uint16Array(2)]) assert.throws(() => leafHash(x), /entry must be a Uint8Array/)
 })

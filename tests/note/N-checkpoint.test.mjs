@@ -203,3 +203,15 @@ test("the log's own public key as a cosigner is a programming error", () => {
   assert.equal(Buffer.from(asCosigner.pub).equals(Buffer.from(LOG.pub)), true)
   assert.throws(() => verifyCheckpoint(signed(), { ...CTX, cosigners: [asCosigner.vkey, C[1].vkey] }), /listed twice/)
 })
+
+// Found by review: configuration lists had their length read on every step. Read once, and an array length.
+test('verifier keys: the list\'s length read once, and an array length', () => {
+  const n = checkpointText(1, ROOT)
+  for (const length of [Infinity, -1, 1.5, 2 ** 32]) {
+    assert.throws(() => note.verifyNote(n, { keys: new Proxy([], { get (t, k) { if (k === 'length') return length; throw new Error('read past') } }) }), /list of verifier keys/, String(length))
+  }
+  let lengths = 0
+  const growing = new Proxy([], { get (t, k) { if (k === 'length' && ++lengths > 100) throw new Error('read for ever'); return k === 'length' ? lengths : LOG.vkey } })
+  assert.doesNotThrow(() => note.verifyNote(n, { keys: growing }))
+  assert.equal(lengths, 1)
+})
