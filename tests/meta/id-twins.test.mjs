@@ -38,7 +38,14 @@ const TWINS = [
   ['inline-script-allowed', "the CSP allows any inline script", [["script-src 'self' 'sha256-", "script-src 'self' 'unsafe-inline' 'sha256-"]], 'index.html'],
   ['hidden-shown', 'hidden parts of the page are displayed', [['[hidden] { display: none !important; }\n', '']], 'page.css'],
   ['pending-forgotten', 'a root is kept as registered before the witness has it', [['joining, registered: false }', 'joining, registered: true }']], 'page.js'],
-  ['no-retry-on-load', 'a pending registration is not retried when the page loads', [['if (unregistered()) register()\n', '\n']], 'page.js'],
+  ['no-retry-on-load', 'a pending registration is not retried when the page loads', [['if (!FRAMED && unregistered()) register()\n', '\n']], 'page.js'],
+  ['fingerprint-not-shown', 'the joining device shows no fingerprint to compare', [["    $('join-fingerprint').textContent = fingerprint(root.id)\n", '']], 'page.js'],
+  ['fingerprint-unchecked', 'the adding device shows no fingerprint of the root it signs in', [["    $('add-fingerprint').textContent = fingerprint(c.added)\n", '']], 'page.js'],
+  ['stored-any-form', 'whatever storage holds is taken as the root', [['  const r = checkRoot(x.text, { rpId })\n  return r.ok ? { ...x, id: r.id } : null', '  return x']], 'records.js'],
+  ['stored-id-trusted', "a stored root's id is taken from storage, not its record", [['return r.ok ? { ...x, id: r.id } : null', 'return r.ok ? x : null']], 'records.js'],
+  ['create-over-stored', 'a create in a stale tab overwrites the stored identity', [['  if (now !== null) { root = now; show(); return }\n', '']], 'page.js'],
+  ['tabs-not-followed', 'what another tab stores is not followed', [["window.addEventListener('storage', (e) => { if (e.key === KEY || e.key === null) { root = load(); withdraw(); show() } })\n", '']], 'page.js'],
+  ['framed-acts', 'framed, the page still offers its actions', [['const FRAMED = window.top !== window.self', 'const FRAMED = false']], 'page.js'],
   ['registered-not-saved', 'a registration that succeeded is not saved, so it is sent again', [['    root = { ...root, registered: true }\n    save()\n', '    root = { ...root, registered: true }\n']], 'page.js'],
 ]
 
@@ -88,7 +95,7 @@ test('id page broken twins', { timeout: 1_800_000 }, async (t) => {
       assert.ok(r.pass >= 14, `control: only ${r.pass} tests ran`)
     })
     const jobs = TWINS.map(([name, why, edits, file]) => [name, why, generate(name, edits, file)])
-    assert.equal(jobs.length, 24, 'twin count')
+    assert.equal(jobs.length, 31, 'twin count')
     const results = []
     const queue = [...jobs]
     const workers = Math.max(1, Math.floor(availableParallelism() / 4))

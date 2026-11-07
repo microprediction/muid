@@ -535,6 +535,13 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   in Node: the current membership by `membershipState`, an ended identity, the change (next epoch, sorted roots,
   what it adds) and each refusal (pending, already a root, not a root record, five roots), the root-signed envelope,
   a change read back to co-sign.
+- Found by review (`P1`, `P2`): the root fingerprint (24 hex digits in groups of four; anything but an id refused),
+  the same on the joining device and in the adding device's review; a stored root read back only if of its form for
+  this rp ID, its id from its own record (an edited id ignored; another rp ID, a bad text, credential, identity or
+  flag refused), and one of the wrong form forgotten, not shown; a tab open since before follows the identity
+  another tab creates, and a create begun before it heard adopts the stored identity rather than overwrite it;
+  framed (the headers removed), the page shows nothing to act on and says why. Coverage is collected from every
+  frame.
 - The HTML (`P3-html.test.mjs`): one inline script, the import map, allowed by its hash; nothing from elsewhere.
 - Mutation testing runs inside the page: the test activates Stryker's mutant in the page and returns the page's
   coverage to the test process. Both files at 100%.

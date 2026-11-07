@@ -183,3 +183,28 @@ test('reading a change to co-sign: its body and id, or a reason', () => {
     assert.throws(() => changeToSign(bad), { message: 'that is not a membership change' })
   }
 })
+
+// A root's fingerprint, shown on both devices when one adds the other's root, for the user to compare (as Bluetooth
+// pairing's numeric comparison and Signal's safety numbers): 96 bits of the root id, in six groups of four.
+test('a root fingerprint: the first 24 hex digits of its id, in groups of four; anything else is refused', () => {
+  const id = '0123456789abcdef'.repeat(4)
+  assert.equal(records.fingerprint(id), '0123 4567 89ab cdef 0123 4567')
+  for (const x of [undefined, '', id.slice(1), id.toUpperCase(), id + '0', 42]) {
+    assert.throws(() => records.fingerprint(x), { name: 'TypeError', message: 'a root id is 64 lowercase hex digits' })
+  }
+})
+
+// What the page keeps in storage is read back as untrusted: a root of its form, its id taken from its own record.
+test('a stored root: kept only if of its form, with its id from its own record; anything else is none', () => {
+  const pub = p256.getPublicKey(p256.utils.randomSecretKey(), false)
+  const spki = new Uint8Array([...Buffer.from('3059301306072a8648ce3d020106082a8648ce3d030107034200', 'hex'), ...pub])
+  const r = records.rootRecord(spki, -7, 'localhost')
+  const kept = { ...r, credential: 'AAAA', joining: false, registered: true }
+  assert.deepEqual(records.storedRoot(kept, 'localhost'), kept)
+  assert.deepEqual(records.storedRoot({ ...kept, id: '0'.repeat(64) }, 'localhost'), kept, 'the id is its record\'s')
+  for (const x of [null, 5, 'x', [], {}, { ...kept, text: 'x' }, { ...kept, credential: 1 }, { ...kept, identity: 'x' },
+    { ...kept, joining: 'yes' }, { ...kept, registered: 1 }]) {
+    assert.equal(records.storedRoot(x, 'localhost'), null, JSON.stringify(x))
+  }
+  assert.equal(records.storedRoot(kept, 'other.example'), null, 'a root of another rp ID')
+})

@@ -3,7 +3,7 @@
 // assertion, under the identity's current membership. Every record the passkey signs is shown first from its exact
 // payload (I4); changing any input withdraws it, and a signature that returns after an edit is discarded. The root
 // record and the credential id are kept in this browser only.
-import { rootRecord, challenge, assertion, delegation, handOff, b64u, fromB64u, currentMembership, addRoot, rootSigned, changeToSign } from './records.js'
+import { rootRecord, challenge, assertion, delegation, handOff, b64u, fromB64u, currentMembership, addRoot, rootSigned, changeToSign, fingerprint, storedRoot } from './records.js'
 
 const $ = (id) => document.getElementById(id)
 const meta = (name) => document.querySelector(`meta[name="${name}"]`).content
@@ -12,15 +12,26 @@ const KEY = 'muid.root'
 const WITNESS = meta('muid-witness')
 const WITNESS_KEYS = JSON.parse(meta('muid-witness-keys'))
 
-let root
-try { root = JSON.parse(localStorage.getItem(KEY)) } catch { root = null } // none is null; unreadable, forgotten
+// The stored root, as storage holds it now: none is null; unreadable, or not of a root's form, forgotten.
+function load () {
+  try { return storedRoot(JSON.parse(localStorage.getItem(KEY)), rpId) } catch { return null }
+}
+let root = load()
 const pending = { delegation: null, change: null, cosign: null }
 
 function save () {
   try { localStorage.setItem(KEY, JSON.stringify(root)) } catch { /* kept for this visit only */ }
 }
 
+// SPEC §8: root registration and every root-signed action happen in a top-level window. The deployment's headers
+// refuse framing; framed anyway, the page shows nothing to act on.
+const FRAMED = window.top !== window.self
+
 function show () {
+  if (FRAMED) {
+    $('error').textContent = 'This page acts only in its own window: open it directly.'
+    return
+  }
   const joining = root?.joining === true
   $('create').hidden = root !== null
   $('joining').hidden = !joining
@@ -32,6 +43,7 @@ function show () {
     $('identity-id').textContent = root.identity
     $('root-text').value = root.text
     $('join-root').value = root.text
+    $('join-fingerprint').textContent = fingerprint(root.id)
   }
 }
 
@@ -69,6 +81,9 @@ function withdraw () {
 
 async function create (joining) {
   withdraw()
+  // Another tab may have made one since this page loaded: it is adopted, never overwritten.
+  const now = load()
+  if (now !== null) { root = now; show(); return }
   try {
     const name = $('name').value.trim() || 'muid identity'
     const c = await navigator.credentials.create({ publicKey: {
@@ -147,6 +162,7 @@ $('add-review').addEventListener('click', async () => {
     const c = addRoot({ identity: root.identity, state: await state(), root: $('new-root').value.trim(), rpId })
     pending.change = { ...c, rootText: $('new-root').value.trim() }
     $('add-added').textContent = c.added
+    $('add-fingerprint').textContent = fingerprint(c.added)
     $('add-epoch').textContent = String(c.body.epoch)
     $('add-panel').hidden = false
   } catch (e) { fail(e) }
@@ -194,5 +210,7 @@ $('cosign-sign').addEventListener('click', async () => {
   } catch (e) { fail(e) }
 })
 
+// What another tab of this origin stores is followed here, so a page open since before cannot act on a stale root.
+window.addEventListener('storage', (e) => { if (e.key === KEY || e.key === null) { root = load(); withdraw(); show() } })
 show()
-if (unregistered()) register()
+if (!FRAMED && unregistered()) register()

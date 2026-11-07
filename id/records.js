@@ -13,6 +13,24 @@ const SPKI_P256 = '3059301306072a8648ce3d020106082a8648ce3d030107034200'
 const ASSERT_PREFIX = 'muid/v1/assert\n'
 const SCOPE = /^[a-z][a-z0-9_.:-]{0,63}$/
 export const MAX_LIFETIME = 604_800 // 7 days: the id page gives machines at most this (decision 3)
+const ID = /^[0-9a-f]{64}$/
+
+// What the page kept in storage, read back as untrusted (anything on this origin may have written it): a root of its
+// form for this rp ID, its id taken from its own record; otherwise none.
+export function storedRoot (x, rpId) {
+  if (x === null || typeof x !== 'object' || Array.isArray(x) || typeof x.text !== 'string' || typeof x.credential !== 'string' ||
+    typeof x.identity !== 'string' || !ID.test(x.identity) || !['undefined', 'boolean'].includes(typeof x.joining) ||
+    !['undefined', 'boolean'].includes(typeof x.registered)) return null
+  const r = checkRoot(x.text, { rpId })
+  return r.ok ? { ...x, id: r.id } : null
+}
+
+// A root's fingerprint, shown on both devices when one adds the other's root, for the user to compare before signing
+// (Bluetooth pairing's numeric comparison; Signal's safety numbers): 96 bits of the root id, in six groups of four.
+export function fingerprint (id) {
+  if (typeof id !== 'string' || !ID.test(id)) throw new TypeError('a root id is 64 lowercase hex digits')
+  return id.slice(0, 24).match(/.{4}/g).join(' ')
+}
 
 const hex = (b) => Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('')
 // Unpadded base64url (RFC 4648 §5), as WebAuthn fields are written (W6).
