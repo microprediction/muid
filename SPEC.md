@@ -680,7 +680,17 @@ I1–I3 window protocol for apps.
   that domain, and passkeys can never move to another. Related Origin Requests add origins but never change the
   `rp_id`. It is confirmed deliberately, as a branding and attribution decision, before the first real root.
 - Root registration and every root-signed action happen in a top-level id-origin window (popup or redirect).
-  Cross-origin iframe `create()` is not available in Safari or iOS browsers.
+  Cross-origin iframe `create()` is not available in Safari or iOS browsers. The host must serve the page with
+  `Content-Security-Policy: frame-ancestors 'none'` and `X-Frame-Options: DENY` as HTTP headers (a CSP in a meta
+  element cannot set `frame-ancestors`), as the test server does; framed anyway, it shows nothing to act on.
+- **ADDING A ROOT, COMPARED:** the joining device shows its root's fingerprint (the first 96 bits of the root id, in
+  groups of four hex digits), and the device that adds it shows the fingerprint of the root it is about to sign in,
+  for the user to compare, as Bluetooth pairing's numeric comparison and Signal's safety numbers have users compare a
+  short code: a root record swapped on its way between devices shows another.
+- **STORED STATE IS UNTRUSTED:** what the page keeps in `localStorage` is read back as untrusted (anything on the
+  origin may have written it) — a root of its form for this `rp_id`, its id taken from its own record, or none — and
+  read again before a new root is made: a page open in another tab follows what is stored (`storage` events), and
+  never makes a root over one that exists.
 - **I1 SENDER:** a request is accepted only if `event.source` is this window's opener (or parent, for an iframe) and
   `event.origin` is a canonical origin (O1). `document.referrer` is never consulted.
 - **I2 REPLY:** a reply is posted with `targetOrigin` equal to the request's `event.origin` — never `'*'` — and is not

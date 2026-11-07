@@ -31,7 +31,7 @@ export function serve ({ witness, witnessKeys = [] } = {}) {
         body = body.toString('utf8').replace('<meta name="muid-witness-keys" content="[]">',
           `<meta name="muid-witness-keys" content="${JSON.stringify(witnessKeys).replaceAll('"', '&quot;')}">`)
       }
-      res.writeHead(200, { 'content-type': TYPES[rel.slice(rel.lastIndexOf('.'))] ?? 'application/octet-stream', 'x-frame-options': 'DENY' }).end(body)
+      res.writeHead(200, { 'content-type': TYPES[rel.slice(rel.lastIndexOf('.'))] ?? 'application/octet-stream', 'x-frame-options': 'DENY', 'content-security-policy': "frame-ancestors 'none'" }).end(body)
     } catch { res.writeHead(404).end() }
   })
   return new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve({ origin: `http://localhost:${server.address().port}`, close: () => server.close() })))
