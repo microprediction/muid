@@ -367,7 +367,7 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   some honest pairs, so the check has teeth. Heads from diverging histories are refused in part. Through the real
   verifier, every distinct honest pair is accepted in order and is `stale` reversed (including pairs of one second),
   and 300 diverging pairs, some of one second, are `equivocation`.
-- **Logged (R10, `F7-logged.test.mjs`):** accepted with the witness's logged record naming the delegation; `logged`
+- **Logged (R10, `F7-logged.test.mjs`):** accepted with the witness's logged record naming the delegation; a signed logged record of the wrong form (an `at` that is an array, an object, a string, a boolean or negative; an identity or delegation that is not an id) refused as `logged`, never thrown on (found by the fuzz test); `logged`
   for none, a non-text, a non-envelope, a head, another delegation's or identity's record, an extra key, no time or a
   time that is not a number, an unpinned key, a forged signature, a time before or after the key's window (its first
   second counts); checked after `revoked` and before `audience`; read once.
