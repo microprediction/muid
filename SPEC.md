@@ -342,7 +342,9 @@ one envelope each, so its `sig` names the signer: `{ root, assertion }`, where `
   older than `maxStaleness`, so a stolen retired root is refused whatever records it is shown.
 - **R10 LOGGED DELEGATIONS (decision 12):** a delegation verifies only with a **logged** record
   `{ identity, delegation, at }` naming its record id, signed by the witness (A4's `sig`) under a pinned key whose
-  window holds `at`, as browsers accept a certificate only with a log's signed timestamp (RFC 6962). The witness signs
+  window holds `at`, and whose `at` falls in the delegation's own window (from `nbf` less `skew`, before `exp`), as
+  browsers accept a certificate only with a log's signed timestamp (RFC 6962). A revocation a relying party's last
+  head carried still holds, whatever a later head says: revocations are kept for good. The witness signs
   one, and appends it to its log like every record it signs, only for a delegation that verifies at its `now` (D7), is
   the identity's under its settled membership or pending successor, from a root with authority (R6), and that no
   kept revocation names by id or subject key; a delegation signed in advance is logged once it is valid. The witness
@@ -355,7 +357,13 @@ one envelope each, so its `sig` names the signer: `{ root, assertion }`, where `
   delegation's root): a revocation that would give its root a 13th entry, or a head a 65th, is refused (`full`), so
   heads are always signed (5 × 12 < 64), and a retired root's entries leave heads as the delegations they name expire.
   Revocations are admitted per root by a token bucket (12, and one more each day; `quota`), as ACME authorities limit
-  each account, so what is kept grows with time, not with one theft.
+  each account, so what is kept grows with time, not with one theft. Limits, stated: what is kept is bounded by
+  `MAX_RECORDS` (256) for the life of the identity, past which every revocation is refused; and a delegate's
+  revocation of itself is charged to its root, so a root's own delegates can use up its 12 entries and its bucket for
+  up to `maxLifetime`. The planned replacement for the list in every head, to be designed and reviewed as R10 was, is a
+  short-lived status record per delegation, re-issued by the witness while the delegation is live and unrevoked and
+  required by the verifier, as OCSP must-staple and short-lived certificates do: revocation is then "stop issuing",
+  with no list, no per-root accounting and no bucket on the safety path.
 - **Head lag (residual):** a delegate chooses which head to present, so an anchored change, a freeze or a revocation
   reaches a verifier only once every older head has aged past `maxStaleness` — a day — unless the verifier passes
   `minHeadAt` or `lastHead` (F5), the newest head it has seen for the identity. A relying party that needs faster effect for a scope
@@ -403,7 +411,8 @@ the network and the transparency log are the service's, and the signing key stay
   name the settled or pending membership, signed by one of its roots (R2, decision 11); a root record must be the
   first root or named by a held membership record. Each signature is verified on admission. One envelope is held per
   record and signer (another, an assertion covering other records too, is accepted unchanged), and one proposal per
-  root and `prev`: a root's later proposal replaces its earlier one, so no root can fill a list and block its owner
+  root and `prev`: a root's later proposal (later admitted, not later signed: one held back on the network can arrive
+  after a newer one) replaces its earlier one, so no root can fill a list and block its owner
   (review round 8); root records only a replaced proposal named go with it (round 9). A replaced (record, signer) is
   kept as a tombstone, and its resubmission refused (`replaced`), so no one holding a withdrawn envelope can make it
   current again; a root holds at most 16 per `prev`, past which its replacements are refused (`quota`), and
@@ -540,6 +549,9 @@ is the text of the newest head the relying party has accepted for the identity, 
   escape) cannot be claimed at all, which fails closed. `verifyClaim` takes the scope
   and the request the relying party is serving: `method`, `url` (the URL it received; the query and fragment are
   dropped before comparison), and `nonce` and `contentDigest` when it issues nonces or requires the body's digest.
+  Residual, as in DPoP (RFC 9449 §11.2): `at` is the signer's own, so code that can use the subject key during a
+  compromise can sign claims for later times, each accepted in its own window until the delegation expires; a
+  relying party that must rule this out issues nonces.
   It refuses, in order, with: V4's reasons for the claim (`envelope-encoding` too when the records cannot be read);
   `claim-shape` (a key other than these, a field of the wrong form, or `sig` not as above); `claim-scope`;
   `claim-method`; `claim-url` (`htu` not under the audience, or not the URL received); `claim-nonce` (not the nonce
@@ -772,8 +784,10 @@ retires itself, and its earnings, resolved afterwards, are collected by the owne
    fix, does not follow them: unchanged while they stand, shrinking (to the shared roots) when a successor turns
    pending, growing when it settles with none pending after it. Such a pair is refused as `equivocation`, and the two
    signed heads are evidence; checked over every history the model's explorer reaches, an honest witness never produces one. Limits:
-   it catches a split only within what one relying party sees, and a witness that jumps two epochs ahead between
-   that party's heads escapes it (committing to keep the fork going for that party); a public log closes the rest.
+   it catches a split only within what one relying party sees, and a witness that jumps ahead between that party's
+   heads escapes it — two epochs, or one when the last head had nothing pending (a successor shown settled, never
+   pending), and the one-step move from `[M, X]` to `[X, Y]` may carry any authority — committing to keep the fork
+   going for that party; a public log closes the rest.
    A witness key is retired by its window, never removed from `witnessKeys` while a relying party may hold a last
    head it signed (that head would become a programming error); when one must be removed, as after a compromise, the
    relying-party adapter (§7) keeps the remembered head's time as `minHeadAt` instead. Bounding backdated anchors needs time from outside the witness: a public log with at least one outside

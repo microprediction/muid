@@ -29,7 +29,7 @@ const head = envelope.wrap(h.payload, { signature: hex(ed25519.sign(envelope.sig
 const c = envelope.seal('claim', { delegation: del.id, scope: 'post', htm: 'POST', htu: URL_, at: NOW - 5, data: { n: 1 } })
 const claim = envelope.wrap(c.payload, { signature: hex(ed25519.sign(envelope.signedBytes(c.payload), APP)) })
 
-const l = envelope.seal('logged', { identity: IDENTITY, delegation: del.id, at: NOW - 100 })
+const l = envelope.seal('logged', { identity: IDENTITY, delegation: del.id, at: NOW - 10 })
 const logged = envelope.wrap(l.payload, { signature: hex(ed25519.sign(envelope.signedBytes(l.payload), W)), witness: WITNESS })
 const RECORDS = Object.freeze({ claim, delegation, root, head, logged })
 const CALL = Object.freeze({ now: NOW, scope: 'post', method: 'POST', url: URL_, revoked: [] })

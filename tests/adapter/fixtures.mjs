@@ -34,9 +34,9 @@ const del2 = envelope.seal('delegation', { identity: IDENTITY, membership: IDENT
   scopes: ['forecast'], nbf: NOW - 10, exp: NOW + 86_000 })
 export const delegation2 = envelope.wrap(del2.payload, { root: make({ covers: [del2.id] }),
   subject: hex(ed25519.sign(Buffer.concat([Buffer.from('muid/v1/accept\n'), Buffer.from(del2.id, 'hex')]), APP2)) })
-// R10: the witness's logged record of a delegation, signed at NOW - 100.
+// R10: the witness's logged record of a delegation, signed at NOW - 10, when it took effect.
 export function loggedFor (id, secret = W) {
-  const l = envelope.seal('logged', { identity: IDENTITY, delegation: id, at: NOW - 100 })
+  const l = envelope.seal('logged', { identity: IDENTITY, delegation: id, at: NOW - 10 })
   return envelope.wrap(l.payload, { signature: hex(ed25519.sign(envelope.signedBytes(l.payload), secret)), witness: hex(ed25519.getPublicKey(secret)) })
 }
 export const logged2 = loggedFor(del2.id)
