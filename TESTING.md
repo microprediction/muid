@@ -497,8 +497,10 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   retried) and a failing store; configuration.
 - The model (`W3-model.test.mjs`): random owner and thief histories in three scenarios, admitted record by record;
   the witness's anchors and settlements equal the model witness's translated texts after every step; every refused
-  record leaves the model's witness and verifier unchanged. The walks reach settled, pending, frozen and dead states
-  and up to two settled changes.
+  record leaves the model's witness and verifier unchanged, except a root's return to a proposal it withdrew: the test
+  keeps the tombstones from the rule, every `replaced` refusal must match one, and none may be admitted (found by the
+  nightly run; its counterexample is pinned). The walks reach settled, pending, frozen and dead states and up to two
+  settled changes.
 - The log client (`W5-log.test.mjs`), against tiles laid out from the C2SP wording by the test: proofs equal RFC
   9162's PATH for every entry of trees of 1 to 1,000 entries and at a level-2 tile (65,836); an older tree's partial
   tiles; a partial tile no longer served read from its full tile; each tile read once, at the right path; a missing
@@ -621,7 +623,9 @@ Three kinds of job run in parallel, so wall time is the slowest single job, not 
 Guards fail the build if a test file is in no job, a module has no mutation config, or a config is not in the
 matrix, and if a dependency is not pinned (exact versions, a lockfile that agrees, the public registry over https
 with sha512 integrity, no install scripts, nothing at runtime but the two noble packages); the pin guard runs against
-eighteen edited copies of the real files and must name each fault. The scan workflow (`.github/workflows/scan.yml`)
+eighteen edited copies of the real files and must name each fault. Every property test takes its run count from
+`tests/runs.mjs` (`FC_RUNS` sets every count, `FC_SCALE` multiplies each file's own), and a guard, shown planted
+faults, fails a test file that reads `FC_RUNS` itself or sets a count of its own. The scan workflow (`.github/workflows/scan.yml`)
 runs CodeQL, Semgrep with its rule tests, gitleaks over every commit, jscpd against its reviewed baseline, and the
 release-age check; each was shown to fail on a planted fault (a result, a broken rule, a token, a copied file, a
 too-new package) before it was relied on. `tests/assertion/W-simplewebauthn.test.mjs` is the SimpleWebAuthn

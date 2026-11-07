@@ -1,16 +1,18 @@
 // Fuzzing the verifier (SPEC §12): random changes to the records a claim rests on, beyond the tamper sweep's single
 // characters. Several edits at once; a value inside a record changed and the record re-encoded canonically under its
 // old signature; records swapped between fields; any JavaScript value in place of a record. Whatever is changed, both
-// verifyClaim and verifyDelegation refuse it with a reason, and neither throws. A scheduled job runs this at a high
-// FC_RUNS with a new FC_SEED each night; fast-check reports the seed and path of any failure, to replay it.
+// verifyClaim and verifyDelegation refuse it with a reason, and neither throws. The nightly job runs this, with every
+// property test, at FC_SCALE times its usual run count and a new FC_SEED; fast-check reports the seed and path of any
+// failure, to replay it.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import fc from 'fast-check'
 import { v, RECORDS, CALL } from './records.mjs'
 import { envelope, encoding } from '../impl.mjs'
+import { runs } from '../runs.mjs'
 
 const SEED = Number(process.env.FC_SEED ?? 20261107)
-const RUNS = Number(process.env.FC_RUNS ?? 200)
+const RUNS = runs(200)
 const NAMES = Object.keys(RECORDS)
 const REASON = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/
 

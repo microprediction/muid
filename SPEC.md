@@ -882,8 +882,13 @@ never afterwards. Details and thresholds: `TESTING.md`; sources: [`assurance.md`
 
 **Scheduled, not gating**
 
+- Nightly (`fuzz.yml`): every property test at `FC_SCALE` times its usual run count, with a new seed each night, the
+  verifier's fuzz test among them (records edited, re-encoded under their old signatures, swapped, or replaced by any
+  JavaScript value: each refused with a reason, never thrown on). A failure prints the seed and the counterexample's
+  path, to replay with `FC_SEED` and `FC_RUNS`, and its counterexample becomes a pinned test.
+
 Not yet scheduled:
-- Long fuzz runs of `decode`, `verifyDelegation` and `verifyClaim` (fast-check at high iteration counts; Jazzer.js).
+- Coverage-guided fuzzing of `decode`, `verifyDelegation` and `verifyClaim` (Jazzer.js).
 - The membership model (`model/settled.mjs`) at greater depth than the pinned tests, and models of the delegation,
   revocation and time-window rules, with their traces replayed against the verifier.
 - An adversarial review agent against the core. Its findings go to a **private** security advisory, never a public
