@@ -56,6 +56,7 @@ const TWINS = [
   ['key-window-at-head-only', 'a retired witness key\'s heads are accepted', [['  const until = (now > b.at ? now : b.at) + 1', '  const until = b.at + 1']]],
   ['key-window-from-head-only', 'a key not yet valid now is accepted for a head dated within skew', [['  const from = now < b.at ? now : b.at', '  const from = b.at']]],
   ['head-from-the-future', 'a head dated after now is accepted', [[' || h.at > now + cfg.skew', '']]],
+  ['revoked-length-trusted', "a revoked list's length is trusted, so a Proxy reporting Infinity is read forever", [['  if (!(isSafeInteger(n) && n >= 0 && n < 2 ** 32)) return undefined\n', '']]],
   ['membership-unchecked', 'the delegation may name any membership', [["    if (!has(h.memberships, b.membership)) return refuse('membership')\n", '']]],
   ['authority-unchecked', 'any root of the identity may delegate', [["    if (!has(h.authority, b.root)) return refuse('authority')\n", '']]],
   ['identity-unchecked', 'a head of another identity is accepted', [["    if (h.identity !== b.identity) return refuse('identity')\n", '']]],
@@ -63,6 +64,7 @@ const TWINS = [
   ['audience-unchecked', 'a delegation for another relying party is accepted', [["    if (b.aud !== cfg.audience) return refuse('audience')\n", '']]],
   ['scope-unchecked', 'any scope is granted', [["    if (!has(b.scopes, scope)) return refuse('scope')\n", '']]],
   ['head-unsigned', 'the head\'s signature is not checked', [['  if (!isWitnessSig(r.sig) || witnessReason(r.sig, r.payload, cfg.keys, from, until) !== undefined) return undefined\n', '']]],
+  ['same-second-revocation-dropped', 'a head of the same second may drop a revocation the last head carried', [['  if (h.at === l.at && within(l.revoked, h.revoked)) return true\n', '']]],
 ]
 
 function run (implPath) {
@@ -106,7 +108,7 @@ test('verifier broken twins', { timeout: 600_000 }, async (t) => {
     })
 
     const jobs = TWINS.map(([name, why, edits]) => [name, why, generate(name, edits)])
-    assert.equal(jobs.length, 46, 'twin count')
+    assert.equal(jobs.length, 48, 'twin count')
     const results = []
     const queue = [...jobs]
     const workers = Math.max(1, Math.floor(availableParallelism() / 4))

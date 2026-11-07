@@ -141,3 +141,17 @@ test('a foreign error from opening (patched built-ins in the hash library) fails
   try { out = { ...checkAttestation(ok, CTX) } } catch (e) { out = { threw: String(e) } } finally { Uint8Array.prototype.fill = original }
   assert.deepEqual(out, { ok: false, reason: 'envelope-encoding' })
 })
+
+// Found by review: configuration lists had their length read on every step, as #28 found for proofs. Read once, and
+// an array length; otherwise malformed, with no entry read.
+test('the pinned witness keys: the list\'s length read once, and an array length', () => {
+  for (const length of [Infinity, -1, 1.5, 2 ** 32]) {
+    assert.equal(attestation.readWitnessKeys(new Proxy([], { get (t, k) { if (k === 'length') return length; throw new Error('read past') } })), undefined, String(length))
+  }
+  let lengths = 0
+  const key = { key: 'a'.repeat(64), nbf: 0, exp: 1 }
+  const growing = new Proxy([], { get (t, k) { if (k === 'length' && ++lengths > 100) throw new Error('read for ever'); return k === 'length' ? lengths : key } })
+  assert.equal(attestation.readWitnessKeys(growing).length, 1)
+  assert.deepEqual(attestation.readWitnessKeys([]), [], 'none pinned is a list')
+  assert.equal(lengths, 1)
+})

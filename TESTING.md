@@ -89,7 +89,16 @@ Generators cover deep and wide nesting, every string class in §2.2, and integer
 - **H4 patched built-ins:** 30 built-ins patched after loading (RegExp exec/test, isWellFormed, sort, Number checks,
   JSON, reflection, freeze, iteration, call/apply, the slot checks); results unchanged (E7). Results are captured
   inside the patched window and asserted after restoring, because the assertion library uses the same built-ins.
-- **E8:** decoded containers have null prototypes; Object.prototype and Array.prototype pollution does not reach them.
+  Accessors defined on Array.prototype's indices (getters supplying a descriptor of their own) change neither an
+  encoding nor a decoding, and are never called (found by review: the encoder's own descriptor list inherited them).
+- **E8:** decoded containers have null prototypes; Object.prototype and Array.prototype pollution does not reach them,
+  and the copy meets no setter planted on either.
+- **E4 order:** a string past the limit is refused as `size` before it is scanned, even with a lone surrogate; one
+  within the limit with a lone surrogate is `surrogate`.
+- **Lists read once (found by review):** the call's lists elsewhere aside, the pinned witness keys, verifier keys,
+  pinned services and a head's revoked list each have their length read once, and refuse one that is not an array
+  length without reading an entry; `accept` copies only own fields, never ones inherited from a polluted
+  Object.prototype.
 
 ### 2.4 Broken twins (each must make the suite fail)
 
@@ -381,6 +390,9 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   full; another delegation named; time at and one past `maxClaimAge` and `skew`, and outside the delegation's window;
   a signature by another key or over the payload without its prefix; subject keys in the call's revoked list; the
   call read once; `until` is the first time the claim is refused (accepted one second before it).
+- **The call's revoked list:** its length read once and required to be an array length: a Proxy reporting
+  `Infinity`, `NaN`, a negative, a fraction, 2³², a string or nothing is a programming error with no entry read; a
+  true length is read once and each entry once; 1,000 entries are accepted (the caller's own list is not bounded).
 - **Bounded head building:** `headOf` given 2,000 distinct descending revocations reads exactly 65 entries.
 - **Tamper sweep:** every position of the claim, its delegation, the root record and the head, replaced two ways
   and deleted: no variant verifies (`tests/integration/tamper.test.mjs`).
