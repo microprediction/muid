@@ -4,10 +4,11 @@ import assert from 'node:assert/strict'
 import fc from 'fast-check'
 import { receipt as receiptModule } from '../impl.mjs'
 import { receiptText, logged, CTX } from './helpers.mjs'
+import { runs } from '../runs.mjs'
 
 const { verifyReceipt } = receiptModule
 const SEED = Number(process.env.FC_SEED ?? 20261103)
-const RUNS = Number(process.env.FC_RUNS ?? 200)
+const RUNS = runs(200)
 const text = receiptText()
 const GOOD = { receipt: text, ...logged(['a', text, 'b'], 1) }
 

@@ -3,6 +3,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import fc from 'fast-check'
 import { evaluate, history, membershipId, genesisOf, WINDOW } from '../../model/recovery.mjs'
+import { runs } from '../runs.mjs'
 
 const g = genesisOf('a').id
 const e2 = membershipId(2, ['a', 'b', 'c'], g)
@@ -49,6 +50,6 @@ test('R5: the state does not depend on the order of the items', () => {
     const expected = evaluate('a', items, rule)
     fc.assert(fc.property(fc.shuffledSubarray(items, { minLength: items.length }), (shuffled) => {
       assert.deepEqual(evaluate('a', shuffled, rule), expected)
-    }), { seed: Number(process.env.FC_SEED ?? 20261103), numRuns: Number(process.env.FC_RUNS ?? 200) })
+    }), { seed: Number(process.env.FC_SEED ?? 20261103), numRuns: runs(200) })
   }
 })
