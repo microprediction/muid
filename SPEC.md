@@ -647,7 +647,7 @@ in one store transaction, it remembers the head if the head verifies against the
 whatever else the request carries, so a head that revokes the request's own delegation is still remembered — then
 verifies the request against the same memory and consumes the claim id; only then does it run the protected action,
 once. Heads of one second may arrive in either order (F5): of two, the memory keeps the one the verifier ranks later
-(the new one only if the stored one could not follow it). Anyone holding a fresh head can move the memory forward;
+(decision 10 orders any two that differ, so a new head accepted after the stored one of its second replaces it). Anyone holding a fresh head can move the memory forward;
 that only obliges delegates to present heads at least as fresh, which the witness serves.
 Consumption is an insert-if-absent (a unique key, as DPoP's `jti` store), the head moves only to a later `at` (a
 conditional update, as TUF's stored metadata), and the transaction serialises requests (`BEGIN IMMEDIATE` for the
@@ -780,9 +780,10 @@ retires itself, and its earnings, resolved afterwards, are collected by the owne
    `l`'s; when one id stands at different epochs in the two, or two ids at one epoch (each membership is of one epoch,
    and one anchor per `prev` gives each epoch one membership, R1, R3); or when authority (R6), which the memberships
    fix, does not follow them: unchanged while they stand, shrinking (to the shared roots) when a successor turns
-   pending, growing when it settles with none pending after it. Two heads of one `at` are ordered by what they revoke
-   as well: within a second the witness only adds revocations (an entry lapses with time, never within its second), so
-   a head of the last head's `at` that lacks one of its revocations was signed before it. Such a pair is refused as
+   pending, growing when it settles with none pending after it. Two heads of one `at` and the same memberships are
+   ordered by what they revoke as well: under them the witness only adds revocations within a second (an entry lapses
+   with time, or, R10, leaves with its membership or its root's authority), so such a head that lacks one of the last
+   head's revocations was signed before it. Such a pair is refused as
    `equivocation` (`stale` when the other order is consistent), and the two signed heads are evidence; checked over every history the model's explorer reaches, an honest witness never produces one. Limits:
    it catches a split only within what one relying party sees, and a witness that jumps two epochs ahead between
    that party's heads escapes it (committing to keep the fork going for that party); a public log closes the rest.

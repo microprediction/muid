@@ -128,15 +128,21 @@ function readCall (call, claim, cfg) {
 
 const within = (a, b) => { for (let i = 0; i < a.length; i++) if (!has(b, a[i])) return true; return false } // a ⊄ b
 
-// Decision 10: `h` cannot honestly follow `l`: an epoch falls, an id stands at two epochs (R1, R3), or authority does
-// not follow the memberships (R6: unchanged; shrinking to pending; growing as it settles alone). Index reads only.
+// Decision 10: `h` cannot honestly follow `l`: an epoch falls, an id stands at two epochs (R1, R3), authority does not
+// follow the memberships (R6: unchanged; shrinking to pending; growing as it settles alone), or under the same
+// memberships and in the same second it drops a revocation. Index reads only.
 function forked (l, h) {
   const lm = l.memberships
   const hm = h.memberships
   if (h.epoch < l.epoch || h.epoch + hm.length < l.epoch + lm.length) return true
   // Stryker disable next-line EqualityOperator: equivalent; j = hm.length matters only if the top epoch fell (above)
   for (let i = 0; i < lm.length; i++) for (let j = 0; j < hm.length; j++) if ((l.epoch + i === h.epoch + j) !== (lm[i] === hm[j])) return true
-  if (h.epoch === l.epoch) return within(h.authority, l.authority) || (hm.length === lm.length && within(l.authority, h.authority))
+  if (h.epoch === l.epoch && hm.length === lm.length) {
+    // The same memberships (the loop above). Within one second the witness then only adds revocations (R10: an entry
+    // lapses with time, or leaves with its membership or its root's authority).
+    return within(h.authority, l.authority) || within(l.authority, h.authority) || (h.at === l.at && within(l.revoked, h.revoked))
+  }
+  if (h.epoch === l.epoch) return within(h.authority, l.authority)
   return h.epoch === l.epoch + 1 && lm.length === 2 && hm.length === 1 && within(l.authority, h.authority)
 }
 

@@ -356,14 +356,16 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   successor gone or replaced, the next epoch settling another than the pending successor, one membership at two
   epochs, more or less authority over the same memberships, authority growing as a successor turns pending or shrinking as
   it settles alone, and two heads of one second inconsistent both ways round are `equivocation`; a head of the same
-  second that could honestly precede the last one is `stale`, as is an older head, even a consistent one; a last head of another identity is `identity`, never a throw; a last head signed by a key since retired
+  second that could honestly precede the last one is `stale` (including one without a revocation the last carried,
+  under the same memberships; across a membership change in that second, revocations imply no order), as is an older head, even a consistent one; a last head of another identity is `identity`, never a throw; a last head signed by a key since retired
   still works; a last head that is not a pinned head is a programming error. Over every pair of a pool of heads, a
   last head only removes trust (F3). Head form: `epoch` a positive integer, 1 exactly when the first membership is the
   identity.
 - **Equivocation against the model:** over every history the explorer reaches with an honest witness (two and three
   roots, epochs to 3, every move by an actor holding every root, and ticks; about 18,000 states), every head is
   consistent with every head signed before it on the same history (the rule restated over epochs and sets, apart from
-  the code), with every progression the rule distinguishes and changes of authority reached; stricter rules refuse
+  the code), with every progression the rule distinguishes, changes of authority, and (heads carrying R10's
+  revocations, one per live membership and root) a head of one second dropping a revocation reached; stricter rules refuse
   some honest pairs, so the check has teeth. Heads from diverging histories are refused in part. Through the real
   verifier, every distinct honest pair is accepted in order and is `stale` reversed (including pairs of one second),
   and 300 diverging pairs, some of one second, are `equivocation`.
@@ -392,7 +394,7 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   signature, scope, method, URL (or its origin, its form, or the query kept), nonce, digest or extra keys unchecked; subject keys in the call's revoked list ignored; membership, authority, identity,
   revocation (call's or head's), audience or scope unchecked; revocation by id only; the witness key's window checked
   at the head's time only; the head's signature unchecked; `until` one second early; equivocation unchecked; heads of one second taken as evidence in either
-  order; the settled or highest epoch allowed to fall; ids not tied to epochs, or tied only within one epoch;
+  order; heads of one second ordered by their revocations across a membership change, or not ordered by them at all; the settled or highest epoch allowed to fall; ids not tied to epochs, or tied only within one epoch;
   authority unchecked while the memberships stand, allowed to grow, or to shrink at settlement; a head older than the
   last accepted; the last head's identity unchecked, checked at `now`, or not verified; the head's epoch unchecked
   against its memberships, or 0 allowed.

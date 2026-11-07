@@ -37,7 +37,7 @@ const TWINS = [
   ['call-lastHead-accepted', "a caller's lastHead is silently dropped", 'relying-party.js',
     [["  if (lastHead !== undefined) throw new TypeError('the adapter supplies lastHead from its memory')\n", '']]],
   ['tie-keeps-first', 'of two heads of one second, the first seen is kept', 'relying-party.js',
-    [['.ok) tx.replaceHead(seen.identity, given.head, seen.at, stored.head)', '.ok) {}']]],
+    [['            tx.replaceHead(seen.identity, given.head, seen.at, stored.head)\n', '']]],
   ['reason-without-memory', 'a request refused before the lock gives its reason without the memory', 'relying-party.js',
     [['        return refusal(withMemory((c) => verifier[method](given, c), call, stored).reason)', '        return refusal(pre.reason)']]],
   ['nonce-dropped', "the request's nonce is not passed to the verifier", 'relying-party.js', [['return { now, scope, method, url, nonce, contentDigest,', 'return { now, scope, method, url, contentDigest,']]],
