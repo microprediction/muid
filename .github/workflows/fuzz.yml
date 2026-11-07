@@ -1,0 +1,45 @@
+name: fuzz
+
+# SPEC §12, scheduled and not gating: every property test (fast-check) at FC_SCALE times its usual run count, with a
+# new seed each night. A failure prints FC_SEED and the counterexample's path; rerun the file with that FC_SEED and
+# its scaled run count as FC_RUNS to replay it. At 25 the slowest file (the membership model, R8) takes about 70
+# minutes on a laptop, within the job's limit.
+on:
+  schedule:
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+    inputs:
+      scale:
+        description: multiple of each property's usual run count
+        default: '25'
+
+# Read-only token; nothing is uploaded.
+permissions:
+  contents: read
+
+concurrency:
+  group: fuzz
+  cancel-in-progress: false
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '26'
+      - name: Install (no install scripts)
+        run: npm ci --ignore-scripts
+      - name: Every property test, at a multiple of its run count and a new seed
+        env:
+          SCALE: ${{ inputs.scale || '25' }}
+        run: |
+          case "$SCALE" in ''|0*|*[!0-9]*) echo "scale must be a positive number"; exit 1;; esac
+          export FC_SCALE="$SCALE" FC_SEED=$(( GITHUB_RUN_ID % 2147483647 ))
+          echo "FC_SEED=$FC_SEED FC_SCALE=$FC_SCALE"
+          # The encoding suite draws its properties from tests/encoding/arbitraries.mjs, so all of it runs.
+          node --test tests/encoding/*.test.mjs $(grep -l "from 'fast-check'" tests/*/*.test.mjs | grep -v -e '^tests/encoding/' -e '^tests/meta/')

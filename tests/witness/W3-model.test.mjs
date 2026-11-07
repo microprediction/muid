@@ -9,9 +9,10 @@ import { witness as modelWitness, moves, evaluate } from '../../model/settled.mj
 import { translate, identityFor, rootText } from '../membership/translate.mjs'
 import { witness } from './impl.mjs'
 import { CONFIG, BASE } from './fixtures.mjs'
+import { runs } from '../runs.mjs'
 
 const SEED = Number(process.env.FC_SEED ?? 20261104)
-const RUNS = Number(process.env.FC_RUNS ?? 100)
+const RUNS = runs(100)
 const G = 'a'
 const w = witness({ ...CONFIG, contestWindow: 1 }) // the model's window is one tick
 const UNIVERSE = ['a', 'b', 'c', 't']
@@ -41,6 +42,10 @@ function walk (steps, owner, thief) {
   let held = w.empty(identityFor(G))
   const tryRoot = (l) => { const r = w.admit(held, 'root', rootText(l)); if (r.ok) held = r.held }
   tryRoot(G)
+  // The witness's tombstones (SPEC §5), kept here from the rule alone: a root's replaced proposal for one prev, whose
+  // resubmission is refused (`replaced`), though the model, which has no tombstones, would take it back.
+  const tombs = new Set()
+  const tomb = (x) => `${x.signer} ${x.prev} ${x.n} ${x.roots.join()}`
   let kinds = 0
   for (const n of steps) {
     if (n % 4 === 0) {
@@ -58,9 +63,11 @@ function walk (steps, owner, thief) {
           const { type, text } = textOf(items, it)
           const r = w.admit(held, type, text)
           if (!r.ok) continue
+          if (it.kind === 'M') assert.equal(tombs.has(tomb(it)), false, 'a withdrawn proposal is admitted again')
           held = r.held
           // A root's later proposal for one prev replaces its earlier one (R8's admission): the model loses it too.
           const replaced = (x) => x.kind === 'M' && it.kind === 'M' && x.signer === it.signer && x.prev === it.prev && (x.n !== it.n || x.roots.join() !== it.roots.join())
+          for (const x of items) if (replaced(x)) tombs.add(tomb(x))
           items = [...items.filter((x) => !replaced(x)), it]
           left = left.filter((x) => x !== it)
           progress = true
@@ -70,6 +77,9 @@ function walk (steps, owner, thief) {
         // Refused: the model's witness and verifier do exactly the same with it as without it.
         const pick = pickFor(items)
         const reason = w.admit(held, textOf(items, it).type, textOf(items, it).text).reason
+        // The witness's bounds (16 tombstones a root, 256 records a list) are not the model's, and out of a walk's reach.
+        assert.ok(reason !== 'quota' && reason !== 'full', `refused (${reason}): the walk is too long for the model`)
+        if (reason === 'replaced') { assert.equal(tombs.has(tomb(it)), true, 'refused as replaced, never withdrawn'); kinds |= 1 | 16; continue }
         assert.deepEqual(ws(modelWitness(G, [...items, it], pick)), ws(modelWitness(G, items, pick)), `refused (${reason}) changes the witness`)
         assert.equal(summary(evaluate(G, [...items, it])), summary(evaluate(G, items)), `refused (${reason}) changes the state`)
         kinds |= 1
@@ -102,3 +112,10 @@ for (const [name, owner, thief] of SCENARIOS) {
     assert.equal(seen & 8, 8, 'a change was pending')
   })
 }
+
+// Found by the nightly run (FC_SEED=7): a root shared with a thief proposes, the thief has it propose another, and
+// then the first again; the witness refuses the return to a withdrawn proposal, as SPEC says.
+test('a root that withdrew a proposal is refused it again', () => {
+  const kinds = walk([324920930, 0, 444390745, 1365985618, 355154886, 0], new Set(['a', 'b', 'c']), new Set(['a', 't']))
+  assert.equal(kinds & 16, 16)
+})

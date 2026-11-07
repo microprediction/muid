@@ -177,3 +177,16 @@ test('the delegation itself: revoked by id or by subject key in a head, then pre
     assert.deepEqual(verify(head(1, [I], T), revoking, I), refused('stale'), target === id ? 'by id' : 'by subject key')
   }
 })
+
+// R10: a head carries only revocations naming a live logged delegation, so one leaves with its membership or its
+// root's authority. Within one second, revocations are ordered only between heads of the same memberships.
+test('at the same time, a revocation may leave with a membership change: no order is implied by it', () => {
+  const T = NOW - 10
+  const x = '7'.repeat(64)
+  const turning = head(1, [I], T, { authority: WIDE, revoked: [x] })
+  assert.deepEqual(verify(head(1, [I, P], T), turning, I), { ok: true }, 'a successor turns pending: X loses authority')
+  const pending = head(1, [I, P], T, { revoked: [x] })
+  assert.deepEqual(verify(head(2, [P], T), pending, P), { ok: true }, 'the successor settles: the first membership goes')
+  // The control: the same memberships, the same second, a revocation dropped.
+  assert.deepEqual(verify(head(1, [I, P], T), pending, I), refused('stale'), 'under the same memberships')
+})
