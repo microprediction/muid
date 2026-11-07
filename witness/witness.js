@@ -10,7 +10,8 @@ import { membershipState, headOf, MAX_RECORDS, MAX_REVOKED } from '../src/member
 import { checkDelegation } from '../src/delegation.js'
 import { checkEd25519 } from '../src/ed25519.js'
 import { readWitnessKeys, onlyKeys, isHex } from '../src/attestation.js'
-import { refuse, accept } from '../src/bytes.js'
+import { refuse, accept, toHex } from '../src/bytes.js'
+import { ed25519 } from '@noble/curves/ed25519.js'
 
 const { freeze, hasOwn } = Object
 const { isArray } = Array
@@ -18,6 +19,11 @@ const { isSafeInteger } = Number
 const { isRefusal } = EnvelopeError
 
 const ID = /^[0-9a-f]{64}$/
+// Sign only what is kept (CT's rule that what is signed is logged): advance() tries a candidate anchor signed by this
+// trial key, whose secret is public, in a local copy of the witness keys with the witness key's windows, and calls
+// `sign` only for the one it keeps. No verifier pins the trial key, and admission takes no anchors.
+const TRIAL_SECRET = new Uint8Array(32)
+const TRIAL_KEY = toHex(ed25519.getPublicKey(TRIAL_SECRET))
 // R10: head entries counted against the root that filed them (5 roots × 12 < the 64 a head carries); revocations
 // admitted per root by a token bucket of BURST, one more each DAY.
 const PER_ROOT = 12
@@ -49,7 +55,7 @@ const has = (list, x) => includes.call(list, x) // decoded arrays have no protot
 export function witness (config) {
   const { rpId, origin, witnessKeys, key, sign, contestWindow, skew, maxLifetime } = config // null or undefined throws here
   const keys = readWitnessKeys(witnessKeys)
-  if (typeof rpId !== 'string' || typeof origin !== 'string' || !keys?.some((k) => k.key === key) ||
+  if (typeof rpId !== 'string' || typeof origin !== 'string' || !keys?.some((k) => k.key === key) || keys.some((k) => k.key === TRIAL_KEY) ||
     typeof sign !== 'function' || !isSafeInteger(contestWindow) || contestWindow < 1 || !isTime(skew) || !isTime(maxLifetime)) {
     throw new TypeError('configuration must hold rpId, origin, witnessKeys, a key among them, sign, a positive contestWindow, skew and maxLifetime')
   }
@@ -63,6 +69,13 @@ export function witness (config) {
       states.set(held, s)
     }
     return s
+  }
+  const trialKeys = freeze([...keys, ...keys.filter((k) => k.key === key).map((k) => freeze({ ...k, key: TRIAL_KEY }))])
+  // The state with `text`, an anchor signed by the trial key, added to `held`'s anchors.
+  const trialState = (held, body) => {
+    const { payload } = seal('anchor', body)
+    const text = wrap(payload, { signature: toHex(ed25519.sign(signedBytes(payload), TRIAL_SECRET)), witness: TRIAL_KEY })
+    return membershipState(add(held, 'anchors', text), { identity: held.identity, rpId, origin, witnessKeys: trialKeys })
   }
 
   // A record signed by the witness. A signature that does not verify under the witness's key is a fault of `sign`.
@@ -156,8 +169,13 @@ export function witness (config) {
     if (tombs.some((x) => x.record === r.id && x.signer === signer)) return refuse('replaced')
     const mine = (x) => x.sig.root === signer && x.body.prev === b.prev
     const gone = held.memberships.map((t) => open(t, 'membership')).filter(mine)
+    // A signature that completes a strict majority is kept, as multi-signature systems keep partial signatures until
+    // their threshold (KERI's escrow; Safe's approvals): its root cannot move it off that record, and the quota never
+    // refuses the signature that completes one. So a co-holder of a root can neither undo nor block the owner's change.
+    const quorate = (id, more) => 2 * (signersOf(held, id, s.roots) + more) > s.roots.length
+    if (gone.some((x) => quorate(x.id, 0))) return refuse('quorate')
     // A root with tombstones for this prev always holds a proposal for it (its last), so this one replaces it.
-    if (tombs.filter((x) => x.signer === signer).length >= TOMBSTONES) return refuse('quota')
+    if (tombs.filter((x) => x.signer === signer).length >= TOMBSTONES && !quorate(r.id, has(s.roots, signer) ? 1 : 0)) return refuse('quota')
     const replaced = freeze([...tombs, ...gone.map((x) => freeze({ record: x.id, signer, prev: b.prev }))])
     const memberships = freeze([...held.memberships.filter((t) => !mine(open(t, 'membership'))), text])
     return accept({ held: freeze({ ...held, memberships, roots: rootsNamed(held, memberships), replaced }) })
@@ -230,14 +248,11 @@ export function witness (config) {
         const ids = [...new Set(held.memberships.map((t) => open(t, 'membership'))
           // Stryker disable next-line ConditionalExpression,MethodExpression: equivalent; the check below refuses a record of another prev, and this bounds the work
           .filter((m) => m.body.prev === s.settled).map((m) => m.id))]
-        let found
-        for (const x of ids) {
-          const text = make('anchor', { identity: held.identity, record: x, at: now })
-          if (stateOf(add(own, 'anchors', text)).membership === x) { found = text; break }
-        }
+        const found = ids.find((x) => trialState(own, { identity: held.identity, record: x, at: now }).membership === x)
         if (found === undefined) break
-        held = add(held, 'anchors', found)
-        sign1('anchor', found)
+        const text = make('anchor', { identity: held.identity, record: found, at: now })
+        held = add(held, 'anchors', text)
+        sign1('anchor', text)
         continue
       }
       const at = anchors.find((a) => a.record === s.membership).at
@@ -246,8 +261,8 @@ export function witness (config) {
       if (now < at + contestWindow) {
         // R5: a contest of the pending record, anchored only if verifiers then see the identity end.
         if (contest === undefined || contested) break
+        if (!trialState(held, { identity: held.identity, record: contest, at: now }).dead) break
         const text = make('anchor', { identity: held.identity, record: contest, at: now })
-        if (!stateOf(add(held, 'anchors', text)).dead) break
         held = add(held, 'anchors', text)
         sign1('anchor', text)
         continue

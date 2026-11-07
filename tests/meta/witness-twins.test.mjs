@@ -13,8 +13,8 @@ const SUITE_DIR = new URL('../witness/', import.meta.url).pathname
 const SUITE = readdirSync(SUITE_DIR).filter((f) => f.endsWith('.test.mjs')).map((f) => join(SUITE_DIR, f))
 // The witness's imports of the core, made absolute because a twin lives outside the repository.
 const CORE = ["from '../" + 'src/', "from '" + new URL('../../src/', import.meta.url).href]
-// And its one package import, resolved from here.
-const NOBLE = ["from '@noble/hashes/sha2.js'", `from '${import.meta.resolve('@noble/hashes/sha2.js')}'`]
+// And its package imports, resolved from here.
+const NOBLE = ['@noble/hashes/sha2.js', '@noble/curves/ed25519.js'].map((m) => [`from '${m}'`, `from '${import.meta.resolve(m)}'`])
 
 // [name, bug class, [find, replace] pairs, file (witness.js unless named)]
 const TWINS = [
@@ -56,10 +56,10 @@ const TWINS = [
   ['dead-admits', 'records are held for a dead identity', [["return s.dead ? refuse('dead') : s", 'return s']]],
   ['identity-unchecked', "another identity's record is held", [["    if (b.identity !== held.identity) return refuse('identity')\n", '']]],
   ['shape-unchecked', 'a record of the wrong form is held', [["    if (!SHAPES[type](b) || !onlyKeys(r.sig, ['assertion', 'root'])) return refuse('shape')\n", '']]],
-  ['anchor-unchecked', 'a successor is anchored without verifiers following it', [['if (stateOf(add(own, \'anchors\', text)).membership === x)', 'if (true)']]],
+  ['anchor-unchecked', 'a successor is anchored without verifiers following it', [['trialState(own, { identity: held.identity, record: x, at: now }).membership === x)', 'true)']]],
   ['settle-early', 'the epoch is settled before the window has passed', [['if (now < at + contestWindow) {', 'if (now < at) {']]],
   ['contest-ignored', 'a contest inside the window is never anchored', [['        if (contest === undefined || contested) break\n', '        break\n']]],
-  ['contest-unchecked', 'a contest is anchored whatever its signers', [['        if (!stateOf(add(held, \'anchors\', text)).dead) break\n', '']]],
+  ['contest-unchecked', 'a contest is anchored whatever its signers', [['        if (!trialState(held, { identity: held.identity, record: contest, at: now }).dead) break\n', '']]],
   ['settle-ignores-contest', 'an anchored contest does not make the settlement contested', [["outcome: contested ? 'contested' : s.membership", 'outcome: s.membership']]],
   ['own-view-with-contests', "the witness's view counts contest anchors, so a contested epoch never settles", [['anchors: held.anchors.filter((t, i) => !isContest(anchors[i]))', 'anchors: held.anchors']]],
   ['one-step', 'a held successor waits for the next step after a settlement', [['      sign1(\'settlement\', text) // a contested', '      sign1(\'settlement\', text); break // a contested']]],
@@ -72,7 +72,13 @@ const TWINS = [
   ['revocation-any-delegation', 'any delegation sets when a revocation lapses', [["      if (d === undefined || d.id !== b.target) return refuse('delegation')\n", "      if (d === undefined) return refuse('delegation')\n"]]],
   ['revocation-duplicates', 'another revocation for a target already held adds an entry', [['    if (kept1.some((x) => x.target === b.target)) return accept({ held })\n', '']]],
   ['tombstone-ignored', 'a replaced proposal can be resubmitted and made current again', [["    if (tombs.some((x) => x.record === r.id && x.signer === signer)) return refuse('replaced')\n", '']]],
-  ['tombstones-unbounded', 'a root may replace its proposals without limit', [["    if (tombs.filter((x) => x.signer === signer).length >= TOMBSTONES) return refuse('quota')\n", '']]],
+  ['quorate-replaceable', 'a root may move its signature off a record a majority has signed', [["    if (gone.some((x) => quorate(x.id, 0))) return refuse('quorate')\n", '']]],
+  ['quota-blocks-majority', 'the quota refuses even the signature that completes a majority', [[" && !quorate(r.id, has(s.roots, signer) ? 1 : 0)) return refuse('quota')", ") return refuse('quota')"]]],
+  ['trial-signed', 'each candidate anchor is signed by the witness key, then thrown away if not kept', [["const found = ids.find((x) => trialState(own, { identity: held.identity, record: x, at: now }).membership === x)", "const found = ids.find((x) => stateOf(add(own, 'anchors', make('anchor', { identity: held.identity, record: x, at: now }))).membership === x)"]]],
+  ['trial-contest-signed', 'a contest anchor is signed by the witness key before it is known to end the identity', [["if (!trialState(held, { identity: held.identity, record: contest, at: now }).dead) break", "if (!stateOf(add(held, 'anchors', make('anchor', { identity: held.identity, record: contest, at: now }))).dead) break"]]],
+  ['trial-any-window', "the trial key is in window at any time, not the witness key's windows", [['.map((k) => freeze({ ...k, key: TRIAL_KEY }))', '.map((k) => freeze({ ...k, key: TRIAL_KEY, nbf: 0, exp: Number.MAX_SAFE_INTEGER }))']]],
+  ['trial-key-pinnable', 'a configuration may pin the trial key', [[' || keys.some((k) => k.key === TRIAL_KEY)', '']]],
+  ['tombstones-unbounded', 'a root may replace its proposals without limit', [["    if (tombs.filter((x) => x.signer === signer).length >= TOMBSTONES && !quorate(r.id, has(s.roots, signer) ? 1 : 0)) return refuse('quota')\n", '']]],
   ['tombstones-kept-for-ever', 'tombstones of an earlier prev are kept', [['const tombs = held.replaced.filter((x) => x.prev === b.prev)', 'const tombs = held.replaced']]],
   ['bucket-ignored', 'a root may file revocations without limit', [["    if (tokens.tokens < 1) return refuse('quota')\n", '']]],
   ['per-root-shared', "a root's head entries count every root's", [['es.filter((x) => x.root === root).length >= PER_ROOT', 'es.length >= PER_ROOT']]],
@@ -125,7 +131,7 @@ function generate (name, edits, file = 'witness.js') {
   const dir = join(root, name)
   mkdirSync(dir)
   for (const f of FILES) {
-    let text = sources[f].split(CORE[0]).join(CORE[1]).split(NOBLE[0]).join(NOBLE[1])
+    let text = NOBLE.reduce((t, [from, to]) => t.split(from).join(to), sources[f].split(CORE[0]).join(CORE[1]))
     for (const [find, replace] of f === file ? edits : []) {
       const n = text.split(find).length - 1
       assert.equal(n, 1, `twin ${name}: target must occur exactly once in witness/${f}, found ${n}: ${JSON.stringify(find)}`)
@@ -144,7 +150,7 @@ test('witness broken twins', { timeout: 1_800_000 }, async (t) => {
       assert.ok(r.pass >= 25, `control: only ${r.pass} tests ran`)
     })
     const jobs = TWINS.map(([name, why, edits, file]) => [name, why, generate(name, edits, file)])
-    assert.equal(jobs.length, 75, 'twin count')
+    assert.equal(jobs.length, 81, 'twin count')
     const results = []
     const queue = [...jobs]
     const workers = Math.max(1, Math.floor(availableParallelism() / 4))

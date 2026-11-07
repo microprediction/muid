@@ -4,10 +4,11 @@ import assert from 'node:assert/strict'
 import vm from 'node:vm'
 import fc from 'fast-check'
 import { bytes } from '../impl.mjs'
+import { runs } from '../runs.mjs'
 
 const { fromHex, toHex, snapshot, refuse, accept, verdict } = bytes
 const SEED = Number(process.env.FC_SEED ?? 20261103)
-const RUNS = Number(process.env.FC_RUNS ?? 300)
+const RUNS = runs(300)
 
 test('fromHex and toHex agree with Buffer for every byte value and for generated arrays', () => {
   const all = Uint8Array.from({ length: 256 }, (_, i) => i)

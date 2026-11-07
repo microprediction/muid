@@ -4,6 +4,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { fc, record } from './arbitraries.mjs'
 import { encode, decode, EncodingError } from './helpers.mjs'
+import { runs } from '../runs.mjs'
 
 const CHARS = ['"', '\\', ',', ':', '{', '}', '[', ']', ' ', '\n', '0', '1', '9', '-', '.', 'e', 'E', 'a', 'z', 'u', 'n', 't']
 
@@ -28,7 +29,7 @@ test('canonical input', () => {
       accepted++
       assert.equal(encode(out), mutated)
     },
-  ), { numRuns: Number(process.env.FC_RUNS ?? 2000) })
+  ), { numRuns: runs(2000) })
   // Anti-vacuity: both outcomes occur, so neither branch is untested.
   assert.ok(accepted > 0, `accepted mutants: ${accepted}`)
   assert.ok(refused > 0, `refused mutants: ${refused}`)

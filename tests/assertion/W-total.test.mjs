@@ -3,9 +3,10 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import fc from 'fast-check'
 import { checkRootAssertion, make, result, REASONS, CTX } from './helpers.mjs'
+import { runs } from '../runs.mjs'
 
 const SEED = Number(process.env.FC_SEED ?? 20261103)
-const RUNS = Number(process.env.FC_RUNS ?? 300)
+const RUNS = runs(300)
 const ok = make()
 
 test('arbitrary values and mutated assertions never throw and give a W6 reason', () => {

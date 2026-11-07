@@ -75,10 +75,10 @@ export function relyingParty ({ verifier, store }) {
           return { thrown: e } // the verifier's, not the store's: rethrown below
         }
         if (head.ok) {
-          // Heads of one second may arrive in either order (F5): keep the later in the honest order, the new one if
-          // the stored one could not follow it.
+          // Heads of one second may arrive in either order (F5). One accepted after the stored head of its second
+          // follows it in the honest order, or says the same (decision 10 orders any two that differ), so it is kept.
           if (stored !== undefined && stored.at === seen.at) {
-            if (!verifier.verifyHead(stored.head, { ...call, lastHead: given.head }).ok) tx.replaceHead(seen.identity, given.head, seen.at, stored.head)
+            tx.replaceHead(seen.identity, given.head, seen.at, stored.head)
           } else {
             tx.advanceHead(seen.identity, given.head, seen.at)
           }

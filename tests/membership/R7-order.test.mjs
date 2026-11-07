@@ -6,10 +6,11 @@ import fc from 'fast-check'
 import { membership } from '../impl.mjs'
 import { history, witness } from '../../model/settled.mjs'
 import { translate, identityFor, CTX_BASE } from './translate.mjs'
+import { runs } from '../runs.mjs'
 
 const { membershipState } = membership
 const SEED = Number(process.env.FC_SEED ?? 20261103)
-const RUNS = Number(process.env.FC_RUNS ?? 100)
+const RUNS = runs(100)
 const KINDS = ['roots', 'memberships', 'contests', 'freezes', 'anchors', 'settlements']
 const ctx = { ...CTX_BASE, identity: identityFor('a') }
 const plain = (r) => JSON.stringify(r)
