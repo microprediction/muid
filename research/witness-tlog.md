@@ -102,9 +102,9 @@ Verifier code, estimated from reference implementations: signed-note and cosigna
 
 ## 8. Service side (outside the core) — decisions for the owner
 
-- **Log implementation:** Tessera (transparency-dev, Go) writes tlog-tiles natively and is what Sigstore's Rekor v2
-  is built on. Writing our own log is the opposite of prior art. Recommendation: Tessera, in Go, for the log only;
-  muid's own witness logic (which records to admit, OAuth binding) can stay JS and append through Tessera's API.
+- **Log implementation — decided: Tessera, in Go, for the log only.** Tessera (transparency-dev) writes tlog-tiles
+  natively and is what Sigstore's Rekor v2 is built on; writing our own log is the opposite of prior art. muid's own
+  witness logic (which records to admit, OAuth binding) stays JS and appends through Tessera's API.
 - **Cosigners:** use existing public witnesses that speak tlog-witness rather than running our own (UNVERIFIED which
   operators accept new logs and on what terms — to check before relying on it). Quorum k ≥ 1 + ⌊2n/3⌋.
 - **Rollout:** the log can start before cosigners (checkpoints signed by the witness alone still give relying parties

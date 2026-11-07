@@ -121,12 +121,13 @@ class Writer {
   value (x, depth) {
     switch (typeof x) {
       case 'string': {
-        if (!apply(isWellFormed, x, NO_ARGS)) fail('surrogate')
         // A string encodes in at least its length plus two quotes, and a value is always followed by at least one
-        // byte (a comma or a closing bracket), so this refuses nothing that fits. It bounds the scan below, which
-        // measures the escaped text exactly before it is built, so nothing that cannot fit is copied.
+        // byte (a comma or a closing bracket), so this refuses nothing that fits. It bounds the scans below (for lone
+        // surrogates, then of the escaped text, measured exactly before it is built), so nothing that cannot fit is
+        // scanned or copied (E4).
         // Stryker disable next-line ArithmeticOperator: a weaker bound only defers the refusal to the exact one.
         if (this.bytes + x.length + 3 > MAX_BYTES) fail('size')
+        if (!apply(isWellFormed, x, NO_ARGS)) fail('surrogate')
         const n = utf8Length(x, true) + 2 // its JSON text, quotes included, measured before the text is built
         if (this.bytes + n + 1 > MAX_BYTES) fail('size')
         this.emit(stringify(x), n)
@@ -178,8 +179,8 @@ class Writer {
     if (this.bytes + 2 * length + 2 > MAX_BYTES) fail('size')
     // Own keys must be exactly the indices 0..length-1 plus "length": no holes, no extra or symbol properties.
     if (ownKeys(a).length !== length + 1) fail('array-shape')
-    // Stryker disable next-line ArrayDeclaration: every index of the array is assigned below before it is read.
-    const descriptors = []
+    // With a null prototype, so that an accessor defined on Array.prototype's indices is never reached (E7).
+    const descriptors = setPrototypeOf([], null)
     for (let i = 0; i < length; i++) {
       const d = getOwnPropertyDescriptor(a, i)
       if (d === undefined) fail('array-shape')
@@ -227,16 +228,20 @@ export function encode (value) {
   }
 }
 
-// A deeply frozen copy with null prototypes, built only from own data properties of JSON.parse output (E8).
+// A deeply frozen copy with null prototypes, built only from own data properties of JSON.parse output (E8). The copy
+// has a null prototype before anything is written to it, so a plain assignment creates an own property and meets no
+// setter, however the built-in prototypes are patched; and it costs far less than a property definition per element.
 function nullPrototypeCopy (v) {
   if (typeof v !== 'object') return v
-  const copy = isArray(v) ? setPrototypeOf([], null) : create(null)
-  const keys = ownKeys(v)
-  for (let i = 0; i < keys.length; i++) {
-    const k = keys[i]
-    if (k === 'length' && isArray(v)) continue // an array's length is not an element; it follows from them
-    defineProperty(copy, k, { __proto__: null, value: nullPrototypeCopy(v[k]), enumerable: true })
+  if (isArray(v)) {
+    const copy = setPrototypeOf([], null)
+    const n = v.length // JSON.parse output: an array with no holes
+    for (let i = 0; i < n; i++) copy[i] = nullPrototypeCopy(v[i])
+    return freeze(copy)
   }
+  const copy = create(null)
+  const keys = ownKeys(v)
+  for (let i = 0; i < keys.length; i++) copy[keys[i]] = nullPrototypeCopy(v[keys[i]])
   return freeze(copy)
 }
 
