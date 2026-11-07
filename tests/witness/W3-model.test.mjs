@@ -15,7 +15,8 @@ import { CONFIG, BASE } from './fixtures.mjs'
 const SEED = Number(process.env.FC_SEED ?? 20261104)
 const RUNS = Number(process.env.FC_RUNS ?? 100)
 const G = 'a'
-const w = witness({ ...CONFIG, contestWindow: 1 }) // the model's window is one tick
+let calls = 0 // `sign` is called only for what advance() returns signed (W10)
+const w = witness({ ...CONFIG, contestWindow: 1, sign: (bytes) => { calls++; return CONFIG.sign(bytes) } }) // the model's window is one tick
 const UNIVERSE = ['a', 'b', 'c', 't']
 const MAX_EPOCH = 4
 
@@ -90,7 +91,9 @@ function walk (steps, owner, thief) {
       }
     }
     items = modelWitness(G, items, pickFor(items))
+    calls = 0
     const r = w.advance(held, BASE + now(items))
+    assert.equal(calls, r.signed.length, 'sign called for a record not kept')
     held = r.held
     assert.deepEqual([...held.anchors, ...held.settlements].sort(), witnessTexts(items), `after ${steps.join(',')}`)
     const e = evaluate(G, items)
