@@ -20,6 +20,7 @@ const IMPORTS = [
 
 // [name, bug class, [find, replace] pairs]
 const TWINS = [
+  ['keys-length-reread', 'verifier keys have their length read at every step', [['  for (let i = 0; i < n; i++) {\n    out[i] = vkey(list[i], type)', '  for (let i = 0; i < list.length; i++) {\n    out[i] = vkey(list[i], type)']]],
   ['name-only-match', 'a signature line is matched to a key by name alone', [['if (p.lines[i].name === keys[k].name && p.lines[i].id === keys[k].id) {', 'if (p.lines[i].name === keys[k].name) {']]],
   ['non-canonical-base64', 'base64 with non-zero padding bits is accepted', [['  if (btoa(bin) !== s) return undefined\n', '']]],
   ['duplicates-accepted', 'a repeated line from one key is accepted', [["        if (at[k] >= 0) return 'duplicate-signature'\n", '']]],
@@ -79,7 +80,7 @@ test('note broken twins', { timeout: 600_000 }, async (t) => {
     })
 
     const jobs = TWINS.map(([name, why, edits]) => [name, why, generate(name, edits)])
-    assert.equal(jobs.length, 16, 'twin count')
+    assert.equal(jobs.length, 17, 'twin count')
     const results = []
     const queue = [...jobs]
     const workers = Math.max(1, Math.floor(availableParallelism() / 4))
