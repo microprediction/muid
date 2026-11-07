@@ -1,6 +1,9 @@
 // Dependencies are pinned: exact versions in package.json, a lockfile that agrees with it, every package from the
 // public registry over https with a sha512 integrity, no install scripts, and nothing at runtime but the two noble
-// packages. A change to any of these is a deliberate edit here, never a side effect of an install.
+// packages. A change to any of these is a deliberate edit here, never a side effect of an install. The one redirect
+// allowed is an override that pins a development package to one exact release, as npm's `overrides` is used to take a
+// security fix that a dependency has not yet released: never a runtime package, never a range, an alias or a nested
+// rule, and every locked copy of the package is that release.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
@@ -11,7 +14,7 @@ const EXACT = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/
 const LOCKED = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$/
 const SHA512 = /^sha512-[A-Za-z0-9+/]{86}==$/
 const RUNTIME = ['@noble/curves', '@noble/hashes']
-const REDIRECTS = ['overrides', 'resolutions', 'optionalDependencies', 'peerDependencies', 'bundleDependencies',
+const REDIRECTS = ['resolutions', 'optionalDependencies', 'peerDependencies', 'bundleDependencies',
   'bundledDependencies', 'workspaces']
 const INSTALL_HOOKS = ['preinstall', 'install', 'postinstall', 'prepare', 'prepublish', 'prepublishOnly', 'prepack', 'postpack']
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b)
@@ -23,6 +26,12 @@ function faults (pkg, lock, npmrc) {
     for (const [name, spec] of Object.entries(pkg[field] ?? {})) if (!EXACT.test(spec)) out.push(`range ${name}`)
   }
   for (const field of REDIRECTS) if (pkg[field] !== undefined) out.push(`field ${field}`)
+  for (const [name, spec] of Object.entries(pkg.overrides ?? {})) {
+    if (typeof spec !== 'string' || !EXACT.test(spec)) out.push(`override ${name}`)
+    if (RUNTIME.includes(name)) out.push(`override runtime ${name}`)
+    const copies = Object.entries(lock.packages ?? {}).filter(([path]) => path.slice(path.lastIndexOf('node_modules/') + 'node_modules/'.length) === name)
+    if (copies.length === 0 || copies.some(([, p]) => p.version !== spec)) out.push(`overridden ${name}`)
+  }
   for (const hook of INSTALL_HOOKS) if (pkg.scripts?.[hook] !== undefined) out.push(`hook ${hook}`)
   if (!same(Object.keys(pkg.dependencies ?? {}).sort(), RUNTIME)) out.push('runtime dependencies')
   const lines = npmrc.split('\n').map((l) => l.trim())
@@ -71,7 +80,13 @@ const TWINS = [
   ['a caret range', (f) => { f.pkg.devDependencies['fast-check'] = '^' + f.pkg.devDependencies['fast-check'] }, 'range fast-check'],
   ['a tilde range', (f) => { f.pkg.dependencies['@noble/hashes'] = '~2.4.0' }, 'range @noble/hashes'],
   ['a git dependency', (f) => { f.pkg.devDependencies.x = 'github:a/b' }, 'range x'],
-  ['an override', (f) => { f.pkg.overrides = {} }, 'field overrides'],
+  ['a resolutions field', (f) => { f.pkg.resolutions = {} }, 'field resolutions'],
+  ['an override to a range', (f) => { f.pkg.overrides = { qs: '^6.16.2' } }, 'override qs'],
+  ['an override to an alias', (f) => { f.pkg.overrides = { qs: 'npm:other@6.16.2' } }, 'override qs'],
+  ['a nested override', (f) => { f.pkg.overrides = { '@stryker-mutator/core': { qs: '6.16.2' } } }, 'override @stryker-mutator/core'],
+  ['an override of a runtime package', (f) => { f.pkg.overrides = { '@noble/hashes': f.pkg.dependencies['@noble/hashes'] } }, 'override runtime @noble/hashes'],
+  ['an override the lock disagrees with', (f) => { f.pkg.overrides = { qs: '6.16.2' }; f.lock.packages['node_modules/qs'].version = '6.15.1' }, 'overridden qs'],
+  ['an override of a package not locked', (f) => { f.pkg.overrides = { x: '1.0.0' } }, 'overridden x'],
   ['a postinstall', (f) => { f.pkg.scripts.postinstall = 'x' }, 'hook postinstall'],
   ['a third runtime dependency', (f) => { f.pkg.dependencies.x = '1.0.0' }, 'runtime dependencies'],
   ['lockfile version 2', (f) => { f.lock.lockfileVersion = 2 }, 'lockfile version'],
