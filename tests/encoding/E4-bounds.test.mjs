@@ -73,3 +73,10 @@ test('decode accepts canonical text of exactly MAX_BYTES', () => {
 test('decode refuses depth 17', () => {
   refuses(() => decode('{"a":'.repeat(16) + '{}' + '}'.repeat(16)), 'depth', 'decoded depth 17')
 })
+
+// Found by review: a string was checked for lone surrogates (a scan of all of it) before its length, the reverse of
+// E4's order, so a string past the limit was scanned, and refused as `surrogate` rather than `size`.
+test('a string past the limit is refused for its size before it is scanned, lone surrogates and all', () => {
+  refuses(() => encode({ a: '\ud800' + 'x'.repeat(65536) }), 'size', 'too long and malformed')
+  refuses(() => encode({ a: 'x'.repeat(65520) + '\ud800' }), 'surrogate', 'malformed, and within the limit')
+})

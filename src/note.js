@@ -141,7 +141,9 @@ function keyList (list, type) {
   if (!isArray(list)) throw new TypeError('keys must be a list of verifier keys')
   // Stryker disable next-line ArrayDeclaration: equivalent; every element is assigned below
   const out = []
-  for (let i = 0; i < list.length; i++) {
+  const n = list.length // read once, and an array length
+  if (!(isSafeInteger(n) && n >= 0 && n < 2 ** 32)) throw new TypeError('keys must be a list of verifier keys')
+  for (let i = 0; i < n; i++) {
     out[i] = vkey(list[i], type)
     // Stryker disable next-line ConditionalExpression: equivalent for the name; equal IDs under different names would need a SHA-256 collision
     for (let j = 0; j < i; j++) if ((out[j].name === out[i].name && out[j].id === out[i].id) || out[j].key === out[i].key) throw new TypeError('a key is listed twice')
