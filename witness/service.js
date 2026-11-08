@@ -107,12 +107,16 @@ export function witnessService ({ witness, holdings, log, clock, headInterval })
   }
 
   async function records (identity) {
-    const entry = await holdings.get(identity)
-    if (entry === undefined) return refusal(404, 'unknown-identity')
-    const out = {}
-    for (const k of LISTS) out[k] = entry.held[k]
-    out.revocations = entry.held.revocations.map((x) => x.text)
-    return json(200, out)
+    // A writer first stores signed records in its outbox, then appends them to the log.  Reading through commit
+    // joins that writer's queue and settles its outbox before exposing the holding; a direct get here could otherwise
+    // serve a signed record during the small interval before log.append resolves.
+    return commit(identity, (entry) => {
+      if (entry === undefined) return { value: refusal(404, 'unknown-identity') }
+      const out = {}
+      for (const k of LISTS) out[k] = entry.held[k]
+      out.revocations = entry.held.revocations.map((x) => x.text)
+      return { value: json(200, out) }
+    })
   }
 
   async function body (request) {
