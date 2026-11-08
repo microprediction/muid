@@ -3,7 +3,9 @@
 // signed earlier on the same history, and none shown after a later one is called equivocation: heads of one second
 // may come in either order. Heads from histories that diverge (what a lying witness could show two relying parties)
 // are refused in part. Every distinct honest pair, both ways round, and a sample of diverging ones are replayed
-// through the real verifier.
+// through the real verifier. Heads carry revocations as R10 has the witness choose them: one revoked delegation for each
+// membership the head names and each root with authority (every such pair has a logged delegation, revoked), so a
+// membership change within one second drops entries an earlier head of that second carried.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
@@ -18,11 +20,14 @@ const G = 'a'
 const SCENARIOS = [[['a', 'b'], 3, 5], [['a', 'b', 'c'], 3, 4]]
 
 // The head the honest witness signs for an item set (R9): none for a dead or frozen identity or one without authority.
+// Its revocations (R10) are those naming a live logged delegation: under a membership it names, by a root with authority.
 function headOf (items) {
   const e = evaluate(G, items)
   if (e.dead || e.frozen || e.authority.length === 0) return null
   const memberships = e.pending ? [e.base.id, e.record.id] : [e.base.id]
-  return { epoch: e.base.n, memberships, authority: [...e.authority].sort(), at: items.filter((it) => it.kind === 'T').length }
+  const authority = [...e.authority].sort()
+  const revoked = memberships.flatMap((m) => authority.map((r) => `${m} ${r}`)).sort()
+  return { epoch: e.base.n, memberships, authority, revoked, at: items.filter((it) => it.kind === 'T').length }
 }
 const key = (h) => JSON.stringify(h)
 
@@ -31,6 +36,8 @@ function consistent (l, h) {
   const epochs = (x) => x.memberships.map((m, i) => [x.epoch + i, m])
   const top = (x) => x.epoch + x.memberships.length - 1
   if (h.epoch < l.epoch || top(h) < top(l)) return false
+  // Within one second, under the same memberships, the witness only adds revocations.
+  if (h.at === l.at && h.epoch === l.epoch && key(h.memberships) === key(l.memberships) && !l.revoked.every((x) => h.revoked.includes(x))) return false
   for (const [e, m] of epochs(l)) for (const [f, n] of epochs(h)) if ((e === f) !== (m === n)) return false
   const sub = (a, b) => a.every((r) => b.includes(r))
   const turnsPending = h.epoch === l.epoch && h.memberships.length > l.memberships.length
@@ -93,6 +100,8 @@ for (const { name, states, honest, heads } of results) {
     // Anti-vacuity: the honest pairs include each progression the rule distinguishes, and changes of authority.
     for (const k of ['011', '012', '022', '121', '122', '111', '221']) assert.ok(kinds.has(k), `progression ${k} reached`)
     assert.ok(honest.some(([l, h]) => key(l.authority) !== key(h.authority)), 'authority changes between honest heads')
+    assert.ok(honest.some(([l, h]) => l.at === h.at && !l.revoked.every((x) => h.revoked.includes(x))),
+      'an honest head of one second drops a revocation an earlier one carried')
   })
 
   test(`${name}: heads from diverging histories are refused in part`, () => {
@@ -123,9 +132,10 @@ const delegationFor = (membership, letter) => once(`d ${membership} ${letter}`, 
   const subject = hex(ed25519.sign(Buffer.concat([Buffer.from('muid/v1/accept\n'), Buffer.from(id, 'hex')]), APP))
   return envelope.wrap(payload, { root: make({ covers: [id], secret: secretOf(letter) }), subject })
 })
+const revokedId = (x) => createHash('sha256').update('revoked ' + x).digest('hex')
 const signed = (h) => once(`h ${key(h)}`, () => {
   const { payload } = envelope.seal('head', { identity: I, epoch: h.epoch, memberships: h.memberships.map(idOf),
-    authority: h.authority.map(rootId).sort(), revoked: [], at: NOW - 100 + h.at })
+    authority: h.authority.map(rootId).sort(), revoked: h.revoked.map(revokedId).sort(), at: NOW - 100 + h.at })
   return envelope.wrap(payload, { signature: hex(ed25519.sign(envelope.signedBytes(payload), W)), witness: hex(ed25519.getPublicKey(W)) })
 })
 // R10: the witness's logged record of a delegation.
@@ -162,4 +172,25 @@ test('the real verifier: honest pairs accepted in order and stale reversed; dive
   const sample = diverging.filter((_, i) => i % step === 0)
   assert.ok(sample.length >= 300 && diverging.some(([a, b]) => a.at === b.at), `diverging ${diverging.length}`)
   for (const [last, h] of sample) assert.equal(verify(last, h), 'equivocation', `${key(last)} then ${key(h)}`)
+})
+
+// The relying-party adapter keeps a head accepted after the stored one of its second (SPEC F5): sound because no two
+// heads that differ can each follow the other, by the rule restated and through the real verifier.
+test('two different heads of one second are never each able to follow the other', () => {
+  let pairs = 0
+  for (const { heads } of results) {
+    for (const a of heads) {
+      for (const b of heads) {
+        if (a.at !== b.at || key(a) === key(b)) continue
+        pairs++
+        assert.ok(!(consistent(a, b) && consistent(b, a)), `${key(a)} and ${key(b)}`)
+      }
+    }
+  }
+  assert.ok(pairs > 1000, `pairs of one second: ${pairs}`)
+  for (const a of results[1].heads) {
+    for (const b of results[1].heads) {
+      if (a.at === b.at && key(a) !== key(b)) assert.ok(verify(a, b) !== 'ok' || verify(b, a) !== 'ok', `${key(a)} and ${key(b)}`)
+    }
+  }
 })
