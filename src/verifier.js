@@ -177,7 +177,7 @@ export function verifier (config) {
 
   // F5 for a delegation, given its records and the call's fields.
   function check (given, c) {
-    const { now, scope, revoked } = c
+    const { now, scope, revoked, last } = c
     const h = checkHead(given.head, c)
     if (h.ok === false) return h // a head body has no `ok`
     const r = checkRoot(given.root, { rpId: cfg.rpId })
@@ -190,11 +190,14 @@ export function verifier (config) {
     if (!has(h.memberships, b.membership)) return refuse('membership')
     if (!has(h.authority, b.root)) return refuse('authority')
     if (has(h.revoked, d.id) || has(h.revoked, b.subject)) return refuse('revoked')
+    // Revocations are kept for good (R10): one the last head accepted carried still holds, whatever a later head says.
+    if (last && (has(last.revoked, d.id) || has(last.revoked, b.subject))) return refuse('revoked')
     const n = revoked.length
     // Stryker disable next-line EqualityOperator: equivalent; one more step reads undefined, never an id
     for (let i = 0; i < n; i++) if (revoked[i] === d.id || revoked[i] === b.subject) return refuse('revoked')
     const l = loggedBody(given.logged, cfg)
-    if (l === undefined || l.identity !== b.identity || l.delegation !== d.id) return refuse('logged')
+    // The witness logs a delegation only while it verifies: its record falls in the delegation's window (R10).
+    if (l === undefined || l.identity !== b.identity || l.delegation !== d.id || l.at < b.nbf - cfg.skew || l.at >= b.exp) return refuse('logged')
     if (b.aud !== cfg.audience) return refuse('audience')
     if (!has(b.scopes, scope)) return refuse('scope')
     return d

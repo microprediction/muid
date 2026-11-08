@@ -39,8 +39,8 @@ function headText (over = {}, { secret = W, witness = WITNESS, type = 'head' } =
 }
 
 const D = delegationText()
-// R10: the witness's logged record of a delegation, at the head's time (so every window that holds the head holds it).
-function loggedText (id, { secret = W, at = NOW - 100 } = {}) {
+// R10: the witness's logged record of a delegation, at the delegation's nbf (the witness logs only one that verifies).
+function loggedText (id, { secret = W, at = NOW - 10 } = {}) {
   const { payload } = envelope.seal('logged', { identity: IDENTITY, delegation: id, at })
   return envelope.wrap(payload, { signature: hex(ed25519.sign(envelope.signedBytes(payload), secret)), witness: hex(ed25519.getPublicKey(secret)) })
 }
