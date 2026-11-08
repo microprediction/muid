@@ -7,6 +7,9 @@ import { spawn } from 'node:child_process'
 import { tmpdir, availableParallelism } from 'node:os'
 import { join } from 'node:path'
 
+// A test that never ends under a twin fails (the twin is caught) instead of holding the harness open.
+const TEST_TIMEOUT = 300_000
+
 const DIR = new URL('../../adapter/', import.meta.url)
 const FILES = ['relying-party.js', 'stores.js']
 const SUITE_DIR = new URL('../adapter/', import.meta.url).pathname
@@ -50,7 +53,7 @@ const TWINS = [
 function run (dir) {
   const { NODE_TEST_CONTEXT, ...env } = process.env
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, ['--test', '--test-reporter=tap', ...SUITE], {
+    const child = spawn(process.execPath, ['--test', '--test-reporter=tap', `--test-timeout=${TEST_TIMEOUT}`, ...SUITE], {
       env: { ...env, MUID_ADAPTER_DIR: dir, FC_RUNS: '100' },
       stdio: ['ignore', 'pipe', 'pipe'],
     })
