@@ -9,7 +9,8 @@ when its whole section here passes, including the anti-vacuity checks. Rule labe
   small files keep it precise and fast.
 - **Runner:** `node --test`, no other runner. Property tests use fast-check with a fixed seed in CI and a printed seed
   on failure. `npm test` runs every suite but the broken twins; `npm run test:twins` runs the twin harnesses
-  one at a time (each starts its own workers), as CI runs each in a job of its own.
+  one at a time (each starts its own workers), as CI does within each of its jobs: the slow harnesses and Stryker
+  configs have a job each, the quick ones share one.
 - **Vectors are data, not code.** `tests/vectors/<set>/` holds the files exactly as published, plus `SOURCE.md`
   (URL, upstream commit, SHA-256 of each file, licence). A test checks those hashes before using the files.
 - **Expected outputs come from outside the code under test:** written by hand, taken from a published vector set, or
@@ -583,6 +584,11 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
 - The HTML (`P3-html.test.mjs`): one inline script, the import map, allowed by its hash; nothing from elsewhere.
 - Mutation testing runs inside the page: the test activates Stryker's mutant in the page and returns the page's
   coverage to the test process. Both files at 100%.
+- Under mutation testing and the twins, one failing test settles the run, and a broken page shows itself within
+  seconds. So there (and in the dry run and the control run, which are seen to pass under the same limits) every
+  wait is cut to 15 s and every test to 60 s, and once one test fails or times out, the rest fail at once. Without
+  this, a broken page made each test wait out its limits in turn, and the mutant was counted only when Stryker's
+  own timeout ran out.
 - Twins (`tests/meta/id-twins.test.mjs`, 21): the challenge's domain, any algorithm, unsorted scopes, an unbounded
   lifetime, an unchecked audience, an edit that keeps the review, a late signature kept, verification preferred,
   any passkey, a credential that is not resident, inline scripts allowed, hidden parts shown; attest granted; a change co-signed that does not add

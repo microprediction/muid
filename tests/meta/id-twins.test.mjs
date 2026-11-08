@@ -62,7 +62,7 @@ const TWINS = [
 function run (dir) {
   const { NODE_TEST_CONTEXT, ...env } = process.env
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, ['--test', '--test-reporter=tap', `--test-timeout=${TEST_TIMEOUT}`, ...SUITE], { env: { ...env, MUID_ID_DIR: dir }, stdio: ['ignore', 'pipe', 'pipe'] })
+    const child = spawn(process.execPath, ['--test', '--test-reporter=tap', `--test-timeout=${TEST_TIMEOUT}`, '--test-force-exit', ...SUITE], { env: { ...env, MUID_ID_DIR: dir, MUID_FAIL_FAST: '1' }, stdio: ['ignore', 'pipe', 'pipe'] })
     let out = ''
     // A suite that never ends is reported as one that did not run normally, rather than holding up every other twin.
     const stop = setTimeout(() => child.kill('SIGKILL'), 900_000)

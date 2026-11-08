@@ -53,26 +53,19 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # The slow harnesses run in jobs of their own; the quick ones share jobs, run one after another, so a push
+        # takes a dozen runner slots rather than forty.
         suite:
-          - adapter-twins.test.mjs
-          - assertion-twins.test.mjs
-          - attestation-twins.test.mjs
-          - bytes-twins.test.mjs
-          - delegation-twins.test.mjs
-          - ed25519-twins.test.mjs
-          - encoding-twins.test.mjs
-          - envelope-twins.test.mjs
-          - membership-twins.test.mjs
-          - merkle-twins.test.mjs
-          - note-twins.test.mjs
-          - receipt-twins.test.mjs
-          - origin-twins.test.mjs
-          - p256-twins.test.mjs
-          - root-twins.test.mjs
-          - verifier-twins.test.mjs
-          - witness-twins.test.mjs
-          - id-twins.test.mjs
-          - demo-twins.test.mjs
+          - tests/meta/id-twins.test.mjs
+          - tests/meta/witness-twins.test.mjs
+          - >-
+            tests/meta/membership-twins.test.mjs tests/meta/root-twins.test.mjs tests/meta/p256-twins.test.mjs
+            tests/meta/origin-twins.test.mjs tests/meta/note-twins.test.mjs tests/meta/merkle-twins.test.mjs
+          - >-
+            tests/meta/verifier-twins.test.mjs tests/meta/encoding-twins.test.mjs tests/meta/ed25519-twins.test.mjs
+            tests/meta/demo-twins.test.mjs tests/meta/adapter-twins.test.mjs tests/meta/envelope-twins.test.mjs
+            tests/meta/delegation-twins.test.mjs tests/meta/bytes-twins.test.mjs tests/meta/attestation-twins.test.mjs
+            tests/meta/assertion-twins.test.mjs tests/meta/receipt-twins.test.mjs
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -83,7 +76,7 @@ jobs:
       - name: Install (no install scripts)
         run: npm ci --ignore-scripts
       - name: Broken twins (each must make its suite fail)
-        run: node --test "tests/meta/${{ matrix.suite }}"
+        run: node --test --test-concurrency=1 ${{ matrix.suite }}
 
   mutation:
     runs-on: ubuntu-24.04
@@ -91,26 +84,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # As for the twins: the slow configs alone, the quick ones together.
         config:
-          - stryker.config.json
-          - stryker.envelope.config.json
-          - stryker.ed25519.config.json
-          - stryker.p256.config.json
-          - stryker.merkle.config.json
-          - stryker.note.config.json
-          - stryker.receipt.config.json
-          - stryker.adapter.config.json
-          - stryker.witness.config.json
           - stryker.id.config.json
-          - stryker.demo.config.json
-          - stryker.assertion.config.json
-          - stryker.origin.config.json
-          - stryker.delegation.config.json
-          - stryker.root.config.json
-          - stryker.bytes.config.json
-          - stryker.attestation.config.json
           - stryker.membership.config.json
-          - stryker.verifier.config.json
+          - stryker.witness.config.json
+          - stryker.verifier.config.json stryker.config.json stryker.demo.config.json
+          - >-
+            stryker.adapter.config.json stryker.receipt.config.json stryker.note.config.json stryker.ed25519.config.json
+            stryker.root.config.json stryker.p256.config.json stryker.origin.config.json stryker.merkle.config.json
+            stryker.envelope.config.json stryker.delegation.config.json stryker.bytes.config.json
+            stryker.attestation.config.json stryker.assertion.config.json
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -121,6 +105,10 @@ jobs:
       - name: Install (no install scripts)
         run: npm ci --ignore-scripts
       - name: Mutation testing (fails below the break threshold in the config)
-        run: npx --no-install stryker run ${{ matrix.config }}
+        # Every config in the group runs, and the job fails if any one of them falls below its threshold.
+        run: |
+          status=0
+          for c in ${{ matrix.config }}; do npx --no-install stryker run "$c" || status=1; done
+          exit $status
         env:
           FC_RUNS: '60'

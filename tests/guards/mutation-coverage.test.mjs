@@ -1,5 +1,5 @@
 // Every core module, and every module of the relying-party adapter, the witness, the id page and the demo, is mutation-tested in CI: it has a Stryker config of its own, and that config is in the
-// workflow's mutation matrix. A new module cannot skip the gate unnoticed.
+// workflow's mutation matrix exactly once (alone or in a group, every member run). A new module cannot skip the gate unnoticed.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync, readdirSync } from 'node:fs'
@@ -16,10 +16,13 @@ test('every module under src/, adapter/, witness/, id/ and demo/ is mutated by e
 })
 
 test('every Stryker config runs in the CI mutation matrix, with the break threshold', () => {
+  const mutation = workflow.slice(workflow.indexOf('\n  mutation:\n'))
+  const listed = [...mutation.matchAll(/stryker(?:\.[a-z0-9]+)?\.config\.json/g)].map((m) => m[0]).sort()
+  assert.deepEqual(listed, [...configs].sort(), 'each config in the mutation matrix exactly once')
   for (const c of configs) {
-    assert.match(workflow, new RegExp(`^\\s+- ${c.replace(/\./g, '\\.')}$`, 'm'), `${c} is in the matrix`)
     const { thresholds } = JSON.parse(readFileSync(new URL(c, ROOT), 'utf8'))
     assert.ok(thresholds.break >= 95, `${c}: break threshold ${thresholds.break}`)
   }
-  assert.match(workflow, /stryker run \$\{\{ matrix\.config \}\}/)
+  // Every config of a group runs, whatever an earlier one did, and any one failing fails the job.
+  assert.match(mutation, /for c in \$\{\{ matrix\.config \}\}; do npx --no-install stryker run "\$c" \|\| status=1; done\n\s+exit \$status\n/)
 })
