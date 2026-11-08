@@ -5,9 +5,10 @@ import fc from 'fast-check'
 import { env, envelopeText, oracleId, deepFrozen, TYPES } from './helpers.mjs'
 import { record as inDomainObject } from '../encoding/arbitraries.mjs'
 import { encoding } from '../impl.mjs'
+import { runs } from '../runs.mjs'
 
 const SEED = Number(process.env.FC_SEED ?? 20261103)
-const RUNS = Number(process.env.FC_RUNS ?? 300)
+const RUNS = runs(300)
 const signed = fc.constantFrom(...TYPES.filter((t) => t !== 'root'))
 const sig = inDomainObject.map((o) => encoding.encode(o)) // canonical sig text
 

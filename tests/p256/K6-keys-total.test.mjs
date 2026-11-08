@@ -3,9 +3,10 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import fc from 'fast-check'
 import { checkP256, rejects, result, vectors, bytes, REASONS } from './helpers.mjs'
+import { runs } from '../runs.mjs'
 
 const SEED = Number(process.env.FC_SEED ?? 20261103)
-const RUNS = Number(process.env.FC_RUNS ?? 300)
+const RUNS = runs(300)
 const g = vectors().testGroups[0]
 const KEY = g.publicKey.uncompressed
 const valid = g.tests.find((t) => t.result === 'valid')
