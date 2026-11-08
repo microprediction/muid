@@ -175,7 +175,7 @@ test("concurrent submissions for one identity are serialised: neither is lost", 
   assert.equal(held.freezes.length, 1)
 })
 
-test('a log that fails: 503, and nothing it did not take is kept', async () => {
+test('a log that fails: 503, and no staged signature is served', async () => {
   const inner = memoryLog()
   let down = true
   const s = setup({ log: { append: async (t) => { if (down) throw new Error('down'); return inner.append(t) }, entries: inner.entries } })
@@ -185,7 +185,7 @@ test('a log that fails: 503, and nothing it did not take is kept', async () => {
   const r = await s.submit('membership', signed('membership', M2, 'b'))
   assert.deepEqual(r.body, { ok: false, reason: 'log' })
   assert.equal(r.status, 503)
-  assert.equal((await s.call('GET', `/v1/identities/${IDENTITY}/records`)).body.memberships.length, 1, 'the signature that led to the anchor is not kept')
+  assert.equal((await s.call('GET', `/v1/identities/${IDENTITY}/records`)).status, 503, 'a staged signature is not served')
   assert.equal((await s.call('GET', `/v1/identities/${IDENTITY}/head`)).status, 503)
   down = false
   // The anchor signed before the failure is appended first, once the log is back: the same text, not a new one.
@@ -196,7 +196,7 @@ test('a log that fails: 503, and nothing it did not take is kept', async () => {
   down = true
   s.at(BASE + WINDOW)
   await assert.rejects(s.svc.tick(), /log unavailable/)
-  assert.equal((await s.call('GET', `/v1/identities/${IDENTITY}/records`)).body.settlements.length, 0, 'the settlement is not kept')
+  assert.equal((await s.call('GET', `/v1/identities/${IDENTITY}/records`)).status, 503, 'the staged settlement is not served')
   down = false
   assert.deepEqual(await s.svc.tick(), [], 'the settlement signed before is appended from the outbox, not signed anew')
   assert.equal((await s.call('GET', `/v1/identities/${IDENTITY}/records`)).body.settlements.length, 1)
@@ -235,6 +235,40 @@ test('the outbox is appended before a head is served and before a tick advances'
   const settled = await s.svc.tick()
   assert.deepEqual(settled, [], 'the settlement signed before the failure was appended again, not signed anew')
   assert.equal((await s.call('GET', `/v1/identities/${IDENTITY}/records`)).body.settlements.length, 1)
+})
+
+// The records endpoint must also join the writer's queue.  Otherwise it can read the staged entry directly while
+// append is still in flight, exposing a witness signature before the transparency log has accepted it.
+test('records wait for an in-flight outbox before serving its signed record', async () => {
+  const inner = memoryLog()
+  let block = true
+  let entered
+  const appended = new Promise(resolve => { entered = resolve })
+  let release
+  const s = setup({ log: {
+    append: async (t) => {
+      if (block) {
+        entered()
+        await new Promise(resolve => { release = resolve })
+      }
+      return inner.append(t)
+    },
+    entries: inner.entries,
+  } })
+  await s.submit('root', rootText('a'))
+  const writing = s.submit('membership', signed('membership', mBody(2, ['a'], IDENTITY), 'a'))
+  await appended
+  let served = false
+  const reading = s.call('GET', `/v1/identities/${IDENTITY}/records`).then(x => { served = true; return x })
+  await Promise.resolve()
+  assert.equal(served, false, 'the records read waits for log.append')
+  block = false
+  release()
+  await writing
+  const records = await reading
+  assert.equal(records.status, 200)
+  assert.equal(records.body.anchors.length, 1)
+  assert.deepEqual(inner.entries(), records.body.anchors, 'nothing is served before it is logged')
 })
 
 test('a store that fails: 503', async () => {
