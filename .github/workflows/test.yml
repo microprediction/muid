@@ -16,6 +16,7 @@ concurrency:
 jobs:
   test:
     runs-on: ubuntu-24.04
+    timeout-minutes: 30 # a hang fails the job instead of holding it for six hours
     strategy:
       fail-fast: false
       matrix:
@@ -39,14 +40,16 @@ jobs:
         # Once, with the newest npm: older npm releases lack newer registry attestation keys.
         if: matrix.node == '26'
         run: npm audit signatures
+      # A test that never ends fails at five minutes, and a file whose tests have ended exits though a browser is left open.
       - name: Tests with full coverage of the core
         run: >-
-          node --test --experimental-test-coverage --test-coverage-include='src/**' --test-coverage-include='adapter/**' --test-coverage-include='witness/**' --test-coverage-include='id/records.js' --test-coverage-include='demo/**'
+          node --test --test-timeout=300000 --test-force-exit --experimental-test-coverage --test-coverage-include='src/**' --test-coverage-include='adapter/**' --test-coverage-include='witness/**' --test-coverage-include='id/records.js' --test-coverage-include='demo/**'
           --test-coverage-lines=100 --test-coverage-branches=100 --test-coverage-functions=100
           "tests/!(meta)/*.test.mjs"
 
   twins:
     runs-on: ubuntu-24.04
+    timeout-minutes: 60 # a hang fails the job instead of holding it for six hours
     strategy:
       fail-fast: false
       matrix:
@@ -84,6 +87,7 @@ jobs:
 
   mutation:
     runs-on: ubuntu-24.04
+    timeout-minutes: 150 # a hang fails the job instead of holding it for six hours
     strategy:
       fail-fast: false
       matrix:

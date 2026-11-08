@@ -19,9 +19,15 @@ const WITNESS = hex(ed25519.getPublicKey(W))
 // A site serving the page and a witness service (in memory, its contest window a minute, its clock movable), and a
 // browser with one device; `device()` adds another, with its own profile and authenticator.
 // A test that fails or times out does not reach its own close: what it opened is closed when the file ends, so the
-// process exits and the failure is reported.
+// process exits and the failure is reported. Closing a browser that has stopped answering never returns, so closing is
+// given a minute: past it the hook fails, naming what was left open, and the runner's forced exit ends the file.
 const opened = new Set()
-after(async () => { for (const end of opened) await end() })
+const CLOSE_WITHIN = 60_000
+after(async () => {
+  const late = new Promise((resolve) => setTimeout(resolve, CLOSE_WITHIN, 'late').unref())
+  const closed = Promise.all([...opened].map((end) => end()))
+  if (await Promise.race([closed, late]) === 'late') throw new Error(`${opened.size} browser(s) still open ${CLOSE_WITHIN / 1000}s after the last test`)
+})
 
 async function open ({ init } = {}) {
   const holder = {}

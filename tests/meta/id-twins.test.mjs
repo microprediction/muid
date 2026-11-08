@@ -9,6 +9,9 @@ import { tmpdir, availableParallelism } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+// A test that never ends under a twin fails (the twin is caught) instead of holding the harness open.
+const TEST_TIMEOUT = 300_000
+
 const ROOT = fileURLToPath(new URL('../../', import.meta.url))
 const FILES = ['records.js', 'page.js', 'index.html', 'page.css']
 const SUITE_DIR = join(ROOT, 'tests/id/')
@@ -59,7 +62,7 @@ const TWINS = [
 function run (dir) {
   const { NODE_TEST_CONTEXT, ...env } = process.env
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, ['--test', '--test-reporter=tap', ...SUITE], { env: { ...env, MUID_ID_DIR: dir }, stdio: ['ignore', 'pipe', 'pipe'] })
+    const child = spawn(process.execPath, ['--test', '--test-reporter=tap', `--test-timeout=${TEST_TIMEOUT}`, ...SUITE], { env: { ...env, MUID_ID_DIR: dir }, stdio: ['ignore', 'pipe', 'pipe'] })
     let out = ''
     // A suite that never ends is reported as one that did not run normally, rather than holding up every other twin.
     const stop = setTimeout(() => child.kill('SIGKILL'), 900_000)

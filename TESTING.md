@@ -8,7 +8,8 @@ when its whole section here passes, including the anti-vacuity checks. Rule labe
 - **One invariant per file:** `tests/<layer>/<label>-<name>.test.mjs`. Mutation testing tracks coverage per file, so
   small files keep it precise and fast.
 - **Runner:** `node --test`, no other runner. Property tests use fast-check with a fixed seed in CI and a printed seed
-  on failure.
+  on failure. `npm test` runs every suite but the broken twins; `npm run test:twins` runs the twin harnesses
+  one at a time (each starts its own workers), as CI runs each in a job of its own.
 - **Vectors are data, not code.** `tests/vectors/<set>/` holds the files exactly as published, plus `SOURCE.md`
   (URL, upstream commit, SHA-256 of each file, licence). A test checks those hashes before using the files.
 - **Expected outputs come from outside the code under test:** written by hand, taken from a published vector set, or

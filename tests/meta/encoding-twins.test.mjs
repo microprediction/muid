@@ -9,6 +9,9 @@ import { spawn } from 'node:child_process'
 import { tmpdir, availableParallelism } from 'node:os'
 import { join } from 'node:path'
 
+// A test that never ends under a twin fails (the twin is caught) instead of holding the harness open.
+const TEST_TIMEOUT = 300_000
+
 const SRC = new URL('../../src/encode.js', import.meta.url)
 const SUITE_DIR = new URL('../encoding/', import.meta.url).pathname
 const SUITE = readdirSync(SUITE_DIR).filter((f) => f.endsWith('.test.mjs')).map((f) => join(SUITE_DIR, f))
@@ -87,7 +90,7 @@ function run (implPath) {
   // the parent instead of running as its own suite. The control test below fails if this is ever wrong again.
   const { NODE_TEST_CONTEXT, ...env } = process.env
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, ['--test', '--test-reporter=tap', ...SUITE], {
+    const child = spawn(process.execPath, ['--test', '--test-reporter=tap', `--test-timeout=${TEST_TIMEOUT}`, ...SUITE], {
       env: { ...env, MUID_ENCODING_IMPL: implPath ?? '', FC_RUNS: '100' },
       stdio: ['ignore', 'pipe', 'pipe'],
     })
