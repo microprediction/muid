@@ -19,9 +19,15 @@ const WITNESS = hex(ed25519.getPublicKey(W))
 // A site serving the page and a witness service (in memory, its contest window a minute, its clock movable), and a
 // browser with one device; `device()` adds another, with its own profile and authenticator.
 // A test that fails or times out does not reach its own close: what it opened is closed when the file ends, so the
-// process exits and the failure is reported.
+// process exits and the failure is reported. Closing a browser that has stopped answering never returns, so closing is
+// given a minute: past it the hook fails, naming what was left open, and the runner's forced exit ends the file.
 const opened = new Set()
-after(async () => { for (const end of opened) await end() })
+const CLOSE_WITHIN = 60_000
+after(async () => {
+  const late = new Promise((resolve) => setTimeout(resolve, CLOSE_WITHIN, 'late').unref())
+  const closed = Promise.all([...opened].map((end) => end()))
+  if (await Promise.race([closed, late]) === 'late') throw new Error(`${opened.size} browser(s) still open ${CLOSE_WITHIN / 1000}s after the last test`)
+})
 
 async function open ({ init } = {}) {
   const holder = {}
@@ -38,6 +44,20 @@ async function open ({ init } = {}) {
   opened.add(end)
   const problems = []
   const pages = []
+  // Chrome warns that only ES256 is offered: deliberate (I6), and the only warning allowed.
+  const ES256_ONLY = /^publicKey\.pubKeyCredParams is missing at least one of the default algorithm identifiers: ES256 and RS256\./
+  function watched (page) {
+    page.on('console', (m) => { if ((m.type() === 'error' || m.type() === 'warning') && !ES256_ONLY.test(m.text())) problems.push(m.text()) })
+    page.on('pageerror', (e) => problems.push(String(e)))
+    return page
+  }
+  // Another tab of a device's browser: the same storage, no authenticator of its own.
+  async function tab (context, url = site.origin + '/id/') {
+    const page = watched(await context.newPage())
+    await page.goto(url)
+    pages.push(page)
+    return page
+  }
   async function device () {
     const context = await browser.newContext()
     // Under mutation testing, the mutant the runner activated is activated in the page too: Stryker's instrumented
@@ -45,11 +65,7 @@ async function open ({ init } = {}) {
     const mutant = process.env.__STRYKER_ACTIVE_MUTANT__
     if (mutant !== undefined) await context.addInitScript((m) => { globalThis.__stryker__ = { activeMutant: m } }, mutant)
     if (init !== undefined) await context.addInitScript(init)
-    const page = await context.newPage()
-    // Chrome warns that only ES256 is offered: deliberate (I6), and the only warning allowed.
-    const ES256_ONLY = /^publicKey\.pubKeyCredParams is missing at least one of the default algorithm identifiers: ES256 and RS256\./
-    page.on('console', (m) => { if ((m.type() === 'error' || m.type() === 'warning') && !ES256_ONLY.test(m.text())) problems.push(m.text()) })
-    page.on('pageerror', (e) => problems.push(String(e)))
+    const page = watched(await context.newPage())
     const cdp = await context.newCDPSession(page)
     await cdp.send('WebAuthn.enable')
     const { authenticatorId } = await cdp.send('WebAuthn.addVirtualAuthenticator', { options: { protocol: 'ctap2', transport: 'internal',
@@ -62,8 +78,8 @@ async function open ({ init } = {}) {
   const collect = async () => {
     const ns = globalThis.__stryker__
     if (ns === undefined) return
-    for (const page of pages) {
-      const cov = await page.evaluate(() => globalThis.__stryker__?.mutantCoverage)
+    for (const frame of pages.flatMap((p) => p.frames())) {
+      const cov = await frame.evaluate(() => globalThis.__stryker__?.mutantCoverage).catch(() => undefined)
       if (cov === undefined) continue
       ns.mutantCoverage ??= { static: {}, perTest: {} }
       for (const [id, n] of Object.entries(cov.static)) ns.mutantCoverage.static[id] = (ns.mutantCoverage.static[id] ?? 0) + n
@@ -72,6 +88,7 @@ async function open ({ init } = {}) {
   const first = await device()
   // What the witness itself holds, whatever the page is shown (an outage or a refusing witness stands in front of it).
   const witnessGet = async (path) => (await real.handle(new Request('http://witness' + path))).json()
+  const witnessPost = async (path, body) => (await real.handle(new Request('http://witness' + path, { method: 'POST', body: JSON.stringify(body) }))).json()
   // `refusing(true)` puts a witness that refuses everything in front of the real one, as a test of the page's errors.
   const refusing = (on) => { holder.svc = on ? { handle: async () => Response.json({ ok: false, reason: 'test' }, { status: 422 }) } : real }
   // `outage('down')`: the witness is unreachable; `outage('lost')`: it takes each request, but its answer is lost.
@@ -79,7 +96,7 @@ async function open ({ init } = {}) {
     const unavailable = () => Response.json({ ok: false, reason: 'unavailable' }, { status: 503 })
     holder.svc = kind === 'down' ? { handle: async () => unavailable() } : kind === 'lost' ? { handle: async (r) => { await real.handle(r); return unavailable() } } : real
   }
-  return { site, browser, ...first, device, problems, collect, keys, clock, witnessGet, svc: real, refusing, outage, advance: (s) => { offset += s },
+  return { site, browser, ...first, device, tab, problems, collect, keys, clock, witnessGet, witnessPost, svc: real, refusing, outage, advance: (s) => { offset += s },
     close: async () => { await collect(); await end() } }
 }
 
@@ -140,11 +157,13 @@ test('create an identity and authorise a worker: the core, the witness and the v
     const d = delegationModule.checkDelegation(text, { rootKey: c.key, rpId, origin: t.site.origin, now, skew: 60, maxLifetime: 2_592_000 })
     assert.equal(d.ok, true, JSON.stringify(d))
 
-    // The page registered the root with the witness, which signs a head; a relying party at the audience accepts it.
+    // The page registered the root with the witness, which signs a head; the worker has the witness log its
+    // delegation (R10); a relying party at the audience accepts it.
     const { head } = await t.witnessGet(`/v1/identities/${r.identity}/head`)
+    const { logged } = await t.witnessPost('/v1/delegations', { identity: r.identity, text })
     const v = verifierModule.verifier({ rpId, origin: t.site.origin, audience: 'https://app.example', witnessKeys: t.keys, skew: 60,
       maxLifetime: 2_592_000, maxStaleness: 86_400, maxClaimAge: 300 })
-    const accepted = v.verifyDelegation({ delegation: text, root: r.text, head }, { now, scope: 'post', revoked: [] })
+    const accepted = v.verifyDelegation({ delegation: text, root: r.text, head, logged }, { now, scope: 'post', revoked: [] })
     assert.equal(accepted.ok, true, JSON.stringify(accepted))
     assert.deepEqual(t.problems, [])
 
@@ -274,6 +293,115 @@ test('an unreadable stored identity is forgotten: the page offers to create one'
   }
 })
 
+test('a stored root of the wrong form is forgotten, not shown', { timeout: 120_000 }, async () => {
+  const t = await open({ init: () => { if (!sessionStorage.getItem('seeded')) { sessionStorage.setItem('seeded', '1'); localStorage.setItem('muid.root', '{"identity":"<b>x</b>","text":5}') } } })
+  try {
+    await t.page.reload()
+    await t.page.waitForSelector('#create:not([hidden])')
+    assert.equal(await t.page.isHidden('#identity'), true)
+    assert.deepEqual(t.problems, [])
+  } finally {
+    await t.close()
+  }
+})
+
+// Found by review: a tab opened before the identity was made still offered to create one, and overwrote it.
+test('another tab that creates an identity is followed here, and one is never created over it', { timeout: 120_000 }, async () => {
+  const t = await open()
+  try {
+    const other = await t.tab(t.context)
+    await other.waitForSelector('#create:not([hidden])')
+    await t.page.bringToFront() // WebAuthn asks only a focused document
+    const a = await createIdentity(t.page)
+    // The other tab, open since before, now shows the identity and offers no create.
+    await other.waitForSelector('#identity:not([hidden])')
+    assert.equal(await other.textContent('#identity-id'), a.identity)
+    assert.equal(await other.isHidden('#create'), true)
+    // A create begun in a tab that has not yet heard of it adopts the stored identity and creates nothing.
+    await other.evaluate(() => { const r = localStorage.getItem('muid.root'); localStorage.removeItem('muid.root'); window.dispatchEvent(new StorageEvent('storage', { key: 'muid.root', newValue: null })); localStorage.setItem('muid.root', r) })
+    await other.waitForSelector('#create:not([hidden])')
+    await other.click('#create-button')
+    await other.waitForSelector('#identity:not([hidden])')
+    assert.equal(await other.textContent('#identity-id'), a.identity)
+    assert.equal(JSON.parse(await t.page.evaluate(() => localStorage.getItem('muid.root'))).identity, a.identity, 'not overwritten')
+    // A review open in the other tab is withdrawn when what is stored changes; storage cleared there is followed too.
+    await other.fill('#subject', SUBJECT)
+    await other.fill('#aud', 'https://app.example')
+    await other.fill('#scopes', 'post')
+    await other.click('#review')
+    await other.waitForSelector('#review-panel:not([hidden])')
+    // Another key of this origin changing is not the identity changing: the review stays. (A listener added after the
+    // page's runs after it, so once it has seen the event the page has handled it.)
+    await other.evaluate(() => { window.seen = []; window.addEventListener('storage', (e) => window.seen.push(e.key)) })
+    await t.page.evaluate(() => localStorage.setItem('unrelated', '1'))
+    await other.waitForFunction(() => window.seen.includes('unrelated'))
+    assert.equal(await other.isHidden('#review-panel'), false, 'another key leaves the review')
+    await t.page.evaluate(() => localStorage.setItem('muid.root', JSON.stringify({ ...JSON.parse(localStorage.getItem('muid.root')), note: 1 })))
+    await other.waitForSelector('#review-panel', { state: 'hidden' })
+    await t.page.evaluate(() => localStorage.clear())
+    await other.waitForSelector('#create:not([hidden])')
+    assert.equal(await other.isHidden('#identity'), true)
+    assert.deepEqual(t.problems, [])
+  } finally {
+    await t.close()
+  }
+})
+
+// SPEC §8: root registration and every root-signed action happen in a top-level window. The headers refuse framing;
+// here they are removed, and the framed page still offers nothing to click.
+test('framed, the page offers nothing and says to open it in its own window', { timeout: 120_000 }, async () => {
+  const t = await open()
+  try {
+    // A registration left pending (the witness was down) is not sent from a frame.
+    t.outage('down')
+    await t.page.fill('#name', 'test')
+    await t.page.click('#create-button')
+    await t.page.waitForSelector('#pending:not([hidden])')
+    const identity = await t.page.textContent('#identity-id')
+    t.outage(null)
+    await t.context.route('**/id/**', async (route) => {
+      const r = await route.fetch()
+      const headers = { ...r.headers() }
+      delete headers['x-frame-options']
+      delete headers['content-security-policy']
+      await route.fulfill({ response: r, headers })
+    })
+    // A page of this origin (so the frame shares its storage, unpartitioned) and no CSP of its own.
+    await t.context.route(t.site.origin + '/outer', (route) => route.fulfill({ contentType: 'text/html', body: '<!doctype html><body></body>' }))
+    const outer = await t.tab(t.context, t.site.origin + '/outer')
+    await outer.evaluate((src) => { const f = document.createElement('iframe'); f.src = src; document.body.append(f) }, t.site.origin + '/id/')
+    const frame = await (await outer.waitForSelector('iframe')).contentFrame()
+    await frame.waitForSelector('#error', { state: 'attached' })
+    await frame.waitForFunction(() => document.getElementById('error').textContent !== '')
+    assert.equal(await frame.textContent('#error'), 'This page acts only in its own window: open it directly.')
+    for (const id of ['create', 'joining', 'identity', 'add-root', 'authorise']) assert.equal(await frame.isHidden('#' + id), true, id)
+    await outer.waitForLoadState('networkidle')
+    assert.deepEqual(await t.witnessGet(`/v1/identities/${identity}/records`), { ok: false, reason: 'unknown-identity' }, 'nothing registered')
+    // The same page, not framed, sends the pending registration.
+    await t.collect()
+    await t.page.reload()
+    await t.page.waitForFunction(() => document.getElementById('status').textContent === 'Registered with the witness.')
+  } finally {
+    await t.close()
+  }
+})
+
+// SPEC §8: the rp ID and origin are deployment configuration. The same page served under another origin (here the
+// server's address rather than its configured name) makes nothing, registers nothing, and says where to open it.
+test('under an origin other than its configured one, the page offers nothing and says where it acts', { timeout: 120_000 }, async () => {
+  const t = await open()
+  try {
+    const elsewhere = await t.tab(t.context, t.site.origin.replace('localhost', '127.0.0.1') + '/id/')
+    await elsewhere.waitForFunction(() => document.getElementById('error').textContent !== '')
+    assert.equal(await elsewhere.textContent('#error'), `This page acts only at ${t.site.origin}: open it there.`)
+    for (const id of ['create', 'joining', 'identity', 'add-root', 'authorise']) assert.equal(await elsewhere.isHidden('#' + id), true, id)
+    assert.equal(await t.page.isHidden('#create'), false, 'at its own origin it offers to create an identity')
+    assert.deepEqual(t.problems, [])
+  } finally {
+    await t.close()
+  }
+})
+
 test('a passkey that refuses (no user verification) is reported, and nothing is created', { timeout: 120_000 }, async () => {
   const t = await open()
   try {
@@ -305,6 +433,9 @@ test('a second passkey: one device adds it, the other co-signs; once settled it 
     assert.equal(await b.page.isHidden('#identity'), true)
     const bRoot = await b.page.inputValue('#join-root')
     const bId = rootModule.checkRoot(bRoot, { rpId }).id
+    // Its fingerprint, to compare with what the other device shows before signing.
+    const print = bId.slice(0, 24).match(/.{4}/g).join(' ')
+    assert.equal(await b.page.textContent('#join-fingerprint'), print)
     // A joining passkey is never registered as an identity of its own, not even when the page loads again.
     await t.collect()
     await b.page.reload()
@@ -321,6 +452,7 @@ test('a second passkey: one device adds it, the other co-signs; once settled it 
     await t.page.click('#add-review')
     await t.page.waitForSelector('#add-panel:not([hidden])')
     assert.equal(await t.page.textContent('#add-added'), bId)
+    assert.equal(await t.page.textContent('#add-fingerprint'), print, 'the same fingerprint as on the joining device')
     assert.equal(await t.page.textContent('#add-epoch'), '2')
     await t.page.fill('#new-root', bRoot + ' ')
     assert.equal(await t.page.isHidden('#add-panel'), true, 'an edit withdraws the change')
@@ -376,9 +508,10 @@ test('a second passkey: one device adds it, the other co-signs; once settled it 
     const subject = hex(ed25519.sign(Buffer.concat([Buffer.from('muid/v1/accept\n'), Buffer.from(id.id, 'hex')]), WORKER))
     const text = envelope.wrap(h.payload, { root: h.root, subject })
     const { head } = await t.witnessGet(`/v1/identities/${a.identity}/head`)
+    const { logged } = await t.witnessPost('/v1/delegations', { identity: a.identity, text })
     const v = verifierModule.verifier({ rpId, origin: t.site.origin, audience: 'https://app.example', witnessKeys: t.keys, skew: 60,
       maxLifetime: 2_592_000, maxStaleness: 86_400, maxClaimAge: 300 })
-    const accepted = v.verifyDelegation({ delegation: text, root: bRoot, head }, { now: t.clock(), scope: 'post', revoked: [] })
+    const accepted = v.verifyDelegation({ delegation: text, root: bRoot, head, logged }, { now: t.clock(), scope: 'post', revoked: [] })
     assert.equal(accepted.ok, true, JSON.stringify(accepted))
     assert.deepEqual(t.problems, [])
   } finally {
@@ -434,11 +567,14 @@ test('signing buttons do nothing before a review; the witness refusing is shown;
     await b.page.click('#cosign-sign')
     await errorShown(b.page)
     assert.equal(await b.page.textContent('#error'), 'the witness refused the membership: test')
-    t.refusing(false)
     await b.page.click('#cosign-review')
     assert.equal(await b.page.textContent('#error'), '', 'a new review clears the message')
     await b.page.click('#cosign-sign')
+    await errorShown(b.page)
+    t.refusing(false)
+    await b.page.click('#cosign-sign') // signed again, with no new review: the message goes when it succeeds
     await b.page.waitForSelector('#identity:not([hidden])')
+    assert.equal(await b.page.textContent('#error'), '')
     assert.equal(await b.page.textContent('#status'), 'Co-signed. The change settles once its contest window has passed.')
     assert.equal(await b.page.textContent('#identity-id'), a.identity)
     // The joined identity is remembered; on a reloaded page the signing buttons still do nothing before a review.
@@ -452,7 +588,7 @@ test('signing buttons do nothing before a review; the witness refusing is shown;
     }
     // The browser reports each refusal this test caused; nothing else.
     assert.deepEqual(t.problems.filter((p) => !/status of 422 \(Unprocessable Entity\)$/.test(p)), [])
-    assert.equal(t.problems.length, 2)
+    assert.equal(t.problems.length, 3)
   } finally {
     await t.close()
   }
@@ -538,6 +674,66 @@ test('a registration that fails is pending: retried with the same root, by the b
     assert.equal(await t.page.textContent('#status'), '')
     const credentials = await t.cdp.send('WebAuthn.getCredentials', { authenticatorId: t.authenticatorId })
     assert.equal(credentials.credentials.length, 1, 'one passkey, never another')
+    assert.deepEqual(t.problems.filter((p) => !unavailable.test(p)), [])
+  } finally {
+    await t.close()
+  }
+})
+
+// A co-signature whose answer is lost is kept and sent again, as a registration is (#34): by the button and on
+// reload, with the change gone from the page; the witness takes the same signature again.
+test('a co-signature whose answer is lost is pending: sent again on reload and by the button', { timeout: 180_000 }, async () => {
+  const t = await open()
+  const unavailable = /^Failed to load resource: the server responded with a status of 503/
+  try {
+    const a = await createIdentity(t.page)
+    const b = await t.device()
+    await b.page.click('#join-button')
+    await b.page.waitForSelector('#joining:not([hidden])')
+    await t.page.fill('#new-root', await b.page.inputValue('#join-root'))
+    await t.page.click('#add-review')
+    await t.page.waitForSelector('#add-panel:not([hidden])')
+    await t.page.click('#add-sign')
+    await t.page.waitForSelector('#add-handoff:not([hidden])')
+    await b.page.fill('#cosign-payload', await t.page.inputValue('#add-handoff'))
+    await b.page.click('#cosign-review')
+    await b.page.waitForSelector('#cosign-panel:not([hidden])')
+    assert.equal(await b.page.isHidden('#cosign-pending'), true, 'nothing kept yet')
+    // A passkey that refuses: reported, and nothing is kept or sent.
+    await b.cdp.send('WebAuthn.setUserVerified', { authenticatorId: b.authenticatorId, isUserVerified: false })
+    await b.page.click('#cosign-sign')
+    await errorShown(b.page)
+    assert.equal(await b.page.textContent('#error'), 'The passkey request was cancelled.')
+    assert.equal(await b.page.isHidden('#cosign-pending'), true, 'nothing kept')
+    assert.equal((await t.witnessGet(`/v1/identities/${a.identity}/records`)).memberships.length, 1, 'nothing sent')
+    await b.cdp.send('WebAuthn.setUserVerified', { authenticatorId: b.authenticatorId, isUserVerified: true })
+    t.outage('lost')
+    await b.page.click('#cosign-sign')
+    await errorShown(b.page)
+    assert.equal(await b.page.isHidden('#cosign-pending'), false)
+    assert.equal(await b.page.isHidden('#identity'), true, 'still joining')
+    const signers = async () => (await t.witnessGet(`/v1/identities/${a.identity}/records`)).memberships.length
+    assert.equal(await signers(), 2, 'the witness took it')
+    // Reloaded, the change is no longer on the page; the kept co-signature is sent again, and its answer lost again.
+    await t.collect()
+    await b.page.reload()
+    await errorShown(b.page)
+    assert.equal(await b.page.inputValue('#cosign-payload'), '')
+    assert.equal(await b.page.isHidden('#cosign-pending'), false)
+    // Back up: the button sends it again; the witness already holds it, and this passkey is the identity's.
+    t.outage(null)
+    await b.page.click('#cosign-retry')
+    await b.page.waitForSelector('#identity:not([hidden])')
+    assert.equal(await b.page.textContent('#identity-id'), a.identity)
+    assert.equal(await b.page.textContent('#error'), '')
+    assert.equal(await b.page.textContent('#status'), 'Co-signed. The change settles once its contest window has passed.')
+    assert.equal(await signers(), 2, 'one signature each, never another')
+    // Nothing is pending after a reload, and nothing is sent.
+    await t.collect()
+    await b.page.reload()
+    await b.page.waitForSelector('#identity:not([hidden])')
+    await b.page.waitForLoadState('networkidle')
+    assert.deepEqual([await b.page.isHidden('#cosign-pending'), await b.page.isHidden('#joining'), await b.page.textContent('#status')], [true, true, ''])
     assert.deepEqual(t.problems.filter((p) => !unavailable.test(p)), [])
   } finally {
     await t.close()

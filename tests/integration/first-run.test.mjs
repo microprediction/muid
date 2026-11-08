@@ -31,11 +31,15 @@ test('a first-time user: one root, one delegation, a head, accepted by the relyi
   const h = envelope.seal('head', membership.headOf(state, NOW))
   const head = envelope.wrap(h.payload, { signature: hex(ed25519.sign(envelope.signedBytes(h.payload), WITNESS)), witness: witnessKeys[0].key })
 
-  // 4. The relying party verifies.
+  // 4. The witness logs the delegation (R10): its logged record goes to the app with the delegation.
+  const l = envelope.seal('logged', { identity, delegation: id, at: NOW })
+  const logged = envelope.wrap(l.payload, { signature: hex(ed25519.sign(envelope.signedBytes(l.payload), WITNESS)), witness: witnessKeys[0].key })
+
+  // 5. The relying party verifies.
   const v = verifierModule.verifier({ rpId: RP_ID, origin: ORIGIN, audience: AUD, witnessKeys, skew: 60, maxLifetime: 2_592_000, maxStaleness: 86_400, maxClaimAge: 300 })
-  const result = v.verifyDelegation({ delegation, root: rootText, head }, { now: NOW + 5, scope: 'post', revoked: [] })
+  const result = v.verifyDelegation({ delegation, root: rootText, head, logged }, { now: NOW + 5, scope: 'post', revoked: [] })
   assert.equal(result.ok, true, JSON.stringify(result))
   assert.equal(result.id, id)
-  assert.deepEqual({ ...v.verifyDelegation({ delegation, root: rootText, head }, { now: NOW + 86_401, scope: 'post', revoked: [] }) },
+  assert.deepEqual({ ...v.verifyDelegation({ delegation, root: rootText, head, logged }, { now: NOW + 86_401, scope: 'post', revoked: [] }) },
     { ok: false, reason: 'stale' }, 'a day later the head is stale (checked before the delegation, F5)')
 })

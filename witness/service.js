@@ -78,14 +78,18 @@ export function witnessService ({ witness, holdings, log, clock, headInterval })
     return r.staged
   }
 
-  // A submitted record or revocation: decided against the logged records, advanced, logged, then kept.
+  // A submitted record, revocation or delegation: decided against the logged records, advanced, logged, then kept.
+  // A delegation's logged record (R10) is signed in the decision itself: appended with the rest when it is new.
   function change (identity, decide) {
     return commit(identity, (entry, now) => {
       const r = decide(entry?.held ?? witness.empty(identity), now)
       if (!r.ok) return { value: refusal(422, r.reason) }
       const a = witness.advance(r.held, now)
-      const texts = a.signed.map((x) => x.text)
-      const value = json(200, { ok: true, signed: texts })
+      const texts = [...(r.fresh ? [r.logged] : []), ...a.signed.map((x) => x.text)]
+      const value = json(200, { ok: true, signed: texts, logged: r.logged })
+      // Nothing changed (a record already held, a delegation already logged): the entry, and its head, stay as they are.
+      // (A held record or a logged delegation that is new, or anything advance signs, makes a new holding.)
+      if (entry !== undefined && a.held === entry.held) return { value }
       // Stryker disable next-line ConditionalExpression: equivalent; an empty outbox appends nothing
       return texts.length === 0 ? { entry: { held: a.held }, value } : { entry: { held: a.held }, texts, value }
     })
@@ -135,7 +139,7 @@ export function witnessService ({ witness, holdings, log, clock, headInterval })
       if (request.method !== 'GET') return refusal(405, 'method')
       return m[2] === 'head' ? head(m[1]) : records(m[1])
     }
-    if (pathname !== '/v1/records' && pathname !== '/v1/revocations') return refusal(404, 'not-found')
+    if (pathname !== '/v1/records' && pathname !== '/v1/revocations' && pathname !== '/v1/delegations') return refusal(404, 'not-found')
     if (request.method !== 'POST') return refusal(405, 'method')
     const { b, error } = await body(request)
     if (error !== undefined) return error
@@ -144,6 +148,7 @@ export function witnessService ({ witness, holdings, log, clock, headInterval })
       if (!SUBMITTED.includes(b.type)) return refusal(422, 'type')
       return change(b.identity, (held) => witness.admit(held, b.type, b.text))
     }
+    if (pathname === '/v1/delegations') return change(b.identity, (held, now) => witness.log(held, b.text, now))
     if (b.delegation !== undefined && typeof b.delegation !== 'string') return refusal(400, 'request')
     return change(b.identity, (held, now) => witness.revoke(held, b.text, now, b.delegation))
   }
@@ -187,9 +192,13 @@ export function memoryHoldings () {
         if (r.entry !== undefined) entries.set(identity, r.entry)
         return r.value
       })
-      queues.set(identity, run.catch(() => {}))
+      // The queue is dropped once its last update is done, so identities only named once leave nothing behind.
+      const tail = run.catch(() => {}).then(() => { if (queues.get(identity) === tail) queues.delete(identity) })
+      queues.set(identity, tail)
       return run
     },
+    // Identities with an update queued or running.
+    inFlight () { return queues.size },
   })
 }
 

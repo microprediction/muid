@@ -7,14 +7,17 @@ import { spawn } from 'node:child_process'
 import { tmpdir, availableParallelism } from 'node:os'
 import { join } from 'node:path'
 
+// A test that never ends under a twin fails (the twin is caught) instead of holding the harness open.
+const TEST_TIMEOUT = 300_000
+
 const DIR = new URL('../../witness/', import.meta.url)
 const FILES = ['witness.js', 'service.js', 'log.js']
 const SUITE_DIR = new URL('../witness/', import.meta.url).pathname
 const SUITE = readdirSync(SUITE_DIR).filter((f) => f.endsWith('.test.mjs')).map((f) => join(SUITE_DIR, f))
 // The witness's imports of the core, made absolute because a twin lives outside the repository.
 const CORE = ["from '../" + 'src/', "from '" + new URL('../../src/', import.meta.url).href]
-// And its one package import, resolved from here.
-const NOBLE = ["from '@noble/hashes/sha2.js'", `from '${import.meta.resolve('@noble/hashes/sha2.js')}'`]
+// And its package imports, resolved from here.
+const NOBLE = ['@noble/hashes/sha2.js', '@noble/curves/ed25519.js'].map((m) => [`from '${m}'`, `from '${import.meta.resolve(m)}'`])
 
 // [name, bug class, [find, replace] pairs, file (witness.js unless named)]
 const TWINS = [
@@ -28,6 +31,9 @@ const TWINS = [
   ['kept-before-logged', 'a holding is kept without its outbox, before the log has taken what it signed', [['return { entry: { ...e, outbox: { entry: s.entry, texts: s.texts } }, value: { staged: s.value } }', 'return { entry: s.entry, value: { staged: s.value } }']], 'service.js'],
   ['unserialised', 'changes to one identity interleave, so one is lost', [['(queues.get(identity) ?? Promise.resolve())', 'Promise.resolve()']], 'service.js'],
   ['head-kept-after-change', 'a head signed before a change is served after it', [['return texts.length === 0 ? { entry: { held: a.held }, value } : { entry: { held: a.held }, texts, value }', 'return texts.length === 0 ? { entry: { held: a.held, head: entry?.head }, value } : { entry: { held: a.held, head: entry?.head }, texts, value }']], 'service.js'],
+  ['noop-drops-head', 'a resubmission that changes nothing drops the cached head', [['      if (entry !== undefined && a.held === entry.held) return { value }\n', '']], 'service.js'],
+  ['state-replayed', "a holding's state is replayed for every submission", [['    let s = states.get(held)\n', '    let s\n']], 'witness.js'],
+  ['queues-kept', "every identity's queue is kept for ever", [['if (queues.get(identity) === tail) queues.delete(identity)', 'if (queues.get(identity) === tail) queues.get(identity)']], 'service.js'],
   ['head-kept-for-ever', 'a head is reused however old', [['now - entry.head.at < headInterval', 'true']], 'service.js'],
   ['head-unlogged', 'a head is served that the log did not take', [['texts: [text], value: json(200, { head: text })', 'value: json(200, { head: text })']], 'service.js'],
   ['body-unbounded', 'a request body of any size is read', [["    if (text === undefined) return { error: refusal(413, 'too-large') }\n", '']], 'service.js'],
@@ -53,36 +59,55 @@ const TWINS = [
   ['dead-admits', 'records are held for a dead identity', [["return s.dead ? refuse('dead') : s", 'return s']]],
   ['identity-unchecked', "another identity's record is held", [["    if (b.identity !== held.identity) return refuse('identity')\n", '']]],
   ['shape-unchecked', 'a record of the wrong form is held', [["    if (!SHAPES[type](b) || !onlyKeys(r.sig, ['assertion', 'root'])) return refuse('shape')\n", '']]],
-  ['anchor-unchecked', 'a successor is anchored without verifiers following it', [['if (stateOf(add(own, \'anchors\', text)).membership === x)', 'if (true)']]],
+  ['anchor-unchecked', 'a successor is anchored without verifiers following it', [['trialState(own, { identity: held.identity, record: x, at: now }).membership === x)', 'true)']]],
   ['settle-early', 'the epoch is settled before the window has passed', [['if (now < at + contestWindow) {', 'if (now < at) {']]],
   ['contest-ignored', 'a contest inside the window is never anchored', [['        if (contest === undefined || contested) break\n', '        break\n']]],
-  ['contest-unchecked', 'a contest is anchored whatever its signers', [['        if (!stateOf(add(held, \'anchors\', text)).dead) break\n', '']]],
+  ['contest-unchecked', 'a contest is anchored whatever its signers', [['        if (!trialState(held, { identity: held.identity, record: contest, at: now }).dead) break\n', '']]],
   ['settle-ignores-contest', 'an anchored contest does not make the settlement contested', [["outcome: contested ? 'contested' : s.membership", 'outcome: s.membership']]],
   ['own-view-with-contests', "the witness's view counts contest anchors, so a contested epoch never settles", [['anchors: held.anchors.filter((t, i) => !isContest(anchors[i]))', 'anchors: held.anchors']]],
   ['one-step', 'a held successor waits for the next step after a settlement', [['      sign1(\'settlement\', text) // a contested', '      sign1(\'settlement\', text); break // a contested']]],
   ['sign-unchecked', "a signature not under the witness's key is published", [["    if (!checkEd25519(signature, signedBytes(payload), key).ok) throw new Error('sign gave no valid signature under the witness key')\n", '']]],
-  ['head-without-revocations', 'the head leaves out the revocations held', [['headOf(s, now, kept(held, now).map((x) => x.target))', 'headOf(s, now, [])']]],
+  ['head-without-revocations', 'the head leaves out the revocations held', [['headOf(s, now, entries(held, s, now).map((x) => x.target))', 'headOf(s, now, [])']]],
   ['revoke-without-authority', 'any root of the identity can revoke', [["      if (!has(s.authority, r.sig.root)) return refuse('signer')\n", '']]],
   ['self-revoke-any-key', 'a key revokes itself without the delegation that makes it a delegate', [["      if (!delegates(held, s, delegation, now, b.target)) return refuse('delegation')\n", '']]],
   ['revocation-never-lapses', "a revocation outlives the delegation it names, given with it", [['(x) => x.until === null || now < x.until)', '() => true)']]],
   ['revocation-lapses-late', 'a lapsed revocation is carried at its expiry plus skew', [['(x) => x.until === null || now < x.until)', '(x) => x.until === null || now <= x.until)']]],
   ['revocation-any-delegation', 'any delegation sets when a revocation lapses', [["      if (d === undefined || d.id !== b.target) return refuse('delegation')\n", "      if (d === undefined) return refuse('delegation')\n"]]],
-  ['revocation-duplicates', 'another revocation for a target already held adds an entry', [['    if (live.some((x) => x.target === b.target)) return accept({ held })\n', '']]],
+  ['revocation-duplicates', 'another revocation for a target already held adds an entry', [['    if (kept1.some((x) => x.target === b.target)) return accept({ held })\n', '']]],
   ['tombstone-ignored', 'a replaced proposal can be resubmitted and made current again', [["    if (tombs.some((x) => x.record === r.id && x.signer === signer)) return refuse('replaced')\n", '']]],
-  ['tombstones-unbounded', 'a root may replace its proposals without limit', [["    if (tombs.filter((x) => x.signer === signer).length >= TOMBSTONES) return refuse('quota')\n", '']]],
+  ['quorate-replaceable', 'a root may move its signature off a record a majority has signed', [["    if (gone.some((x) => quorate(x.id, 0))) return refuse('quorate')\n", '']]],
+  ['quota-blocks-majority', 'the quota refuses even the signature that completes a majority', [[" && !quorate(r.id, has(s.roots, signer) ? 1 : 0)) return refuse('quota')", ") return refuse('quota')"]]],
+  ['trial-signed', 'each candidate anchor is signed by the witness key, then thrown away if not kept', [["const found = ids.find((x) => trialState(own, { identity: held.identity, record: x, at: now }).membership === x)", "const found = ids.find((x) => stateOf(add(own, 'anchors', make('anchor', { identity: held.identity, record: x, at: now }))).membership === x)"]]],
+  ['trial-contest-signed', 'a contest anchor is signed by the witness key before it is known to end the identity', [["if (!trialState(held, { identity: held.identity, record: contest, at: now }).dead) break", "if (!stateOf(add(held, 'anchors', make('anchor', { identity: held.identity, record: contest, at: now }))).dead) break"]]],
+  ['trial-any-window', "the trial key is in window at any time, not the witness key's windows", [['.map((k) => freeze({ ...k, key: TRIAL_KEY }))', '.map((k) => freeze({ ...k, key: TRIAL_KEY, nbf: 0, exp: Number.MAX_SAFE_INTEGER }))']]],
+  ['trial-key-pinnable', 'a configuration may pin the trial key', [[' || keys.some((k) => k.key === TRIAL_KEY)', '']]],
+  ['tombstones-unbounded', 'a root may replace its proposals without limit', [["    if (tombs.filter((x) => x.signer === signer).length >= TOMBSTONES && !quorate(r.id, has(s.roots, signer) ? 1 : 0)) return refuse('quota')\n", '']]],
   ['tombstones-kept-for-ever', 'tombstones of an earlier prev are kept', [['const tombs = held.replaced.filter((x) => x.prev === b.prev)', 'const tombs = held.replaced']]],
-  ['quota-ignored', 'one root may file every revocation a head carries', [["    if (live.filter((x) => x.root === root).length >= QUOTA) return refuse('quota')\n", '']]],
-  ['quota-shared', "a root's quota counts every root's entries", [['live.filter((x) => x.root === root).length >= QUOTA', 'live.length >= QUOTA']]],
+  ['bucket-ignored', 'a root may file revocations without limit', [["    if (tokens.tokens < 1) return refuse('quota')\n", '']]],
+  ['per-root-shared', "a root's head entries count every root's", [['es.filter((x) => x.root === root).length >= PER_ROOT', 'es.length >= PER_ROOT']]],
   ['quota-self-uncounted', "a delegate's revocation of itself counts against no root", [['      root = named(delegation).body.root\n', '      root = undefined\n']]],
   ['losers-kept', 'proposals that lost a settled prev stay held', [["held = contested ? add(held, 'settlements', text) : purge(add(held, 'settlements', text), s.settled, s.membership)", "held = add(held, 'settlements', text)"]]],
   ['purge-winner', 'the settled record goes with the losers', [["return x.body.prev !== prev || x.id === outcome", 'return x.body.prev !== prev']]],
-  ['revocations-past-head', 'live revocations may outnumber what a head carries', [['if (live.length >= MAX_REVOKED)', 'if (live.length >= MAX_RECORDS)']]],
+  ['head-cap-off', 'head entries may outnumber what a head carries', [['if (es.length >= MAX_REVOKED ||', 'if (']]],
+  ['head-all-kept', 'the head carries every kept revocation, logged or not', [['headOf(s, now, entries(held, s, now).map((x) => x.target))', 'headOf(s, now, kept(held, now).map((x) => x.target))']]],
+  ['log-revoked', 'a revoked delegation is logged', [["    if (kept(held, now).some((x) => names(x, { delegation: r.id, subject: d.subject }))) return refuse('revoked')\n", '']]],
+  ['log-by-id-only', 'a delegation whose subject key is revoked is logged', [['names(x, { delegation: r.id, subject: d.subject })', 'x.target === r.id']]],
+  ['log-any-membership', 'a delegation under a membership not current is logged', [["    if (d.membership !== s.settled && d.membership !== s.membership) return refuse('membership')\n", '']]],
+  ['log-any-root', 'a delegation from a root without authority is logged', [["    if (!has(s.authority, d.root)) return refuse('authority')\n", "    if (!rootKeys(held).has(d.root)) return refuse('authority')\n"]]],
+  ['log-unverified', 'a delegation is logged without being verified at now', [['    if (!c.ok) return c\n', '']]],
+  ['log-twice', 'a delegation already logged is signed again', [['    if (known !== undefined) return accept({ held, logged: known.text, fresh: false })\n', '']]],
+  ['live-past-expiry', 'a logged delegation counts as live after it expires', [['held.logged.filter((l) => now < l.exp + skew &&', 'held.logged.filter((l) =>']]],
+  ['live-without-authority', "a logged delegation counts as live after its root loses authority", [['    has(s.authority, l.root))', '    true)']]],
+  ['live-any-membership', 'a logged delegation counts as live under a membership no longer current', [['now < l.exp + skew && (l.membership === s.settled || l.membership === s.membership) &&', 'now < l.exp + skew &&']]],
+  ['bucket-unrefilled', 'a bucket never refills', [['const days = Math.max(0, Math.floor((now - b.at) / DAY))', 'const days = 0']]],
+  ['bucket-unbounded', 'a bucket saves up without limit', [['tokens: Math.min(BURST, b.tokens + days)', 'tokens: b.tokens + days']]],
+  ['bucket-backwards', 'a clock that steps back refills the bucket', [['Math.max(0, Math.floor((now - b.at) / DAY))', 'Math.abs(Math.floor((now - b.at) / DAY))']]],
 ]
 
 function run (dir) {
   const { NODE_TEST_CONTEXT, ...env } = process.env
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, ['--test', '--test-reporter=tap', ...SUITE], {
+    const child = spawn(process.execPath, ['--test', '--test-reporter=tap', `--test-timeout=${TEST_TIMEOUT}`, ...SUITE], {
       env: { ...env, MUID_WITNESS_DIR: dir, FC_RUNS: '30' },
       stdio: ['ignore', 'pipe', 'pipe'],
       detached: true, // its own process group, so that a hang is ended with every test process it started
@@ -109,7 +134,7 @@ function generate (name, edits, file = 'witness.js') {
   const dir = join(root, name)
   mkdirSync(dir)
   for (const f of FILES) {
-    let text = sources[f].split(CORE[0]).join(CORE[1]).split(NOBLE[0]).join(NOBLE[1])
+    let text = NOBLE.reduce((t, [from, to]) => t.split(from).join(to), sources[f].split(CORE[0]).join(CORE[1]))
     for (const [find, replace] of f === file ? edits : []) {
       const n = text.split(find).length - 1
       assert.equal(n, 1, `twin ${name}: target must occur exactly once in witness/${f}, found ${n}: ${JSON.stringify(find)}`)
@@ -128,7 +153,7 @@ test('witness broken twins', { timeout: 1_800_000 }, async (t) => {
       assert.ok(r.pass >= 25, `control: only ${r.pass} tests ran`)
     })
     const jobs = TWINS.map(([name, why, edits, file]) => [name, why, generate(name, edits, file)])
-    assert.equal(jobs.length, 59, 'twin count')
+    assert.equal(jobs.length, 81, 'twin count')
     const results = []
     const queue = [...jobs]
     const workers = Math.max(1, Math.floor(availableParallelism() / 4))

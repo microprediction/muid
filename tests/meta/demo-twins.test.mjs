@@ -8,6 +8,9 @@ import { spawn } from 'node:child_process'
 import { tmpdir, availableParallelism } from 'node:os'
 import { join } from 'node:path'
 
+// A test that never ends under a twin fails (the twin is caught) instead of holding the harness open.
+const TEST_TIMEOUT = 300_000
+
 const DIR = new URL('../../demo/', import.meta.url)
 const FILES = ['forecasts.js', 'history.js']
 const SUITE_DIR = new URL('../demo/', import.meta.url).pathname
@@ -19,6 +22,10 @@ const NOBLE = ["from '@noble/hashes/sha2.js'", `from '${import.meta.resolve('@no
 
 // [name, bug class, [find, replace] pairs, file]
 const TWINS = [
+  ['bundle-proof-unchecked', 'a proof the log gives is kept unchecked', [['      if (!verifyInclusion({ leafHash: leaf, index: k.index, size: c.size, proof, root: bytes(c.root) })) return false\n', '']], 'forecasts.js'],
+  ['publish-concurrent', 'two publications of one contribution run at once', [['    if (k.flight !== undefined) { await k.flight; return false } // one publication of a contribution at a time\n', '']], 'forecasts.js'],
+  ['standing-by-arrival', 'the standing forecast is the last to arrive', [['if (s === undefined || k.signedAt >= s.signedAt) standing.set', 'standing.set']], 'forecasts.js'],
+  ['history-duplicates', 'a contribution given twice is counted twice', [["      else if (r.ok && seen.has(r.claim)) refused.push({ index: i, reason: 'duplicate' })\n", '']], 'history.js'],
   ['checkpoint-not-holding', 'the bundle keeps a checkpoint that does not hold the receipt', [['if (c.ok && c.size > index) return', 'if (c.ok) return']], 'forecasts.js'],
   ['checkpoint-uncosigned', 'a checkpoint without the cosigner quorum is bundled', [['verifyCheckpoint(text, { ...checkpoints, now: clock() })', 'verifyCheckpoint(text, { ...checkpoints, quorum: 0, now: clock() })']], 'forecasts.js'],
   ['receipt-postdated', 'the receipt is dated after the claim was accepted', [['claim: accepted.id, at: now }', 'claim: accepted.id, at: now + 3600 }']], 'forecasts.js'],
@@ -33,12 +40,12 @@ const TWINS = [
   ['forecast-unchecked', 'any data is kept as a forecast', [['    if (f === undefined) return { refused: \'forecast\' }\n', '']], 'forecasts.js'],
   ['earnings-everyone', "every identity's contributions count toward one's earnings", [['const mine = kept.filter((k) => k.identity === identity)', 'const mine = kept']], 'forecasts.js'],
   ['collect-twice', 'what was collected is not taken off the balance', [['collected.set(identity, (collected.get(identity) ?? 0) + amount)', 'collected.get(identity)']], 'forecasts.js'],
-  ['identity-unchecked', "another identity's receipt is counted as this one's", [["if (r.ok && r.identity !== identity) refused.push({ index: i, reason: 'identity' })\n      else if (r.ok)", 'if (r.ok)']], 'history.js'],
+  ['identity-unchecked', "another identity's receipt is counted as this one's", [["if (r.ok && r.identity !== identity) refused.push({ index: i, reason: 'identity' })\n      else if (r.ok && seen", 'if (r.ok && seen']], 'history.js'],
   ['claim-dropped', 'the claim a bundle carries is not checked against its receipt', [['index: b.index, claim: b.claim }', 'index: b.index }']], 'history.js'],
   ['proof-unchecked', 'a proof that is not hex is read anyway', [["b.proof.every((h) => typeof h === 'string' && /^(?:[0-9a-f]{2})*$/.test(h))", 'true']], 'history.js'],
   ['appended-twice', 'a receipt the log already took is appended again on retry', [['if (k.index === undefined) k.index = await log.append(k.receipt)', 'k.index = await log.append(k.receipt)']], 'forecasts.js'],
   ['pending-as-200', 'a contribution whose receipt is not published is answered as if it were', [['json(r.value.pending ? 202 : 200,', 'json(200,']], 'forecasts.js'],
-  ['every-forecast-scores', 'every forecast scores, not each identity\'s standing one', [['if (k.question === question) standing.set(k.identity, k)', 'if (k.question === question) standing.set(k.claim, k)']], 'forecasts.js'],
+  ['every-forecast-scores', 'every forecast scores, not each identity\'s standing one', [['standing.get(k.identity)', 'standing.get(k.claim)'], ['standing.set(k.identity, k)', 'standing.set(k.claim, k)']], 'forecasts.js'],
   ['closed-accepted', 'a forecast after the closing time is kept', [[' || now >= q.closes) return', ') return']], 'forecasts.js'],
   ['resolved-open', 'a forecast for a resolved question is kept', [['if (q === undefined || q.outcome !== undefined ||', 'if (q === undefined ||']], 'forecasts.js'],
   ['conflicting-resolution', 'a question resolved with the other outcome is quietly left', [["      if (q.outcome !== outcome) throw new Error('already resolved with the other outcome')\n", '']], 'forecasts.js'],
@@ -48,7 +55,7 @@ const TWINS = [
 function run (dir) {
   const { NODE_TEST_CONTEXT, ...env } = process.env
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, ['--test', '--test-reporter=tap', ...SUITE], {
+    const child = spawn(process.execPath, ['--test', '--test-reporter=tap', `--test-timeout=${TEST_TIMEOUT}`, ...SUITE], {
       env: { ...env, MUID_DEMO_DIR: dir },
       stdio: ['ignore', 'pipe', 'pipe'],
       detached: true, // its own process group, so that a hang is ended with every test process it started
@@ -94,7 +101,7 @@ test('demo broken twins', { timeout: 1_800_000 }, async (t) => {
       assert.ok(r.pass >= 8, `control: only ${r.pass} tests ran`)
     })
     const jobs = TWINS.map(([name, why, edits, file]) => [name, why, generate(name, edits, file)])
-    assert.equal(jobs.length, 24, 'twin count')
+    assert.equal(jobs.length, 28, 'twin count')
     const results = []
     const queue = [...jobs]
     const workers = Math.max(1, Math.floor(availableParallelism() / 4))

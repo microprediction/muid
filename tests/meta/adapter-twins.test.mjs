@@ -7,6 +7,9 @@ import { spawn } from 'node:child_process'
 import { tmpdir, availableParallelism } from 'node:os'
 import { join } from 'node:path'
 
+// A test that never ends under a twin fails (the twin is caught) instead of holding the harness open.
+const TEST_TIMEOUT = 300_000
+
 const DIR = new URL('../../adapter/', import.meta.url)
 const FILES = ['relying-party.js', 'stores.js']
 const SUITE_DIR = new URL('../adapter/', import.meta.url).pathname
@@ -37,7 +40,7 @@ const TWINS = [
   ['call-lastHead-accepted', "a caller's lastHead is silently dropped", 'relying-party.js',
     [["  if (lastHead !== undefined) throw new TypeError('the adapter supplies lastHead from its memory')\n", '']]],
   ['tie-keeps-first', 'of two heads of one second, the first seen is kept', 'relying-party.js',
-    [['.ok) tx.replaceHead(seen.identity, given.head, seen.at, stored.head)', '.ok) {}']]],
+    [['            tx.replaceHead(seen.identity, given.head, seen.at, stored.head)\n', '']]],
   ['reason-without-memory', 'a request refused before the lock gives its reason without the memory', 'relying-party.js',
     [['        return refusal(withMemory((c) => verifier[method](given, c), call, stored).reason)', '        return refusal(pre.reason)']]],
   ['nonce-dropped', "the request's nonce is not passed to the verifier", 'relying-party.js', [['return { now, scope, method, url, nonce, contentDigest,', 'return { now, scope, method, url, contentDigest,']]],
@@ -51,7 +54,7 @@ const TWINS = [
 function run (dir) {
   const { NODE_TEST_CONTEXT, ...env } = process.env
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, ['--test', '--test-reporter=tap', ...SUITE], {
+    const child = spawn(process.execPath, ['--test', '--test-reporter=tap', `--test-timeout=${TEST_TIMEOUT}`, ...SUITE], {
       env: { ...env, MUID_ADAPTER_DIR: dir, FC_RUNS: '100' },
       stdio: ['ignore', 'pipe', 'pipe'],
     })

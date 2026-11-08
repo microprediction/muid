@@ -4,9 +4,10 @@ import assert from 'node:assert/strict'
 import { generateKeyPairSync, sign as nodeSign } from 'node:crypto'
 import fc from 'fast-check'
 import { result, nodeAccepts, vectors, bytes, hex, der, parseDer, N } from './helpers.mjs'
+import { runs } from '../runs.mjs'
 
 const SEED = Number(process.env.FC_SEED ?? 20261103)
-const RUNS = Number(process.env.FC_RUNS ?? 200)
+const RUNS = runs(200)
 
 const keys = Array.from({ length: 6 }, () => {
   const { publicKey, privateKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' })

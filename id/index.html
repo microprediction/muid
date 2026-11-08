@@ -5,7 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'sha256-9vL72uvEUCcJGeX/LoUKObeMuuP9Qx3r3dGQpFN9aTw='; style-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'">
 <title>muid identity</title>
-<!-- The witness service this page registers with, and its pinned keys (deployment configuration). -->
+<!-- Deployment configuration: the rp ID and exact origin the page acts at, the witness service it registers with,
+     and the witness's pinned keys. -->
+<meta name="muid-rp-id" content="">
+<meta name="muid-origin" content="">
 <meta name="muid-witness" content="/witness/">
 <meta name="muid-witness-keys" content="[]">
 <link rel="stylesheet" href="page.css">
@@ -24,9 +27,11 @@
   <section id="joining" hidden>
     <p>Give this passkey's root record to a device of the identity, and add it there:</p>
     <textarea id="join-root" readonly></textarea>
+    <p>That device will show this fingerprint. Sign there only if it is the same: <code id="join-fingerprint"></code></p>
     <h2>Co-sign the change</h2>
     <label>The change, from that device <textarea id="cosign-payload" spellcheck="false"></textarea></label>
     <button id="cosign-review" type="button">Review</button>
+    <p id="cosign-pending" hidden>Your co-signature is not yet confirmed by the witness. <button id="cosign-retry" type="button">Retry</button></p>
     <div id="cosign-panel" hidden>
       <p>Your passkey will sign exactly this change:</p>
       <dl>
@@ -49,6 +54,7 @@
       <p>Your passkey will sign exactly this change:</p>
       <dl>
         <dt>Adds the root</dt><dd id="add-added"></dd>
+        <dt>Its fingerprint</dt><dd><code id="add-fingerprint"></code> — sign only if the joining device shows the same</dd>
         <dt>Epoch</dt><dd id="add-epoch"></dd>
       </dl>
       <button id="add-sign" type="button">Sign with your passkey</button>
