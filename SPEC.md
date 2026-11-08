@@ -418,12 +418,15 @@ the network and the transparency log are the service's, and the signing key stay
   root and `prev`: a root's later proposal replaces its earlier one, so no root can fill a list and block its owner
   (review round 8); root records only a replaced proposal named go with it (round 9). A replaced (record, signer) is
   kept as a tombstone, and its resubmission refused (`replaced`), so no one holding a withdrawn envelope can make it
-  current again; a root holds at most 16 per `prev`, past which its replacements are refused (`quota`), and
-  tombstones of an earlier `prev` are dropped (round 9). Tombstones stay: a tombstone stops a root from returning to
-  a proposal it withdrew, but per-root sequence-numbered votes, reviewed as the replacement, either let a vote filed
-  after an anchor bring a second anchor (and with it `dead`) or let a stale envelope evict a current signature, and
-  the quota is also what bounds storage; a number cannot go in the membership record itself, which every root signs
-  alike. W0 is applied: an assertion
+  current again; a root holds at most 16 per `prev`, past which its replacements are refused (`quota`). A signature
+  that completes a strict majority of `prev`'s roots is kept, as multi-signature systems keep partial signatures
+  until their threshold (KERI's escrow, Safe's approvals): the quota never refuses it, and its root cannot then move
+  to another proposal for that `prev` (`quorate`), so whoever else holds a copy of that root can neither undo nor
+  block the owner's change. Tombstones of an earlier `prev` are dropped (round 9). Tombstones stay: a tombstone stops
+  a root from returning to a proposal it withdrew, but per-root sequence-numbered votes, reviewed as the replacement,
+  either let a vote filed after an anchor bring a second anchor (and with it `dead`) or let a stale envelope evict a
+  current signature, and the quota is also what bounds storage; a number cannot go in the membership record itself,
+  which every root signs alike. W0 is applied: an assertion
   that covers both a membership record and its contest, or a successor of a pending record and that record's
   contest, is refused, either way round. A
   list at `MAX_RECORDS` refuses new ones (`full`), a backstop the rules above keep out of reach; nothing is admitted
@@ -434,7 +437,11 @@ the network and the transparency log are the service's, and the signing key stay
   anchors a held contest only if verifiers would then see the identity end; once `CONTEST_WINDOW` has passed, it
   settles, as `contested` if a contest is anchored. At a settlement that is not contested, the proposals that lost
   that `prev`, and the root records only they named, are dropped: they can never be anchored. A settlement can make a
-  held successor anchorable in the same step. Its own view leaves out contest anchors, as the model's does.
+  held successor anchorable in the same step. Its own view leaves out contest anchors, as the model's does. It signs
+  only what it keeps, as a CT log signs only what it logs: each candidate anchor is tried signed by a trial key (the
+  Ed25519 key of 32 zero bytes, which no verifier pins and a configuration may not), in a copy of the witness keys
+  with the witness key's own windows, and `sign` is called only for the one kept. No valid anchor exists that the log
+  was not given.
 - `revoke(held, text, now, delegation)` admits a revocation (R9) signed by a root with authority, or by a delegate
   for its own key, given with the delegation that makes it a delegate of this identity under its settled or pending
   membership from a root with authority (verified by `checkDelegation` at `now`; R6), so that no fresh key can add
