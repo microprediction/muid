@@ -1,7 +1,7 @@
 // The id page in Chrome, with a virtual authenticator (Chrome DevTools Protocol, WebAuthn domain): an identity is
 // created, a worker authorised by one assertion, and what the page hands the worker, once the worker consents,
 // verifies under the core — through the witness's head and the relying party's verifier.
-import { test, after } from 'node:test'
+import { test as nodeTest, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { ed25519 } from '@noble/curves/ed25519.js'
 import { chromium } from 'playwright-core'
@@ -15,6 +15,24 @@ const WORKER = Uint8Array.from({ length: 32 }, (_, i) => 77 + i)
 const SUBJECT = hex(ed25519.getPublicKey(WORKER))
 const W = Uint8Array.from({ length: 32 }, (_, i) => 120 + i)
 const WITNESS = hex(ed25519.getPublicKey(W))
+
+// Under mutation testing (the dry run included) and the broken twins (their control run included), one failing test
+// settles the run, and a broken page shows itself within seconds. So there, every wait is cut to 15 s and every test to
+// 60 s, and once a test fails or times out, the tests after it fail at once rather than each waiting out its limits.
+// The unbroken runs use the same limits, so they are seen to suffice.
+const FAIL_FAST = globalThis.__stryker__ !== undefined || process.env.MUID_FAIL_FAST === '1'
+const WAIT = 15_000
+let failed = false
+function test (name, opts, fn) {
+  if (!FAIL_FAST) return nodeTest(name, opts, fn)
+  return nodeTest(name, { ...opts, timeout: Math.min(opts.timeout, 60_000) }, async (t) => {
+    if (failed) throw new Error('an earlier test failed')
+    // The signal is aborted when the test ends however it ends: only an abort while it is still running is a timeout.
+    let running = true
+    t.signal.addEventListener('abort', () => { if (running) failed = true })
+    try { return await fn(t) } catch (e) { failed = true; throw e } finally { running = false }
+  })
+}
 
 // A site serving the page and a witness service (in memory, its contest window a minute, its clock movable), and a
 // browser with one device; `device()` adds another, with its own profile and authenticator.
@@ -60,6 +78,7 @@ async function open ({ init } = {}) {
   }
   async function device () {
     const context = await browser.newContext()
+    if (FAIL_FAST) context.setDefaultTimeout(WAIT)
     // Under mutation testing, the mutant the runner activated is activated in the page too: Stryker's instrumented
     // code reads it from process.env in Node, which a page has not.
     const mutant = process.env.__STRYKER_ACTIVE_MUTANT__

@@ -8,9 +8,8 @@ import { fileURLToPath } from 'node:url'
 import { Readable } from 'node:stream'
 import { dir as idDir } from './impl.mjs'
 
-const ROOT = fileURLToPath(new URL('../../', import.meta.url))
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css' }
-const MOUNTS = [['/id/', fileURLToPath(idDir)], ['/src/', join(ROOT, 'src/')], ['/node_modules/@noble/', join(ROOT, 'node_modules/@noble/')]]
+const MOUNTS = [['/id/', fileURLToPath(idDir)], ['/src/', fileURLToPath(new URL('../../src/', import.meta.url))], ['/node_modules/@noble/', fileURLToPath(new URL('../../node_modules/@noble/', import.meta.url))]]
 
 async function toWitness (svc, req, res, path) {
   const body = req.method === 'GET' || req.method === 'HEAD' ? undefined : Readable.toWeb(req)

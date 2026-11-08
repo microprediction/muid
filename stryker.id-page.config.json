@@ -1,0 +1,30 @@
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "testRunner": "tap",
+  "tap": {
+    "testFiles": [
+      "tests/id/P2-page.test.mjs",
+      "tests/id/P3-html.test.mjs",
+      "tests/id/P1-records.test.mjs"
+    ]
+  },
+  "mutate": [
+    "id/page.js"
+  ],
+  "coverageAnalysis": "off",
+  "thresholds": {
+    "high": 100,
+    "low": 95,
+    "break": 95
+  },
+  "reporters": [
+    "clear-text",
+    "progress",
+    "json"
+  ],
+  "jsonReporter": {
+    "fileName": "reports/mutation/id-page.json"
+  },
+  "tempDirName": ".stryker-tmp",
+  "concurrency": 4
+}

@@ -9,7 +9,8 @@ when its whole section here passes, including the anti-vacuity checks. Rule labe
   small files keep it precise and fast.
 - **Runner:** `node --test`, no other runner. Property tests use fast-check with a fixed seed in CI and a printed seed
   on failure. `npm test` runs every suite but the broken twins; `npm run test:twins` runs the twin harnesses
-  one at a time (each starts its own workers), as CI runs each in a job of its own.
+  one at a time (each starts its own workers), as CI does within each of its jobs: the slow harnesses and Stryker
+  configs have a job each, the quick ones share one (§7).
 - **Vectors are data, not code.** `tests/vectors/<set>/` holds the files exactly as published, plus `SOURCE.md`
   (URL, upstream commit, SHA-256 of each file, licence). A test checks those hashes before using the files.
 - **Expected outputs come from outside the code under test:** written by hand, taken from a published vector set, or
@@ -582,7 +583,13 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   frame.
 - The HTML (`P3-html.test.mjs`): one inline script, the import map, allowed by its hash; nothing from elsewhere.
 - Mutation testing runs inside the page: the test activates Stryker's mutant in the page and returns the page's
-  coverage to the test process. Both files at 100%.
+  coverage to the test process. Both files at 100%. Each has a config of its own, which runs its own tests first:
+  the records tests kill every mutant of `records.js` in seconds, without a browser.
+- Under mutation testing and the twins, one failing test settles the run, and a broken page shows itself within
+  seconds. So there (and in the dry run and the control run, which are seen to pass under the same limits) every
+  wait is cut to 15 s and every test to 60 s, and once one test fails or times out, the rest fail at once. Without
+  this, a broken page made each test wait out its limits in turn, and the mutant was counted only when Stryker's
+  own timeout ran out.
 - Twins (`tests/meta/id-twins.test.mjs`, 21): the challenge's domain, any algorithm, unsorted scopes, an unbounded
   lifetime, an unchecked audience, an edit that keeps the review, a late signature kept, verification preferred,
   any passkey, a credential that is not resident, inline scripts allowed, hidden parts shown; attest granted; a change co-signed that does not add
@@ -658,11 +665,22 @@ Three kinds of job run in parallel, so wall time is the slowest single job, not 
 
 1. **Tests** on Node 22, 24 and 26: `npm ci --ignore-scripts`, the registry signature check, then every suite
    outside `tests/meta/` (vector hashes, vectors, properties, adversarial cases, guards) with 100% coverage of `src/`.
-2. **Twins:** one job per harness in `tests/meta/`.
-3. **Mutation testing:** one job per core module.
+2. **Twins:** every harness in `tests/meta/`, on every run. The slow ones (the id page, the witness) have a job
+   each; the quick ones share two, run one after another.
+3. **Mutation testing:** one config per module. A push to master, a nightly run and a manual run take every config.
+   A pull request takes the configs whose inputs it changes (`tests/mutation-plan.mjs`): the files a config mutates,
+   its test files, and everything those name by a relative path (an import, a URL, a directory served or read),
+   followed transitively; the package files and the workflow are inputs of every config. A core module is reached by
+   every suite through `tests/impl.mjs`, so a change to one runs them all; a change to the id page runs the id and
+   demo configs; a change to documentation runs none. A path built at run time is not seen, and the full run on
+   master and each night catches what a pull request's run missed. The slow configs (the id page, membership, the
+   witness) have a job each; the rest share two.
 
-Guards fail the build if a test file is in no job, a module has no mutation config, or a config is not in the
-matrix, and if a dependency is not pinned (exact versions, a lockfile that agrees, the public registry over https
+Stryker's incremental mode was not used for this: it "will not detect any changes you've made in files other than
+mutated files and test files", and the tap runner reports results per file, not per test.
+
+Guards fail the build if a test file is in no job, a module has no mutation config, or a config is in no mutation
+job (the plan's tests were each seen to fail on a planted fault), and if a dependency is not pinned (exact versions, a lockfile that agrees, the public registry over https
 with sha512 integrity, no install scripts, nothing at runtime but the two noble packages); the pin guard runs against
 eighteen edited copies of the real files and must name each fault. Every property test takes its run count from
 `tests/runs.mjs` (`FC_RUNS` sets every count, `FC_SCALE` multiplies each file's own), and a guard, shown planted

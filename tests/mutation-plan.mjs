@@ -1,0 +1,89 @@
+// Which Stryker configs a change can affect, and the CI jobs they run in. A config's inputs are the files it mutates,
+// its test files, and everything those reach through a relative path written in them (an import, a URL, a directory
+// served or read), followed transitively; a path into a directory takes the whole directory, and a path that stops at
+// a template's `${` takes the directory before it. Package files, this file and the workflow are inputs of every
+// config. A pull request runs the configs whose inputs it changes; a push to master and the nightly run take them all.
+//
+//   node tests/mutation-plan.mjs [changed.txt]  prints the jobs as JSON: every config, or those changed.txt affects
+import { readFileSync, readdirSync, statSync, existsSync, globSync } from 'node:fs'
+import { join, dirname, relative, resolve, sep } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const ROOT = fileURLToPath(new URL('../', import.meta.url))
+const GLOBAL = ['package.json', 'package-lock.json', '.github/workflows/test.yml', 'tests/mutation-plan.mjs']
+
+// The slow configs run alone; the quick ones share a job, one after another.
+export const JOBS = [
+  ['stryker.id-page.config.json'],
+  ['stryker.membership.config.json'],
+  ['stryker.witness.config.json'],
+  ['stryker.id-records.config.json', 'stryker.verifier.config.json', 'stryker.config.json', 'stryker.demo.config.json'],
+  ['stryker.adapter.config.json', 'stryker.receipt.config.json', 'stryker.note.config.json', 'stryker.ed25519.config.json',
+    'stryker.root.config.json', 'stryker.p256.config.json', 'stryker.origin.config.json', 'stryker.merkle.config.json',
+    'stryker.envelope.config.json', 'stryker.delegation.config.json', 'stryker.bytes.config.json',
+    'stryker.attestation.config.json', 'stryker.assertion.config.json'],
+]
+
+const rel = (abs) => relative(ROOT, abs).split(sep).join('/')
+const isDir = (abs) => existsSync(abs) && statSync(abs).isDirectory()
+const filesUnder = (abs) => readdirSync(abs, { recursive: true }).map((f) => join(abs, f)).filter((f) => !isDir(f))
+const EVERYTHING = '*'
+const SCANNED = /\.(m?js)$/
+
+// The repository paths a file names: each quoted or template string starting ./ or ../, resolved against the file.
+export function references (abs, text) {
+  const out = []
+  for (const [, path, stop] of text.matchAll(/['`](\.\.?\/[^'`$\n]*)(['`$])/g)) {
+    const named = stop === '$' ? path.slice(0, path.lastIndexOf('/') + 1) : path
+    out.push(resolve(dirname(abs), named) + (named.endsWith('/') ? sep : ''))
+  }
+  return out
+}
+
+// Every repository file and directory (ending /) that runs from these files can read, root-relative and sorted; ['*']
+// if they name the whole repository. A missing file is kept, so deleting a file still named counts as a change to it,
+// and a directory covers every path under it, including files added or deleted.
+export function reach (files) {
+  const seen = new Set()
+  const queue = files.map((f) => join(ROOT, f))
+  while (queue.length > 0) {
+    const abs = queue.pop()
+    const r = rel(abs)
+    if (r === '') return [EVERYTHING]
+    if (r.startsWith('..') || r === 'node_modules' || r.startsWith('node_modules/')) continue
+    const dir = isDir(abs) || abs.endsWith(sep)
+    if (dir) {
+      const d = abs.endsWith(sep) ? abs : abs + sep
+      if (seen.has(d)) continue
+      seen.add(d)
+    }
+    for (const f of dir ? (isDir(abs) ? filesUnder(abs) : []) : [abs]) {
+      if (seen.has(f)) continue
+      seen.add(f)
+      if (SCANNED.test(f) && existsSync(f)) queue.push(...references(f, readFileSync(f, 'utf8')))
+    }
+  }
+  return [...seen].map((f) => rel(f) + (f.endsWith(sep) ? '/' : '')).sort()
+}
+
+// A config's inputs: what its mutated and test files reach, the config itself, and the files every config reads.
+export function inputs (name) {
+  const config = JSON.parse(readFileSync(join(ROOT, name), 'utf8'))
+  const reached = reach([...config.mutate, ...config.tap.testFiles.flatMap((g) => globSync(g, { cwd: ROOT }))])
+  return [...new Set([name, ...GLOBAL, ...reached])].sort()
+}
+
+// Whether a change to the listed paths changes an input (a file, a directory ending /, or everything).
+export const touches = (input, changed) => input === EVERYTHING || (input.endsWith('/') ? changed.some((c) => c.startsWith(input)) : changed.includes(input))
+
+// The jobs to run: each a space-separated list of configs. `changed` is a list of root-relative paths, or null for all.
+export function plan (changed) {
+  const affected = (c) => changed === null || inputs(c).some((f) => touches(f, changed))
+  return JOBS.map((job) => job.filter(affected)).filter((job) => job.length > 0).map((job) => job.join(' '))
+}
+
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  const file = process.argv[2]
+  const changed = file === undefined ? null : readFileSync(file, 'utf8').split('\n').filter((l) => l !== '')
+  process.stdout.write(JSON.stringify(plan(changed)) + '\n')
+}
