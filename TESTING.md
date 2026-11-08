@@ -505,6 +505,13 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   refused; once a and b sign a change adding o, neither may move to another proposal (`quorate`) and o's signature is
   admitted and anchored; before a majority, a changed proposal still replaces the first. Against the model (`W3`),
   every `quorate` refusal has a quorate proposal of that signer in the model's items, and such refusals are reached.
+- Found by review (`S1`, `W9`, `D2`–`D4`): resubmitting a held root and an already logged delegation five times leaves
+  the cached head and the log as they were; a holding's state is replayed once however many submissions are decided
+  against it (its `anchors` read once, through a counting proxy); the in-memory store drops a finished identity's
+  queue, keeps order and a failure's place, and a cleanup never drops a later update's place; a wrong inclusion proof
+  leaves a contribution pending and is retried, appended once; three publishes at once append each receipt once; the
+  standing forecast is the one signed last whatever the arrival order; History accepts a contribution given three
+  times once.
 - The service (`S1-service.test.mjs`): a change submitted record by record, its anchor logged and served, the tick
   settling it at the window's end and not a second before; refusals as 422 with the reason, changing nothing; every
   malformed request with its status and reason, the body limit at and one past it; heads reused within the

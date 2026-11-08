@@ -59,7 +59,17 @@ export function witness (config) {
     typeof sign !== 'function' || !isSafeInteger(contestWindow) || contestWindow < 1 || !isTime(skew) || !isTime(maxLifetime)) {
     throw new TypeError('configuration must hold rpId, origin, witnessKeys, a key among them, sign, a positive contestWindow, skew and maxLifetime')
   }
-  const stateOf = (held) => membershipState(held, { identity: held.identity, rpId, origin, witnessKeys: keys })
+  // R8's state of a holding, computed once and kept with it: a holding is never changed, only replaced, so a flood of
+  // submissions decided against one holding replays its history (every signature) once, not once each.
+  const states = new WeakMap()
+  function stateOf (held) {
+    let s = states.get(held)
+    if (s === undefined) {
+      s = membershipState(held, { identity: held.identity, rpId, origin, witnessKeys: keys })
+      states.set(held, s)
+    }
+    return s
+  }
   const trialKeys = freeze([...keys, ...keys.filter((k) => k.key === key).map((k) => freeze({ ...k, key: TRIAL_KEY }))])
   // The state with `text`, an anchor signed by the trial key, added to `held`'s anchors.
   const trialState = (held, body) => {

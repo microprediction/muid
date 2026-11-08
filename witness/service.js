@@ -87,6 +87,9 @@ export function witnessService ({ witness, holdings, log, clock, headInterval })
       const a = witness.advance(r.held, now)
       const texts = [...(r.fresh ? [r.logged] : []), ...a.signed.map((x) => x.text)]
       const value = json(200, { ok: true, signed: texts, logged: r.logged })
+      // Nothing changed (a record already held, a delegation already logged): the entry, and its head, stay as they are.
+      // (A held record or a logged delegation that is new, or anything advance signs, makes a new holding.)
+      if (entry !== undefined && a.held === entry.held) return { value }
       // Stryker disable next-line ConditionalExpression: equivalent; an empty outbox appends nothing
       return texts.length === 0 ? { entry: { held: a.held }, value } : { entry: { held: a.held }, texts, value }
     })
@@ -189,9 +192,13 @@ export function memoryHoldings () {
         if (r.entry !== undefined) entries.set(identity, r.entry)
         return r.value
       })
-      queues.set(identity, run.catch(() => {}))
+      // The queue is dropped once its last update is done, so identities only named once leave nothing behind.
+      const tail = run.catch(() => {}).then(() => { if (queues.get(identity) === tail) queues.delete(identity) })
+      queues.set(identity, tail)
       return run
     },
+    // Identities with an update queued or running.
+    inFlight () { return queues.size },
   })
 }
 

@@ -467,8 +467,11 @@ outbox is appended again, the same texts, before anything else is done for the i
 but whose answer was lost never leads the witness to sign a rival (review round 8). Endpoints: `POST /v1/records` (`{ identity, type, text }`; a root, membership, contest or
 freeze), `POST /v1/revocations` (`{ identity, text, delegation? }`), `POST /v1/delegations` (`{ identity, text }`;
 answered with the `logged` record, appended to the log first when it is new), `GET /v1/identities/{id}/records` (what R8 needs)
-and `GET /v1/identities/{id}/head` (a head, reused for `headInterval` seconds while nothing changes); `tick()`
-advances every identity, settling once windows pass. Each identity's changes are serialised by its store, and every
+and `GET /v1/identities/{id}/head` (a head, reused for `headInterval` seconds while nothing changes; a resubmission
+that changes nothing, such as a record already held, leaves it as it is); `tick()`
+advances every identity, settling once windows pass. A holding's R8 state is computed once and kept with it, so a
+flood of submissions decided against one holding replays its history once. Each identity's changes are serialised by
+its store (the in-memory store drops an identity's queue once it is idle), and every
 record the witness signs is appended to the log before the holding that contains it is kept, so nothing is served
 that the log did not take. A failing log is 503: what was decided waits in the outbox and takes effect once the log
 has it, so a retry may answer with nothing new signed; a failing store is 503 and nothing is kept. Refusals are 422 with the witness's
@@ -740,7 +743,13 @@ with each agent's share shown (`GET /earnings`); the identity collects with a cl
 holding the `collect` scope (`POST /collect`). Five scenarios run end to end in CI: limited authority, continuity
 across a replaced worker key, attribution that lasts past the delegations' expiry, revocation that takes effect at
 once through the relying party's memory, and the organizing example — an agent authorised for an hour contributes,
-retires itself, and its earnings, resolved afterwards, are collected by the owner's own device.
+retires itself, and its earnings, resolved afterwards, are collected by the owner's own device. A receipt's inclusion
+proof is checked before its bundle is kept (a wrong one is retried), and one publication of a contribution runs at a
+time. An identity's standing forecast of a question is the one its agent signed last (the claim's `at`), not the last
+to arrive, so one held back on the network cannot stand over a later one. History counts a contribution given twice
+once. The demo is not sybil-resistant: identities are free and the Brier score pays an uninformed forecast, so many
+identities can farm it; paying for real needs a scoring rule against stakes (a market scoring rule) or eligibility
+weighted by attestation.
 
 ## 9. Open decisions
 
