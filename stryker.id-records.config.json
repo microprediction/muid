@@ -3,12 +3,13 @@
   "testRunner": "tap",
   "tap": {
     "testFiles": [
-      "tests/id/*.test.mjs"
+      "tests/id/P1-records.test.mjs",
+      "tests/id/P3-html.test.mjs",
+      "tests/id/P2-page.test.mjs"
     ]
   },
   "mutate": [
-    "id/records.js",
-    "id/page.js"
+    "id/records.js"
   ],
   "coverageAnalysis": "off",
   "thresholds": {
@@ -22,7 +23,7 @@
     "json"
   ],
   "jsonReporter": {
-    "fileName": "reports/mutation/id.json"
+    "fileName": "reports/mutation/id-records.json"
   },
   "tempDirName": ".stryker-tmp",
   "concurrency": 4

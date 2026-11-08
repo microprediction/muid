@@ -4,13 +4,16 @@ on:
   push:
     branches: [master]
   pull_request:
+  schedule:
+    - cron: '17 6 * * *' # nightly, every mutation config whatever changed
+  workflow_dispatch:
 
 # Read-only token; no job needs to write anything.
 permissions:
   contents: read
 
 concurrency:
-  group: test-${{ github.ref }}
+  group: test-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -78,23 +81,43 @@ jobs:
       - name: Broken twins (each must make its suite fail)
         run: node --test --test-concurrency=1 ${{ matrix.suite }}
 
+  # A pull request runs the mutation configs whose inputs it changes (tests/mutation-plan.mjs); a push to master, the
+  # nightly run and a manual run take every config.
+  plan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      jobs: ${{ steps.plan.outputs.jobs }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 2 # a pull request is checked out as a merge commit: its first parent is the base it changes
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '26'
+      - name: Mutation configs to run
+        id: plan
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            git diff --name-only --no-renames HEAD^1 HEAD > "$RUNNER_TEMP/changed.txt"
+            jobs=$(node tests/mutation-plan.mjs "$RUNNER_TEMP/changed.txt")
+          else
+            jobs=$(node tests/mutation-plan.mjs)
+          fi
+          echo "jobs=$jobs" >> "$GITHUB_OUTPUT"
+          echo "$jobs"
+
   mutation:
+    needs: plan
+    if: needs.plan.outputs.jobs != '[]'
     runs-on: ubuntu-24.04
     timeout-minutes: 150 # a hang fails the job instead of holding it for six hours
     strategy:
       fail-fast: false
       matrix:
-        # As for the twins: the slow configs alone, the quick ones together.
-        config:
-          - stryker.id.config.json
-          - stryker.membership.config.json
-          - stryker.witness.config.json
-          - stryker.verifier.config.json stryker.config.json stryker.demo.config.json
-          - >-
-            stryker.adapter.config.json stryker.receipt.config.json stryker.note.config.json stryker.ed25519.config.json
-            stryker.root.config.json stryker.p256.config.json stryker.origin.config.json stryker.merkle.config.json
-            stryker.envelope.config.json stryker.delegation.config.json stryker.bytes.config.json
-            stryker.attestation.config.json stryker.assertion.config.json
+        # The slow configs alone, the quick ones together (JOBS in tests/mutation-plan.mjs).
+        config: ${{ fromJSON(needs.plan.outputs.jobs) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
