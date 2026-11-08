@@ -6,10 +6,11 @@ import fc from 'fast-check'
 import { membership } from '../impl.mjs'
 import { evaluate, reach, history, tick } from '../../model/settled.mjs'
 import { translate, identityFor, letterOf, CTX_BASE } from './translate.mjs'
+import { runs } from '../runs.mjs'
 
 const { membershipState } = membership
 const SEED = Number(process.env.FC_SEED ?? 20261103)
-const RUNS = Number(process.env.FC_RUNS ?? 100)
+const RUNS = runs(100)
 
 // The model's answer, in the form membershipState gives.
 function modelAnswer (genesis, items, real) {

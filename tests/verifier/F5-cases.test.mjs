@@ -6,6 +6,7 @@ import { ed25519 } from '@noble/curves/ed25519.js'
 import { p256 } from '@noble/curves/nist.js'
 import { verifier as verifierModule, envelope, root as rootModule } from '../impl.mjs'
 import { make, KEY, RP_ID, ORIGIN } from '../assertion/helpers.mjs'
+import { runs } from '../runs.mjs'
 
 const { verifier } = verifierModule
 const hex = (b) => Buffer.from(b).toString('hex')
@@ -38,8 +39,8 @@ function headText (over = {}, { secret = W, witness = WITNESS, type = 'head' } =
 }
 
 const D = delegationText()
-// R10: the witness's logged record of a delegation, at the head's time (so every window that holds the head holds it).
-function loggedText (id, { secret = W, at = NOW - 100 } = {}) {
+// R10: the witness's logged record of a delegation, at the delegation's nbf (the witness logs only one that verifies).
+function loggedText (id, { secret = W, at = NOW - 10 } = {}) {
   const { payload } = envelope.seal('logged', { identity: IDENTITY, delegation: id, at })
   return envelope.wrap(payload, { signature: hex(ed25519.sign(envelope.signedBytes(payload), secret)), witness: hex(ed25519.getPublicKey(secret)) })
 }
@@ -185,7 +186,7 @@ test('F3: adding revocations never turns a refusal into an accept', () => {
     const narrow = call({}, { revoked: a, scope })
     const wider = call({}, { revoked: [...a, ...b], scope })
     if (!narrow.ok) assert.equal(wider.ok, false)
-  }), { seed: Number(process.env.FC_SEED ?? 20261103), numRuns: Number(process.env.FC_RUNS ?? 100) })
+  }), { seed: Number(process.env.FC_SEED ?? 20261103), numRuns: runs(100) })
 })
 
 test('programming errors: configuration, now, scope, revoked', () => {
@@ -222,4 +223,25 @@ test('arbitrary records never throw', () => {
   assert.equal(v.verifyDelegation(undefined, { now: NOW, scope: 'post', revoked: [] }).ok, false)
   const hostile = new Proxy({}, { get () { throw new Error('trap') } })
   assert.deepEqual({ ...v.verifyDelegation(hostile, { now: NOW, scope: 'post', revoked: [] }) }, { ok: false, reason: 'head' })
+})
+
+// Found by review: a revoked list's length was trusted, so a Proxy reporting Infinity kept the copy reading forever.
+// The length is read once and must be an array length; nothing else of a list that fails is read.
+test('a revoked list whose length is not an array length is a programming error, refused before any entry is read', () => {
+  for (const length of [Infinity, NaN, -1, 1.5, 2 ** 32, '1', undefined]) {
+    let reads = 0
+    // Reading entries stops after a few, so a verifier that trusts the length fails here rather than looping.
+    const revoked = new Proxy([], { get (t, k) { if (k === 'length') return length; if (++reads > 3) throw new Error('read past'); return D.id } })
+    assert.throws(() => v.verifyDelegation({ delegation: D.text, root: rootText, head: headText() }, { now: NOW, scope: 'post', revoked }),
+      { name: 'TypeError', message: 'call must hold now, a scope and a revoked list' }, String(length))
+    assert.equal(reads, 0, String(length))
+  }
+  // A list of any true length is read: once for its length, once for each entry.
+  let lengths = 0
+  const list = ['f'.repeat(64), D.id]
+  const revoked = new Proxy(list, { get (t, k) { if (k === 'length') lengths++; return t[k] } })
+  assert.deepEqual(call({}, { revoked }), { ok: false, reason: 'revoked' })
+  assert.equal(lengths, 1)
+  const long = Array.from({ length: 1000 }, (_, i) => i.toString(16).padStart(64, '0'))
+  assert.deepEqual(call({}, { revoked: long }), { ok: true }, 'no bound on the caller\'s own list')
 })

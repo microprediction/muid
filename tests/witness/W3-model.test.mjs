@@ -1,7 +1,9 @@
 // The witness agrees with the model's witness (model/settled.mjs), move by move, on random histories: owner and
 // thief sign membership records, contests and freezes, and time passes. Each record goes through admission; what is
 // admitted is what the model is given, and the anchors and settlements the witness signs are, text for text, the
-// model's translated. A record admission refuses changes nothing the model's witness or verifier would do with it.
+// model's translated. A record admission refuses changes nothing the model's witness or verifier would do with it,
+// except a signature held back because its root is held to a record a majority has signed: that record is quorate in
+// the model too.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import fc from 'fast-check'
@@ -9,11 +11,13 @@ import { witness as modelWitness, moves, evaluate } from '../../model/settled.mj
 import { translate, identityFor, rootText } from '../membership/translate.mjs'
 import { witness } from './impl.mjs'
 import { CONFIG, BASE } from './fixtures.mjs'
+import { runs } from '../runs.mjs'
 
 const SEED = Number(process.env.FC_SEED ?? 20261104)
-const RUNS = Number(process.env.FC_RUNS ?? 100)
+const RUNS = runs(100)
 const G = 'a'
-const w = witness({ ...CONFIG, contestWindow: 1 }) // the model's window is one tick
+let calls = 0 // `sign` is called only for what advance() returns signed (W10)
+const w = witness({ ...CONFIG, contestWindow: 1, sign: (bytes) => { calls++; return CONFIG.sign(bytes) } }) // the model's window is one tick
 const UNIVERSE = ['a', 'b', 'c', 't']
 const MAX_EPOCH = 4
 
@@ -41,6 +45,10 @@ function walk (steps, owner, thief) {
   let held = w.empty(identityFor(G))
   const tryRoot = (l) => { const r = w.admit(held, 'root', rootText(l)); if (r.ok) held = r.held }
   tryRoot(G)
+  // The witness's tombstones (SPEC §5), kept here from the rule alone: a root's replaced proposal for one prev, whose
+  // resubmission is refused (`replaced`), though the model, which has no tombstones, would take it back.
+  const tombs = new Set()
+  const tomb = (x) => `${x.signer} ${x.prev} ${x.n} ${x.roots.join()}`
   let kinds = 0
   for (const n of steps) {
     if (n % 4 === 0) {
@@ -58,9 +66,11 @@ function walk (steps, owner, thief) {
           const { type, text } = textOf(items, it)
           const r = w.admit(held, type, text)
           if (!r.ok) continue
+          if (it.kind === 'M') assert.equal(tombs.has(tomb(it)), false, 'a withdrawn proposal is admitted again')
           held = r.held
           // A root's later proposal for one prev replaces its earlier one (R8's admission): the model loses it too.
           const replaced = (x) => x.kind === 'M' && it.kind === 'M' && x.signer === it.signer && x.prev === it.prev && (x.n !== it.n || x.roots.join() !== it.roots.join())
+          for (const x of items) if (replaced(x)) tombs.add(tomb(x))
           items = [...items.filter((x) => !replaced(x)), it]
           left = left.filter((x) => x !== it)
           progress = true
@@ -70,13 +80,30 @@ function walk (steps, owner, thief) {
         // Refused: the model's witness and verifier do exactly the same with it as without it.
         const pick = pickFor(items)
         const reason = w.admit(held, textOf(items, it).type, textOf(items, it).text).reason
+        if (reason === 'quorate') {
+          // Held to a record a majority has signed (the escrow): in the model's items too, the signer's held proposal
+          // for this prev has a strict majority of the prev's roots. That signature is what the witness keeps.
+          const e = evaluate(G, items)
+          const prevRoots = e.record.roots
+          const mine = items.find((x) => x.kind === 'M' && x.signer === it.signer && x.prev === it.prev)
+          const same = (x) => x.kind === 'M' && x.prev === mine.prev && x.n === mine.n && x.roots.join() === mine.roots.join()
+          const signers = new Set(items.filter(same).map((x) => x.signer).filter((r) => prevRoots.includes(r)))
+          assert.ok(it.prev === e.record.id && 2 * signers.size > prevRoots.length, 'refused (quorate) without a quorate proposal')
+          kinds |= 16
+          continue
+        }
+        // The witness's bounds (16 tombstones a root, 256 records a list) are not the model's, and out of a walk's reach.
+        assert.ok(reason !== 'quota' && reason !== 'full', `refused (${reason}): the walk is too long for the model`)
+        if (reason === 'replaced') { assert.equal(tombs.has(tomb(it)), true, 'refused as replaced, never withdrawn'); kinds |= 1 | 32; continue }
         assert.deepEqual(ws(modelWitness(G, [...items, it], pick)), ws(modelWitness(G, items, pick)), `refused (${reason}) changes the witness`)
         assert.equal(summary(evaluate(G, [...items, it])), summary(evaluate(G, items)), `refused (${reason}) changes the state`)
         kinds |= 1
       }
     }
     items = modelWitness(G, items, pickFor(items))
+    calls = 0
     const r = w.advance(held, BASE + now(items))
+    assert.equal(calls, r.signed.length, 'sign called for a record not kept')
     held = r.held
     assert.deepEqual([...held.anchors, ...held.settlements].sort(), witnessTexts(items), `after ${steps.join(',')}`)
     const e = evaluate(G, items)
@@ -100,5 +127,13 @@ for (const [name, owner, thief] of SCENARIOS) {
     assert.equal(seen & 2, 2, 'the witness signed something')
     assert.equal(seen & 1, 1, 'admission refused something')
     assert.equal(seen & 8, 8, 'a change was pending')
+    assert.equal(seen & 16, 16, 'a signature was held to a record a majority had signed')
   })
 }
+
+// Found by the nightly run (FC_SEED=7): a root shared with a thief proposes, the thief has it propose another, and
+// then the first again; the witness refuses the return to a withdrawn proposal, as SPEC says.
+test('a root that withdrew a proposal is refused it again', () => {
+  const kinds = walk([324920930, 0, 444390745, 1365985618, 355154886, 0], new Set(['a', 'b', 'c']), new Set(['a', 't']))
+  assert.equal(kinds & 32, 32)
+})

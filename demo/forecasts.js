@@ -11,9 +11,11 @@
 // a question resolves once, and only standing forecasts earn. More agents, or more claims, earn nothing more.
 import { seal, wrap, signedBytes } from '../src/envelope.js'
 import { verifyCheckpoint } from '../src/note.js'
+import { verifyInclusion, leafHash } from '../src/merkle.js'
 
 const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
 const hex = (b) => Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('')
+const bytes = (h) => Uint8Array.from(h.match(/../g), (x) => parseInt(x, 16))
 const ID = /^[0-9a-f]{64}$/
 const QUESTION = /^[\x21-\x7e]{1,64}$/
 
@@ -57,7 +59,7 @@ export function forecasts ({ origin, adapter, log, checkpoints, key, sign, clock
     for (let i = 0; i < 300; i++) {
       const text = await log.checkpoint()
       const c = verifyCheckpoint(text, { ...checkpoints, now: clock() })
-      if (c.ok && c.size > index) return { text, size: c.size }
+      if (c.ok && c.size > index) return { text, size: c.size, root: c.root }
       await wait(100)
     }
     // Stryker disable next-line all: equivalent; without it the caller fails on the missing checkpoint instead, and
@@ -72,13 +74,21 @@ export function forecasts ({ origin, adapter, log, checkpoints, key, sign, clock
   }
 
   // Publishes a kept contribution's receipt: appended once (its index kept as soon as the log gives it), then bundled
-  // with a covering checkpoint and proof. True once bundled; false if the log failed, to be retried.
+  // with a covering checkpoint and a proof that it holds the receipt, checked before it is kept. True once bundled by
+  // this call; false if the log failed or gave a wrong proof (to be retried), or another call is publishing it.
   async function published (k) {
+    if (k.flight !== undefined) { await k.flight; return false } // one publication of a contribution at a time
+    k.flight = attempt(k)
+    try { return await k.flight } finally { k.flight = undefined }
+  }
+  async function attempt (k) {
     try {
       if (k.index === undefined) k.index = await log.append(k.receipt)
       const c = await covering(k.index)
-      const proof = (await log.inclusionProof(k.index, c.size)).map(hex)
-      k.bundle = { receipt: k.receipt, checkpoint: c.text, proof, index: k.index }
+      const proof = await log.inclusionProof(k.index, c.size)
+      const leaf = leafHash(new TextEncoder().encode(k.receipt))
+      if (!verifyInclusion({ leafHash: leaf, index: k.index, size: c.size, proof, root: bytes(c.root) })) return false
+      k.bundle = { receipt: k.receipt, checkpoint: c.text, proof: proof.map(hex), index: k.index }
     } catch { /* the log failed: `publish` retries from what is kept */ }
     return k.bundle !== undefined
   }
@@ -131,7 +141,7 @@ export function forecasts ({ origin, adapter, log, checkpoints, key, sign, clock
     const q = questions.get(f.question)
     if (q === undefined || q.outcome !== undefined || now >= q.closes) return { refused: 'question' }
     const k = { identity: accepted.delegation.body.identity, agent: accepted.delegation.body.subject, delegation: accepted.delegation.id,
-      claim: records.claim, ...f, receipt: receipt(accepted, now), index: undefined, bundle: undefined, credits: undefined }
+      claim: records.claim, signedAt: accepted.body.at, ...f, receipt: receipt(accepted, now), index: undefined, bundle: undefined, credits: undefined }
     kept.push(k)
     return (await published(k)) ? { bundle: k.bundle } : { pending: true, receipt: k.receipt }
   })
@@ -178,8 +188,14 @@ export function forecasts ({ origin, adapter, log, checkpoints, key, sign, clock
       return 0
     }
     q.outcome = outcome
-    const standing = new Map() // identity -> its last forecast of the question
-    for (const k of kept) if (k.question === question) standing.set(k.identity, k)
+    // Each identity's standing forecast: the one its agent signed last (the claim's own time), not the last to arrive,
+    // so one held back on the network cannot stand over a later one; of two signed in one second, the later to arrive.
+    const standing = new Map()
+    for (const k of kept) {
+      if (k.question !== question) continue
+      const s = standing.get(k.identity)
+      if (s === undefined || k.signedAt >= s.signedAt) standing.set(k.identity, k)
+    }
     for (const k of standing.values()) {
       const d = k.forecast - 10_000 * outcome
       k.credits = 10_000 - Math.floor(d * d / 10_000)

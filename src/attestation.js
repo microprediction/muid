@@ -61,7 +61,9 @@ export function readWitnessKeys (list) {
   if (!isArray(list)) return undefined
   // Stryker disable next-line ArrayDeclaration: equivalent; every index is assigned below before it is read
   const keys = []
-  for (let i = 0; i < list.length; i++) {
+  const n = list.length // read once, and an array length
+  if (!(isSafeInteger(n) && n >= 0 && n < 2 ** 32)) return undefined
+  for (let i = 0; i < n; i++) {
     const w = list[i]
     if (w === null || w === undefined) return undefined // anything else destructures, and fails the key check
     const { key, nbf, exp } = w
