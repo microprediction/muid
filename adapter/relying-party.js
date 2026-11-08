@@ -21,8 +21,8 @@ function readCall (call) {
 // The presented records, each read once: what is verified is what is remembered. Undefined if reading throws.
 function readGiven (given) {
   try {
-    const { claim, delegation, root, head } = given // null and undefined throw; a primitive gives no fields
-    return { claim, delegation, root, head }
+    const { claim, delegation, root, head, logged } = given // null and undefined throw; a primitive gives no fields
+    return { claim, delegation, root, head, logged }
   } catch { /* refused by the verifier */ }
   return undefined
 }
@@ -75,10 +75,10 @@ export function relyingParty ({ verifier, store }) {
           return { thrown: e } // the verifier's, not the store's: rethrown below
         }
         if (head.ok) {
-          // Heads of one second may arrive in either order (F5): keep the later in the honest order, the new one if
-          // the stored one could not follow it.
+          // Heads of one second may arrive in either order (F5). One accepted after the stored head of its second
+          // follows it in the honest order, or says the same (decision 10 orders any two that differ), so it is kept.
           if (stored !== undefined && stored.at === seen.at) {
-            if (!verifier.verifyHead(stored.head, { ...call, lastHead: given.head }).ok) tx.replaceHead(seen.identity, given.head, seen.at, stored.head)
+            tx.replaceHead(seen.identity, given.head, seen.at, stored.head)
           } else {
             tx.advanceHead(seen.identity, given.head, seen.at)
           }

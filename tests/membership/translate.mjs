@@ -9,7 +9,7 @@ import { payloadsOf, genesisOf } from '../../model/recovery.mjs'
 
 const hex = (b) => Buffer.from(b).toString('hex')
 export const BASE = 1_800_000_000
-const WITNESS_SECRET = Uint8Array.from({ length: 32 }, (_, i) => 120 + i)
+export const WITNESS_SECRET = Uint8Array.from({ length: 32 }, (_, i) => 120 + i)
 export const WITNESS = hex(ed25519.getPublicKey(WITNESS_SECRET))
 export const WITNESS_KEYS = Object.freeze([Object.freeze({ key: WITNESS, nbf: 0, exp: BASE + 1_000_000 })])
 

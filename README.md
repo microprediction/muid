@@ -8,7 +8,10 @@ Services keep their own access and reputation policies. muid supplies the checka
 
 ## The problem it solves
 
-Consider a contributor who runs a forecasting agent on a server. They want:
+The organizing example: **log in, authorise a temporary agent, let it contribute, retire it, and collect its later
+earnings under the continuing identity.** An agent might exist for an hour, submit forecasts, and stop; its
+credentials expire, but its submissions, and the right to whatever they earn once scored, stay with the identity
+that created it. The contributor wants:
 
 1. **Limited authority.** The agent can submit forecasts to one service, and nothing else. A stolen agent key cannot
    be used against another service, cannot be used after it expires, and cannot hand its authority on.
@@ -19,8 +22,15 @@ Consider a contributor who runs a forecasting agent on a server. They want:
    over, and a change made with it can be contested.
 4. **Recognition across services.** A second service — one that displays or scores contributions — recognises the same
    contributor and the same authorised agents, without an account system shared between the two.
-5. **Attribution that lasts** (planned). A contribution accepted today remains attributable to the identity after the
-   agent's authorisation expires.
+5. **Attribution that lasts.** A contribution accepted today remains attributable to the identity after the agent's
+   authorisation expires: the service bound the beneficiary when it accepted the contribution, and logged a receipt.
+6. **Earnings that outlast the agent.** Scored later, a contribution's earnings are credited to the identity, with
+   each agent's share shown; the owner collects them from any device of the identity, and the retired agent cannot.
+   No transfer is needed.
+7. **More agents, no more standing.** Every agent's work resolves to the one identity that authorised it, so
+   creating a hundred agents earns more only by doing more useful work; it creates no new identities, votes or
+   allowances. Deciding who gets an identity in the first place — admission, Sybil resistance — is the next layer's
+   policy, applied to these facts.
 
 ## Why existing systems do not do this
 
@@ -54,8 +64,11 @@ to a single request, and revocation — checked by any service against a fresh s
 ## Status
 
 The v1 core in [`src/`](src/) is written and tested: canonical records, Ed25519 and passkey (P-256) signatures,
-roots, delegations, provider attestations, membership changes with recovery, and the verifier relying parties call.
-Not yet built: the witness service, the identity page, client packages, and lasting attribution receipts.
+roots, delegations, provider attestations, membership changes with recovery, transparency-log proofs and receipts,
+and the verifier relying parties call. Around it: the relying-party adapter ([`adapter/`](adapter/)), the witness
+and its service ([`witness/`](witness/)), the transparency log (Tessera, [`log/`](log/)), the identity page
+([`id/`](id/)), and a two-application demo ([`demo/`](demo/)) that runs the example above end to end. Not yet:
+client packages, and a deployment.
 
 - [`SPEC.md`](SPEC.md): threat model, record formats and every rule the verifier applies.
 - [`TESTING.md`](TESTING.md): how each rule is tested.

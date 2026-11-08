@@ -1,0 +1,128 @@
+// The id page suite must fail against every broken twin of id/, and pass against the real page run through the same
+// harness. Each twin is a copy of id/ with one targeted change, beside links to src/ and node_modules/, so its
+// relative imports resolve the same in Node and in the browser.
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { readFileSync, writeFileSync, mkdtempSync, mkdirSync, rmSync, readdirSync, symlinkSync } from 'node:fs'
+import { spawn } from 'node:child_process'
+import { tmpdir, availableParallelism } from 'node:os'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+// A test that never ends under a twin fails (the twin is caught) instead of holding the harness open.
+const TEST_TIMEOUT = 300_000
+
+const ROOT = fileURLToPath(new URL('../../', import.meta.url))
+const FILES = ['records.js', 'page.js', 'index.html', 'page.css']
+const SUITE_DIR = join(ROOT, 'tests/id/')
+const SUITE = readdirSync(SUITE_DIR).filter((f) => f.endsWith('.test.mjs')).map((f) => join(SUITE_DIR, f))
+
+// [name, bug class, [find, replace] pairs, file]
+const TWINS = [
+  ['challenge-domain', 'the challenge is not in the W1 domain', [["const ASSERT_PREFIX = 'muid/v1/assert\\n'", "const ASSERT_PREFIX = 'muid/v1\\n'"]], 'records.js'],
+  ['any-algorithm', 'a passkey of another algorithm becomes a root', [["  if (alg !== -7) throw new Error('the passkey must use ES256 (P-256)')\n", '']], 'records.js'],
+  ['scopes-unsorted', 'scopes are signed in the order typed', [['const list = [...new Set(scopes)].sort()', 'const list = [...new Set(scopes)]']], 'records.js'],
+  ['lifetime-unbounded', 'a delegation may outlive 30 days', [['lifetime > MAX_LIFETIME', 'lifetime > 10 * MAX_LIFETIME']], 'records.js'],
+  ['attest-granted', 'a worker may be granted attest', [["  if (list.includes('attest')) throw new Error('the attest scope is not granted to a worker') // SPEC §8\n", '']], 'records.js'],
+  ['audience-unchecked', 'any audience text is signed', [["  if (!isCanonicalOrigin(aud)) throw new Error('the audience must be an origin, such as https://app.example')\n", '']], 'records.js'],
+  ['edit-keeps-review', 'an edit leaves the reviewed delegation signable', [["for (const id of ['subject', 'aud', 'scopes', 'days', 'new-root', 'cosign-payload']) $(id).addEventListener('input', withdraw)", "for (const id of ['new-root', 'cosign-payload']) $(id).addEventListener('input', withdraw)"]], 'page.js'],
+  ['late-signature-kept', 'a signature that returns after an edit is handed over', [['    if (pending.delegation !== d) return // withdrawn while the passkey was asked\n', '']], 'page.js'],
+  ['uv-preferred', 'the assertion does not require user verification', [["rpId, challenge: challenge(covers), userVerification: 'required',", "rpId, challenge: challenge(covers), userVerification: 'preferred',"]], 'page.js'],
+  ['any-passkey', 'any passkey for the site may sign', [["    allowCredentials: [{ type: 'public-key', id: fromB64u(root.credential) }],\n", '']], 'page.js'],
+  ['not-discoverable', 'the passkey is not a resident credential', [["residentKey: 'required', userVerification: 'required'", "userVerification: 'required'"]], 'page.js'],
+  ['cosign-anything', 'a change that does not add this passkey is co-signed', [["    if (!c.body.roots.includes(root.id)) throw new Error('that change does not add this passkey')\n", '']], 'page.js'],
+  ['add-edit-keeps-review', 'an edit of the new root leaves the change signable', [["for (const id of ['subject', 'aud', 'scopes', 'days', 'new-root', 'cosign-payload'])", "for (const id of ['subject', 'aud', 'scopes', 'days', 'cosign-payload'])"]], 'page.js'],
+  ['authority-unchecked', 'a passkey without authority yet signs delegations', [["    if (!s.authority.includes(root.id)) throw new Error('this passkey has no authority yet: wait for the change to settle')\n", '']], 'page.js'],
+  ['membership-of-epoch-1', 'delegations name the first membership whatever the current one', [['membership: s.membership, root: root.id', 'membership: root.identity, root: root.id']], 'page.js'],
+  ['root-unregistered', 'a new identity is not registered with the witness', [["    await submit(root.identity, 'root', root.text)\n", '']], 'page.js'],
+  ['added-root-unsubmitted', "the added root's record is not given to the witness", [["    await submit(root.identity, 'root', c.rootText)\n", '']], 'page.js'],
+  ['change-while-pending', 'a change is proposed while another is pending', [["  if (state.pending) throw new Error('a change is already pending: wait for it to settle')\n", '']], 'records.js'],
+  ['roots-unsorted', "the change's roots are not sorted", [['roots: [...state.roots, r.id].sort() }', 'roots: [...state.roots, r.id] }']], 'records.js'],
+  ['inline-script-allowed', "the CSP allows any inline script", [["script-src 'self' 'sha256-", "script-src 'self' 'unsafe-inline' 'sha256-"]], 'index.html'],
+  ['hidden-shown', 'hidden parts of the page are displayed', [['[hidden] { display: none !important; }\n', '']], 'page.css'],
+  ['pending-forgotten', 'a root is kept as registered before the witness has it', [['joining, registered: false }', 'joining, registered: true }']], 'page.js'],
+  ['no-retry-on-load', 'a pending registration is not retried when the page loads', [['  if (unregistered()) register()\n', '\n']], 'page.js'],
+  ['fingerprint-not-shown', 'the joining device shows no fingerprint to compare', [["    $('join-fingerprint').textContent = fingerprint(root.id)\n", '']], 'page.js'],
+  ['fingerprint-unchecked', 'the adding device shows no fingerprint of the root it signs in', [["    $('add-fingerprint').textContent = fingerprint(c.added)\n", '']], 'page.js'],
+  ['stored-any-form', 'whatever storage holds is taken as the root', [['  const r = checkRoot(x.text, { rpId })\n  if (!r.ok) return null\n', '  return x\n']], 'records.js'],
+  ['stored-id-trusted', "a stored root's id is taken from storage, not its record", [['  return { ...x, id: r.id }\n', '  return x\n']], 'records.js'],
+  ['create-over-stored', 'a create in a stale tab overwrites the stored identity', [['  if (now !== null) { root = now; show(); return }\n', '']], 'page.js'],
+  ['tabs-not-followed', 'what another tab stores is not followed', [["window.addEventListener('storage', (e) => { if (e.key === KEY || e.key === null) { root = load(); withdraw(); show() } })\n", '']], 'page.js'],
+  ['framed-acts', 'framed, the page still offers its actions', [['const FRAMED = window.top !== window.self', 'const FRAMED = false']], 'page.js'],
+  ['origin-unchecked', 'served under another origin, the page still acts', [['  : location.origin !== ORIGIN ?', '  : false ?']], 'page.js'],
+  ['cosign-not-kept', 'a co-signature is sent without being kept, so a lost answer loses it', [["    root = { ...root, cosigned: rootSigned(c.payload, root.id, a) }\n    save()\n", "    root = { ...root, cosigned: rootSigned(c.payload, root.id, a) }\n"]], 'page.js'],
+  ['cosign-no-retry-on-load', 'a kept co-signature is not sent again when the page loads', [['  if (root?.cosigned !== undefined) cosign()\n', '\n']], 'page.js'],
+  ['outbox-sent-framed', 'framed, the page still sends what it kept', [['if (REFUSAL === undefined) {\n', 'if (true) {\n']], 'page.js'],
+  ['storage-any-key', 'a change to any key of the origin withdraws what is open', [['if (e.key === KEY || e.key === null) {', 'if (true) {']], 'page.js'],
+  ['cosign-kept-after', 'a co-signature the witness took stays in the outbox', [['    const { cosigned, ...rest } = root\n', '    const rest = root\n']], 'page.js'],
+  ['cosigned-trusted', 'a stored co-signature is sent whatever it is', [["  if (x.cosigned !== undefined && (x.joining !== true || cosignedIdentity(x.cosigned, r.id) === undefined)) return null\n", '']], 'records.js'],
+  ['registered-not-saved', 'a registration that succeeded is not saved, so it is sent again', [['    root = { ...root, registered: true }\n    save()\n', '    root = { ...root, registered: true }\n']], 'page.js'],
+]
+
+function run (dir) {
+  const { NODE_TEST_CONTEXT, ...env } = process.env
+  return new Promise((resolve) => {
+    const child = spawn(process.execPath, ['--test', '--test-reporter=tap', `--test-timeout=${TEST_TIMEOUT}`, ...SUITE], { env: { ...env, MUID_ID_DIR: dir }, stdio: ['ignore', 'pipe', 'pipe'] })
+    let out = ''
+    // A suite that never ends is reported as one that did not run normally, rather than holding up every other twin.
+    const stop = setTimeout(() => child.kill('SIGKILL'), 900_000)
+    child.stdout.on('data', (d) => { out += d })
+    child.stderr.on('data', (d) => { out += d })
+    child.on('close', (code) => {
+      clearTimeout(stop)
+      const count = (k) => Number((out.match(new RegExp(`^# ${k} (\\d+)`, 'm')) ?? [])[1] ?? NaN)
+      resolve({ code, pass: count('pass'), fail: count('fail') })
+    })
+  })
+}
+
+const sources = Object.fromEntries(FILES.map((f) => [f, readFileSync(join(ROOT, 'id', f), 'utf8')]))
+const root = mkdtempSync(join(tmpdir(), 'muid-id-twins-'))
+
+function generate (name, edits, file) {
+  const base = join(root, name)
+  const dir = join(base, 'id')
+  mkdirSync(dir, { recursive: true })
+  symlinkSync(join(ROOT, 'src'), join(base, 'src'))
+  symlinkSync(join(ROOT, 'node_modules'), join(base, 'node_modules'))
+  for (const f of FILES) {
+    let text = sources[f]
+    for (const [find, replace] of f === file ? edits : []) {
+      const n = text.split(find).length - 1
+      assert.equal(n, 1, `twin ${name}: target must occur exactly once in id/${f}, found ${n}: ${JSON.stringify(find)}`)
+      text = text.replace(find, () => replace)
+    }
+    writeFileSync(join(dir, f), text)
+  }
+  return dir
+}
+
+test('id page broken twins', { timeout: 3_600_000 }, async (t) => {
+  try {
+    await t.test('control: an unmodified copy, run from outside the repository, passes', async () => {
+      const r = await run(generate('control', [], null))
+      assert.equal(r.code, 0, `control: exit ${r.code}, ${r.fail} failing`)
+      assert.ok(r.pass >= 14, `control: only ${r.pass} tests ran`)
+    })
+    const jobs = TWINS.map(([name, why, edits, file]) => [name, why, generate(name, edits, file)])
+    assert.equal(jobs.length, 38, 'twin count')
+    const results = []
+    const queue = [...jobs]
+    const workers = Math.max(1, Math.floor(availableParallelism() / 4))
+    await Promise.all(Array.from({ length: workers }, async () => {
+      for (let job = queue.shift(); job; job = queue.shift()) {
+        const [name, why, dir] = job
+        results.push([name, why, await run(dir)])
+      }
+    }))
+    results.sort((a, b) => jobs.findIndex((j) => j[0] === a[0]) - jobs.findIndex((j) => j[0] === b[0]))
+    for (const [name, why, r] of results) {
+      await t.test(`twin ${name} is caught (${why})`, () => {
+        assert.notEqual(r.code, 0, `the suite passed against twin ${name}`)
+        assert.ok(r.pass > 0 && r.fail > 0, `twin ${name}: the suite did not run normally (pass ${r.pass}, fail ${r.fail})`)
+      })
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
