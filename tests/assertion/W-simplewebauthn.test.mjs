@@ -8,9 +8,10 @@ import { p256 } from '@noble/curves/nist.js'
 import { verifyAuthenticationResponse } from '@simplewebauthn/server'
 import fc from 'fast-check'
 import { make, authData, clientData, challengeFor, result, b64u, KEY, ORIGIN, RP_ID, RECORD, SECRET } from './helpers.mjs'
+import { runs } from '../runs.mjs'
 
 const SEED = Number(process.env.FC_SEED ?? 20261103)
-const RUNS = Number(process.env.FC_RUNS ?? 300)
+const RUNS = runs(300)
 
 // The key as COSE (RFC 9053 EC2, ES256, P-256): {1: 2, 3: -7, -1: 1, -2: x, -3: y}.
 const point = Buffer.from(KEY, 'hex')

@@ -6,6 +6,7 @@ import { ed25519 } from '@noble/curves/ed25519.js'
 import { p256 } from '@noble/curves/nist.js'
 import { verifier as verifierModule, envelope, root as rootModule } from '../impl.mjs'
 import { make, KEY, RP_ID, ORIGIN } from '../assertion/helpers.mjs'
+import { runs } from '../runs.mjs'
 
 const { verifier } = verifierModule
 const hex = (b) => Buffer.from(b).toString('hex')
@@ -185,7 +186,7 @@ test('F3: adding revocations never turns a refusal into an accept', () => {
     const narrow = call({}, { revoked: a, scope })
     const wider = call({}, { revoked: [...a, ...b], scope })
     if (!narrow.ok) assert.equal(wider.ok, false)
-  }), { seed: Number(process.env.FC_SEED ?? 20261103), numRuns: Number(process.env.FC_RUNS ?? 100) })
+  }), { seed: Number(process.env.FC_SEED ?? 20261103), numRuns: runs(100) })
 })
 
 test('programming errors: configuration, now, scope, revoked', () => {

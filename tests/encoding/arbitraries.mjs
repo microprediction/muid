@@ -1,10 +1,11 @@
 // Generators for the encoding properties. Imports nothing from the implementation.
 import fc from 'fast-check'
+import { runs } from '../runs.mjs'
 
 // Fixed seed in CI; FC_SEED / FC_RUNS override it (mutation testing lowers the run count).
 fc.configureGlobal({
   seed: Number(process.env.FC_SEED ?? 20261102),
-  numRuns: Number(process.env.FC_RUNS ?? 500),
+  numRuns: runs(500),
 })
 
 export { fc }
