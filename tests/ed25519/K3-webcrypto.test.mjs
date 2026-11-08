@@ -5,10 +5,11 @@ import assert from 'node:assert/strict'
 import fc from 'fast-check'
 import { ed25519 } from '@noble/curves/ed25519.js'
 import { checkEd25519, hex } from './helpers.mjs'
+import { runs } from '../runs.mjs'
 
 const { subtle } = globalThis.crypto
 const SEED = Number(process.env.FC_SEED ?? 20261103)
-const RUNS = Number(process.env.FC_RUNS ?? 50)
+const RUNS = runs(50)
 
 test('a non-extractable WebCrypto key signs what checkEd25519 accepts, and its secret cannot be exported', async () => {
   const { privateKey, publicKey } = await subtle.generateKey({ name: 'Ed25519' }, false, ['sign', 'verify'])

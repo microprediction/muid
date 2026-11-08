@@ -17,7 +17,7 @@ const ID = /^[0-9a-f]{64}$/
 const MAX_ROOTS = 5
 // Each list of records is at most this long, so the work a caller can cause is bounded.
 export const MAX_RECORDS = 256
-const MAX_REVOKED = 64 // R9
+export const MAX_REVOKED = 64 // R9
 const isId = (x) => typeof x === 'string' && apply(exec, ID, [x]) !== null
 // An integer; a negative `at` or `epoch` fails the witness window or the epoch check (R1) after it.
 const isInteger = (x) => isSafeInteger(x)

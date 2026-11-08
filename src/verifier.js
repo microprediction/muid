@@ -19,6 +19,7 @@ const { isRefusal } = EnvelopeError
 const ID = /^[0-9a-f]{64}$/
 const SCOPE = /^[a-z][a-z0-9_.:-]{0,63}$/
 const HEAD_KEYS = freeze(['at', 'authority', 'epoch', 'identity', 'memberships', 'revoked'])
+const LOGGED_KEYS = freeze(['at', 'delegation', 'identity'])
 const MAX_REVOKED = 64
 const isId = (x) => typeof x === 'string' && apply(exec, ID, [x]) !== null
 const isTime = (x) => isSafeInteger(x) && x >= 0
@@ -58,18 +59,33 @@ function allIds (list) {
   return freeze(out)
 }
 
-// R9: the head's body if it is a head of its form, signed by a pinned witness key whose window holds its `at` and now
-// (its `at` alone when `now` is undefined, as for a relying party's last head: undefined compares false either way).
-function headBody (text, cfg, now) {
+// A record of `type` whose body's keys are among `keys`, in their order (the decoder gives them sorted), or undefined.
+function shaped (text, type, keys) {
   let r
   try {
-    r = open(text, 'head')
+    r = open(text, type)
   } catch {
     return undefined
   }
-  const b = r.body
   let i = 0
-  for (const k in b) if (k !== HEAD_KEYS[i++]) return undefined
+  for (const k in r.body) if (k !== keys[i++]) return undefined
+  return r
+}
+
+// R10: the logged record's body if it is of its form, signed by a pinned witness key whose window holds its `at`.
+function loggedBody (text, cfg) {
+  const r = shaped(text, 'logged', LOGGED_KEYS)
+  if (r === undefined || !isId(r.body.identity) || !isId(r.body.delegation) || !isTime(r.body.at)) return undefined
+  if (!isWitnessSig(r.sig) || witnessReason(r.sig, r.payload, cfg.keys, r.body.at, r.body.at + 1) !== undefined) return undefined
+  return r.body
+}
+
+// R9: the head's body if it is a head of its form, signed by a pinned witness key whose window holds its `at` and now
+// (its `at` alone when `now` is undefined, as for a relying party's last head: undefined compares false either way).
+function headBody (text, cfg, now) {
+  const r = shaped(text, 'head', HEAD_KEYS)
+  if (r === undefined) return undefined
+  const b = r.body
   if (!isId(b.identity) || !ids(b.memberships, 1, 2, false) || !ids(b.authority, 1, 5, true) || !isTime(b.at) ||
     !ids(b.revoked, 0, MAX_REVOKED, true) || !(isTime(b.epoch) && b.epoch > 0 && b.epoch < 2 ** 32) ||
     (b.epoch === 1) !== (b.memberships[0] === b.identity) || b.memberships[1] === b.identity) return undefined
@@ -82,43 +98,61 @@ function headBody (text, cfg, now) {
   return b
 }
 
-const CLAIM_KEYS = freeze(['at', 'data', 'delegation', 'request', 'scope'])
+const CLAIM_KEYS = freeze(['at', 'content_digest', 'data', 'delegation', 'htm', 'htu', 'nonce', 'scope'])
 const SIG128 = /^[0-9a-f]{128}$/
+// The request a claim is for, as a DPoP proof binds it (RFC 9449 §4.2, §8.1), and the body by RFC 9530's sha-256.
+const METHOD = /^[A-Z]{1,16}$/
+const HTU = /^(https:\/\/[^/?#]*)\/(?:[A-Za-z0-9._~!$&'()*+,;=:@/-]|%[0-9A-F]{2})*$/ // origin, then a path (RFC 3986)
+const NONCE = /^[\x21\x23-\x5b\x5d-\x7e]{1,256}$/
+const DIGEST = /^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$/ // 32 bytes, canonical base64
+const BEFORE_QUERY = /[^?#]*/ // matches at 0, possibly empty
+const matches = (re, x) => typeof x === 'string' && apply(exec, re, [x]) !== null
+const optional = (re, x) => x === undefined || matches(re, x)
+// The origin of an htu, or undefined if it is not one: a canonical origin, a path, no query or fragment.
+function htuOrigin (x) {
+  const m = typeof x === 'string' ? apply(exec, HTU, [x]) : null
+  return m !== null && isCanonicalOrigin(m[1]) ? m[1] : undefined
+}
 
-// The call's fields, each read once (the revoked list copied); a claim's call also names the request it is for.
+// The call's fields, each read once (the revoked list copied). A claim's call also names the request it is for: its
+// method, its URL (the query and fragment are dropped), and the nonce and body digest if the relying party uses them.
 function readCall (call, claim, cfg) {
-  const { now, scope, request, revoked, minHeadAt = 0, lastHead } = typeof call === 'object' && call !== null ? call : {}
+  const { now, scope, method, url, nonce, contentDigest, revoked, minHeadAt = 0, lastHead } = typeof call === 'object' && call !== null ? call : {}
   const list = allIds(revoked)
   const last = headBody(lastHead, cfg, undefined) // undefined when no last head is given
-  if (!isTime(now) || typeof scope !== 'string' || apply(exec, SCOPE, [scope]) === null || !isTime(minHeadAt) ||
-    list === undefined || (claim && typeof request !== 'string') || (lastHead !== undefined && last === undefined)) {
+  if (!isTime(now) || !matches(SCOPE, scope) || !isTime(minHeadAt) || list === undefined ||
+    (claim && (!matches(METHOD, method) || typeof url !== 'string' || !optional(NONCE, nonce) || !optional(DIGEST, contentDigest))) ||
+    (lastHead !== undefined && last === undefined)) {
     throw new TypeError('call must hold now, a scope and a revoked list')
   }
-  return { now, scope, request, revoked: list, minHeadAt, last }
+  return { now, scope, method, url: claim ? apply(exec, BEFORE_QUERY, [url])[0] : undefined, nonce, contentDigest, revoked: list, minHeadAt, last }
 }
 
 const within = (a, b) => { for (let i = 0; i < a.length; i++) if (!has(b, a[i])) return true; return false } // a ⊄ b
 
-// Decision 10: `h` cannot honestly follow `l`: at one `at` it drops a revocation, an epoch falls, an id stands at two
-// epochs (R1, R3), or authority does not follow the memberships (R6: unchanged; shrinking to pending; growing as it
-// settles alone). Index reads only.
+// Decision 10: `h` cannot honestly follow `l`: an epoch falls, an id stands at two epochs (R1, R3), authority does not
+// follow the memberships (R6: unchanged; shrinking to pending; growing as it settles alone), or under the same
+// memberships and in the same second it drops a revocation. Index reads only.
 function forked (l, h) {
-  // Within one second the witness only adds revocations (an entry lapses with time).
-  if (h.at === l.at && within(l.revoked, h.revoked)) return true
   const lm = l.memberships
   const hm = h.memberships
   if (h.epoch < l.epoch || h.epoch + hm.length < l.epoch + lm.length) return true
   // Stryker disable next-line EqualityOperator: equivalent; j = hm.length matters only if the top epoch fell (above)
   for (let i = 0; i < lm.length; i++) for (let j = 0; j < hm.length; j++) if ((l.epoch + i === h.epoch + j) !== (lm[i] === hm[j])) return true
-  if (h.epoch === l.epoch) return within(h.authority, l.authority) || (hm.length === lm.length && within(l.authority, h.authority))
+  if (h.epoch === l.epoch && hm.length === lm.length) {
+    // The same memberships (the loop above). Within one second the witness then only adds revocations (R10: an entry
+    // lapses with time, or leaves with its membership or its root's authority).
+    return within(h.authority, l.authority) || within(l.authority, h.authority) || (h.at === l.at && within(l.revoked, h.revoked))
+  }
+  if (h.epoch === l.epoch) return within(h.authority, l.authority)
   return h.epoch === l.epoch + 1 && lm.length === 2 && hm.length === 1 && within(l.authority, h.authority)
 }
 
 // The fields of `records`, each read once; undefined if they cannot be read.
 function readRecords (records) {
   try {
-    const { claim, delegation, root, head } = records // a primitive gives undefined fields; null and undefined throw
-    return { claim, delegation, root, head }
+    const { claim, delegation, root, head, logged } = records // a primitive gives undefined fields; null and undefined throw
+    return { claim, delegation, root, head, logged }
   } catch { /* reported by the caller */ }
   return undefined
 }
@@ -143,7 +177,7 @@ export function verifier (config) {
 
   // F5 for a delegation, given its records and the call's fields.
   function check (given, c) {
-    const { now, scope, revoked } = c
+    const { now, scope, revoked, last } = c
     const h = checkHead(given.head, c)
     if (h.ok === false) return h // a head body has no `ok`
     const r = checkRoot(given.root, { rpId: cfg.rpId })
@@ -156,9 +190,14 @@ export function verifier (config) {
     if (!has(h.memberships, b.membership)) return refuse('membership')
     if (!has(h.authority, b.root)) return refuse('authority')
     if (has(h.revoked, d.id) || has(h.revoked, b.subject)) return refuse('revoked')
+    // Revocations are kept for good (R10): one the last head accepted carried still holds, whatever a later head says.
+    if (last && (has(last.revoked, d.id) || has(last.revoked, b.subject))) return refuse('revoked')
     const n = revoked.length
     // Stryker disable next-line EqualityOperator: equivalent; one more step reads undefined, never an id
     for (let i = 0; i < n; i++) if (revoked[i] === d.id || revoked[i] === b.subject) return refuse('revoked')
+    const l = loggedBody(given.logged, cfg)
+    // The witness logs a delegation only while it verifies: its record falls in the delegation's window (R10).
+    if (l === undefined || l.identity !== b.identity || l.delegation !== d.id || l.at < b.nbf - cfg.skew || l.at >= b.exp) return refuse('logged')
     if (b.aud !== cfg.audience) return refuse('audience')
     if (!has(b.scopes, scope)) return refuse('scope')
     return d
@@ -188,16 +227,18 @@ export function verifier (config) {
       return refuse(isRefusal(e) ? e.reason : 'envelope-encoding')
     }
     const b = claim.body
-    let i = 0
-    for (const k in b) if (k !== CLAIM_KEYS[i++]) return refuse('claim-shape')
+    for (const k in b) if (!has(CLAIM_KEYS, k)) return refuse('claim-shape')
     let keys = 0
     for (const k in claim.sig) keys++ // eslint-disable-line no-unused-vars
-    if (!isId(b.delegation) || typeof b.scope !== 'string' || apply(exec, SCOPE, [b.scope]) === null ||
-      typeof b.request !== 'string' || !isTime(b.at) ||
+    if (!isId(b.delegation) || !matches(SCOPE, b.scope) || !matches(METHOD, b.htm) || htuOrigin(b.htu) === undefined ||
+      !optional(NONCE, b.nonce) || !optional(DIGEST, b.content_digest) || !isTime(b.at) ||
       typeof b.data !== 'object' || isArray(b.data) || keys !== 1 || typeof claim.sig.signature !== 'string' ||
       apply(exec, SIG128, [claim.sig.signature]) === null) return refuse('claim-shape')
     if (b.scope !== c.scope) return refuse('claim-scope')
-    if (b.request !== c.request) return refuse('claim-request')
+    if (b.htm !== c.method) return refuse('claim-method')
+    if (htuOrigin(b.htu) !== cfg.audience || b.htu !== c.url) return refuse('claim-url')
+    if (b.nonce !== c.nonce) return refuse('claim-nonce')
+    if (b.content_digest !== c.contentDigest) return refuse('claim-digest')
     const d = check(given, c)
     if (!d.ok) return d
     if (b.delegation !== d.id) return refuse('claim-delegation')

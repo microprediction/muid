@@ -40,9 +40,10 @@ const TWINS = [
   ['call-lastHead-accepted', "a caller's lastHead is silently dropped", 'relying-party.js',
     [["  if (lastHead !== undefined) throw new TypeError('the adapter supplies lastHead from its memory')\n", '']]],
   ['tie-keeps-first', 'of two heads of one second, the first seen is kept', 'relying-party.js',
-    [['.ok) tx.replaceHead(seen.identity, given.head, seen.at, stored.head)', '.ok) {}']]],
+    [['            tx.replaceHead(seen.identity, given.head, seen.at, stored.head)\n', '']]],
   ['reason-without-memory', 'a request refused before the lock gives its reason without the memory', 'relying-party.js',
     [['        return refusal(withMemory((c) => verifier[method](given, c), call, stored).reason)', '        return refusal(pre.reason)']]],
+  ['nonce-dropped', "the request's nonce is not passed to the verifier", 'relying-party.js', [['return { now, scope, method, url, nonce, contentDigest,', 'return { now, scope, method, url, contentDigest,']]],
   ['call-spread', 'the call is copied with a spread, dropping inherited fields', 'relying-party.js', [['const call = readCall(rawCall)', 'const call = { ...rawCall }']]],
   ['memory-head-regresses', 'the memory store replaces a head with an older one', 'stores.js', [['if (old === undefined || at > old.at) heads.set', 'heads.set']]],
   ['sqlite-head-regresses', 'the database store replaces a head with an older one', 'stores.js', [[' WHERE excluded.at > heads.at', '']]],
@@ -94,7 +95,7 @@ test('adapter broken twins', { timeout: 900_000 }, async (t) => {
       assert.ok(r.pass >= 20, `control: only ${r.pass} tests ran`)
     })
     const jobs = TWINS.map(([name, why, file, edits]) => [name, why, generate(name, file, edits)])
-    assert.equal(jobs.length, 17, 'twin count')
+    assert.equal(jobs.length, 18, 'twin count')
     const results = []
     const queue = [...jobs]
     const workers = Math.max(1, Math.floor(availableParallelism() / 4))

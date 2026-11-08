@@ -71,8 +71,9 @@ export const active = (e) => !e.dead && !e.frozen
 
 // The witness, run after every move with the full item set. It anchors only the first valid successor of the last
 // settled record; while that successor is inside its window it anchors a valid contest; once the window has passed
-// it settles. An ordinary rival, or anything arriving after settlement, is never anchored (R3).
-export function witness (genesis, items) {
+// it settles. An ordinary rival, or anything arriving after settlement, is never anchored (R3). Of several valid
+// successors (held while their predecessor was pending), `pick` chooses the one anchored: by default the first id.
+export function witness (genesis, items, pick = (ids) => ids[0]) {
   let out = items
   for (;;) {
     const t = now(out)
@@ -84,7 +85,7 @@ export function witness (genesis, items) {
     if (!e.pending) {
       const next = [...payloadsOf(out).values()].filter((p) => p.prev === cur.id && validNext(cur, p)).map((p) => p.id).sort()
       if (next.length === 0) return out
-      out = [...out, { kind: 'A', id: next[0], at: t }]
+      out = [...out, { kind: 'A', id: pick(next), at: t }]
       continue
     }
     const at = Math.min(...out.filter((it) => it.kind === 'A' && it.id === e.record.id).map((it) => it.at))

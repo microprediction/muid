@@ -38,6 +38,11 @@ function delegation (membership) {
   return envelope.wrap(payload, { root: make({ covers: [id] }), subject })
 }
 const DEL = { [I]: delegation(I), [P]: delegation(P), [Q]: delegation(Q), [R]: delegation(R) }
+// R10: each delegation's logged record, signed by the current witness key.
+function loggedOf (text) {
+  const { payload } = envelope.seal('logged', { identity: I, delegation: envelope.open(text, 'delegation').id, at: NOW - 10 })
+  return envelope.wrap(payload, { signature: hex(ed25519.sign(envelope.signedBytes(payload), NEW)), witness: key(NEW) })
+}
 
 function head (epoch, memberships, at, { secret = at < NOW - 20 ? OLD : NEW, identity = I, authority = [ROOT], revoked = [] } = {}) {
   const { payload } = envelope.seal('head', { identity, epoch, memberships, authority, revoked, at })
@@ -47,7 +52,7 @@ function head (epoch, memberships, at, { secret = at < NOW - 20 ? OLD : NEW, ide
 // The head presented, under a delegation whose membership it carries, with or without the relying party's last head.
 function verify (presented, lastHead, membership) {
   const call = { now: NOW, scope: 'post', revoked: [], ...(lastHead === undefined ? {} : { lastHead }) }
-  const r = v.verifyDelegation({ delegation: DEL[membership], root: rootText, head: presented }, call)
+  const r = v.verifyDelegation({ delegation: DEL[membership], root: rootText, head: presented, logged: loggedOf(DEL[membership]) }, call)
   return r.ok ? { ok: true } : { ...r }
 }
 const refused = (reason) => ({ ok: false, reason })
@@ -171,4 +176,17 @@ test('the delegation itself: revoked by id or by subject key in a head, then pre
     assert.deepEqual(verify(revoking, undefined, I), refused('revoked'))
     assert.deepEqual(verify(head(1, [I], T), revoking, I), refused('stale'), target === id ? 'by id' : 'by subject key')
   }
+})
+
+// R10: a head carries only revocations naming a live logged delegation, so one leaves with its membership or its
+// root's authority. Within one second, revocations are ordered only between heads of the same memberships.
+test('at the same time, a revocation may leave with a membership change: no order is implied by it', () => {
+  const T = NOW - 10
+  const x = '7'.repeat(64)
+  const turning = head(1, [I], T, { authority: WIDE, revoked: [x] })
+  assert.deepEqual(verify(head(1, [I, P], T), turning, I), { ok: true }, 'a successor turns pending: X loses authority')
+  const pending = head(1, [I, P], T, { revoked: [x] })
+  assert.deepEqual(verify(head(2, [P], T), pending, P), { ok: true }, 'the successor settles: the first membership goes')
+  // The control: the same memberships, the same second, a revocation dropped.
+  assert.deepEqual(verify(head(1, [I, P], T), pending, I), refused('stale'), 'under the same memberships')
 })
