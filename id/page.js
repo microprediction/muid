@@ -3,11 +3,14 @@
 // assertion, under the identity's current membership. Every record the passkey signs is shown first from its exact
 // payload (I4); changing any input withdraws it, and a signature that returns after an edit is discarded. The root
 // record and the credential id are kept in this browser only.
-import { rootRecord, challenge, assertion, delegation, handOff, b64u, fromB64u, currentMembership, addRoot, rootSigned, changeToSign, fingerprint, storedRoot } from './records.js'
+import { rootRecord, challenge, assertion, delegation, handOff, b64u, fromB64u, currentMembership, addRoot, rootSigned, changeToSign, fingerprint, storedRoot, cosignedIdentity } from './records.js'
 
 const $ = (id) => document.getElementById(id)
 const meta = (name) => document.querySelector(`meta[name="${name}"]`).content
-const rpId = location.hostname
+// SPEC §8: the rp ID and the exact origin are deployment configuration, compared exactly. Served under any other
+// origin (a hosting platform's default domain, an alias), the page would make roots for the wrong rp ID: it does nothing.
+const rpId = meta('muid-rp-id')
+const ORIGIN = meta('muid-origin')
 const KEY = 'muid.root'
 const WITNESS = meta('muid-witness')
 const WITNESS_KEYS = JSON.parse(meta('muid-witness-keys'))
@@ -26,10 +29,12 @@ function save () {
 // SPEC §8: root registration and every root-signed action happen in a top-level window. The deployment's headers
 // refuse framing; framed anyway, the page shows nothing to act on.
 const FRAMED = window.top !== window.self
+const REFUSAL = FRAMED ? 'This page acts only in its own window: open it directly.'
+  : location.origin !== ORIGIN ? `This page acts only at ${ORIGIN}: open it there.` : undefined
 
 function show () {
-  if (FRAMED) {
-    $('error').textContent = 'This page acts only in its own window: open it directly.'
+  if (REFUSAL !== undefined) {
+    $('error').textContent = REFUSAL
     return
   }
   const joining = root?.joining === true
@@ -39,6 +44,7 @@ function show () {
   $('add-root').hidden = root === null || joining
   $('authorise').hidden = root === null || joining
   $('pending').hidden = !unregistered()
+  $('cosign-pending').hidden = root?.cosigned === undefined
   if (root !== null) {
     $('identity-id').textContent = root.identity
     $('root-text').value = root.text
@@ -59,7 +65,7 @@ async function submit (identity, type, text) {
 async function state () {
   const res = await fetch(WITNESS + `v1/identities/${root.identity}/records`)
   const records = res.ok ? await res.json() : {}
-  return currentMembership(records, { identity: root.identity, rpId, origin: location.origin, witnessKeys: WITNESS_KEYS })
+  return currentMembership(records, { identity: root.identity, rpId, origin: ORIGIN, witnessKeys: WITNESS_KEYS })
 }
 
 // One user-verified assertion by this identity's own passkey over the records in `covers` (W1).
@@ -202,15 +208,34 @@ $('cosign-sign').addEventListener('click', async () => {
   try {
     const a = await sign([c.id])
     if (pending.cosign !== c) return
-    await submit(c.body.identity, 'membership', rootSigned(c.payload, root.id, a))
-    root = { ...root, identity: c.body.identity, joining: false, registered: true }
+    // Kept before the witness is asked, as a registration is, so that a lost answer is sent again, not lost.
+    root = { ...root, cosigned: rootSigned(c.payload, root.id, a) }
+    save()
+    show()
+  } catch (e) { fail(e); return }
+  await cosign()
+})
+
+// The kept co-signature, sent (again: the witness accepts one it already holds); once taken, this root is the
+// identity's.
+async function cosign () {
+  try {
+    const identity = cosignedIdentity(root.cosigned, root.id)
+    await submit(identity, 'membership', root.cosigned)
+    const { cosigned, ...rest } = root
+    root = { ...rest, identity, joining: false, registered: true }
     save()
     show()
     $('status').textContent = 'Co-signed. The change settles once its contest window has passed.'
   } catch (e) { fail(e) }
-})
+}
+$('cosign-retry').addEventListener('click', () => { $('error').textContent = ''; cosign() })
 
 // What another tab of this origin stores is followed here, so a page open since before cannot act on a stale root.
 window.addEventListener('storage', (e) => { if (e.key === KEY || e.key === null) { root = load(); withdraw(); show() } })
 show()
-if (!FRAMED && unregistered()) register()
+// What is kept to be sent (an outbox) is sent again on load, never where the page refuses to act.
+if (REFUSAL === undefined) {
+  if (unregistered()) register()
+  if (root?.cosigned !== undefined) cosign()
+}

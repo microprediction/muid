@@ -1,6 +1,6 @@
 // Serves the id page as a deployment would lay it out: /id/ (or a broken twin's directory), /src/, the noble
-// packages under /node_modules/@noble/, and, given one, a witness service under /witness/ (its configuration written
-// into the page's meta tags). Nothing else.
+// packages under /node_modules/@noble/, and, given one, a witness service under /witness/. The deployment
+// configuration (rp ID, origin, the witness's keys) is written into the page's meta tags. Nothing else.
 import { createServer } from 'node:http'
 import { readFile } from 'node:fs/promises'
 import { join, normalize } from 'node:path'
@@ -30,6 +30,8 @@ export function serve ({ witness, witnessKeys = [] } = {}) {
       if (rel === 'index.html') {
         body = body.toString('utf8').replace('<meta name="muid-witness-keys" content="[]">',
           `<meta name="muid-witness-keys" content="${JSON.stringify(witnessKeys).replaceAll('"', '&quot;')}">`)
+          .replace('<meta name="muid-rp-id" content="">', '<meta name="muid-rp-id" content="localhost">')
+          .replace('<meta name="muid-origin" content="">', `<meta name="muid-origin" content="http://localhost:${server.address().port}">`)
       }
       res.writeHead(200, { 'content-type': TYPES[rel.slice(rel.lastIndexOf('.'))] ?? 'application/octet-stream', 'x-frame-options': 'DENY', 'content-security-policy': "frame-ancestors 'none'" }).end(body)
     } catch { res.writeHead(404).end() }
