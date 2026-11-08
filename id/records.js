@@ -18,11 +18,27 @@ const ID = /^[0-9a-f]{64}$/
 // What the page kept in storage, read back as untrusted (anything on this origin may have written it): a root of its
 // form for this rp ID, its id taken from its own record; otherwise none.
 export function storedRoot (x, rpId) {
-  if (x === null || typeof x !== 'object' || Array.isArray(x) || typeof x.text !== 'string' || typeof x.credential !== 'string' ||
+  if (x === null || typeof x !== 'object' || Array.isArray(x) || typeof x.credential !== 'string' ||
     typeof x.identity !== 'string' || !ID.test(x.identity) || !['undefined', 'boolean'].includes(typeof x.joining) ||
     !['undefined', 'boolean'].includes(typeof x.registered)) return null
+  // Whatever x.text is, checkRoot refuses it unless it is a root record's text.
   const r = checkRoot(x.text, { rpId })
-  return r.ok ? { ...x, id: r.id } : null
+  if (!r.ok) return null
+  // A co-signature waiting to be sent again is only a joining root's, and its own.
+  if (x.cosigned !== undefined && (x.joining !== true || cosignedIdentity(x.cosigned, r.id) === undefined)) return null
+  return { ...x, id: r.id }
+}
+
+// A co-signature kept to be sent again, as a registration is (an outbox): a membership change that adds `root`,
+// signed by it. The identity it joins, or undefined for anything else.
+export function cosignedIdentity (text, root) {
+  let r
+  try {
+    r = open(text, 'membership')
+  } catch {
+    return undefined
+  }
+  return r.sig.root === root && Array.isArray(r.body.roots) && Array.prototype.includes.call(r.body.roots, root) ? r.body.identity : undefined
 }
 
 // A root's fingerprint, shown on both devices when one adds the other's root, for the user to compare before signing

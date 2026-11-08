@@ -538,9 +538,14 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
 - Found by review (`P1`, `P2`): the root fingerprint (24 hex digits in groups of four; anything but an id refused),
   the same on the joining device and in the adding device's review; a stored root read back only if of its form for
   this rp ID, its id from its own record (an edited id ignored; another rp ID, a bad text, credential, identity or
-  flag refused), and one of the wrong form forgotten, not shown; a tab open since before follows the identity
-  another tab creates, and a create begun before it heard adopts the stored identity rather than overwrite it;
-  framed (the headers removed), the page shows nothing to act on and says why. Coverage is collected from every
+  flag refused, as are a function carrying a root's fields and an identity that only converts to an id; the flags
+  may be absent), and one of the wrong form forgotten, not shown; a tab open since before follows the identity
+  another tab creates, and a create begun before it heard adopts the stored identity rather than overwrite it, while
+  another key of the origin changing leaves an open review; framed (the headers removed), the page shows nothing to
+  act on, says why, and sends no pending registration, which the same page unframed then sends; served under another
+  origin than its configured one, the same. A co-signature whose answer is lost is kept (only a joining root's own,
+  adding it: another root's, one not adding it, anything else, or a non-joining root's refused) and sent again on
+  reload and by the button, once taken never again; one the passkey refuses is reported, and nothing kept or sent. Coverage is collected from every
   frame.
 - The HTML (`P3-html.test.mjs`): one inline script, the import map, allowed by its hash; nothing from elsewhere.
 - Mutation testing runs inside the page: the test activates Stryker's mutant in the page and returns the page's

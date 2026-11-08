@@ -38,14 +38,21 @@ const TWINS = [
   ['inline-script-allowed', "the CSP allows any inline script", [["script-src 'self' 'sha256-", "script-src 'self' 'unsafe-inline' 'sha256-"]], 'index.html'],
   ['hidden-shown', 'hidden parts of the page are displayed', [['[hidden] { display: none !important; }\n', '']], 'page.css'],
   ['pending-forgotten', 'a root is kept as registered before the witness has it', [['joining, registered: false }', 'joining, registered: true }']], 'page.js'],
-  ['no-retry-on-load', 'a pending registration is not retried when the page loads', [['if (!FRAMED && unregistered()) register()\n', '\n']], 'page.js'],
+  ['no-retry-on-load', 'a pending registration is not retried when the page loads', [['  if (unregistered()) register()\n', '\n']], 'page.js'],
   ['fingerprint-not-shown', 'the joining device shows no fingerprint to compare', [["    $('join-fingerprint').textContent = fingerprint(root.id)\n", '']], 'page.js'],
   ['fingerprint-unchecked', 'the adding device shows no fingerprint of the root it signs in', [["    $('add-fingerprint').textContent = fingerprint(c.added)\n", '']], 'page.js'],
-  ['stored-any-form', 'whatever storage holds is taken as the root', [['  const r = checkRoot(x.text, { rpId })\n  return r.ok ? { ...x, id: r.id } : null', '  return x']], 'records.js'],
-  ['stored-id-trusted', "a stored root's id is taken from storage, not its record", [['return r.ok ? { ...x, id: r.id } : null', 'return r.ok ? x : null']], 'records.js'],
+  ['stored-any-form', 'whatever storage holds is taken as the root', [['  const r = checkRoot(x.text, { rpId })\n  if (!r.ok) return null\n', '  return x\n']], 'records.js'],
+  ['stored-id-trusted', "a stored root's id is taken from storage, not its record", [['  return { ...x, id: r.id }\n', '  return x\n']], 'records.js'],
   ['create-over-stored', 'a create in a stale tab overwrites the stored identity', [['  if (now !== null) { root = now; show(); return }\n', '']], 'page.js'],
   ['tabs-not-followed', 'what another tab stores is not followed', [["window.addEventListener('storage', (e) => { if (e.key === KEY || e.key === null) { root = load(); withdraw(); show() } })\n", '']], 'page.js'],
   ['framed-acts', 'framed, the page still offers its actions', [['const FRAMED = window.top !== window.self', 'const FRAMED = false']], 'page.js'],
+  ['origin-unchecked', 'served under another origin, the page still acts', [['  : location.origin !== ORIGIN ?', '  : false ?']], 'page.js'],
+  ['cosign-not-kept', 'a co-signature is sent without being kept, so a lost answer loses it', [["    root = { ...root, cosigned: rootSigned(c.payload, root.id, a) }\n    save()\n", "    root = { ...root, cosigned: rootSigned(c.payload, root.id, a) }\n"]], 'page.js'],
+  ['cosign-no-retry-on-load', 'a kept co-signature is not sent again when the page loads', [['  if (root?.cosigned !== undefined) cosign()\n', '\n']], 'page.js'],
+  ['outbox-sent-framed', 'framed, the page still sends what it kept', [['if (REFUSAL === undefined) {\n', 'if (true) {\n']], 'page.js'],
+  ['storage-any-key', 'a change to any key of the origin withdraws what is open', [['if (e.key === KEY || e.key === null) {', 'if (true) {']], 'page.js'],
+  ['cosign-kept-after', 'a co-signature the witness took stays in the outbox', [['    const { cosigned, ...rest } = root\n', '    const rest = root\n']], 'page.js'],
+  ['cosigned-trusted', 'a stored co-signature is sent whatever it is', [["  if (x.cosigned !== undefined && (x.joining !== true || cosignedIdentity(x.cosigned, r.id) === undefined)) return null\n", '']], 'records.js'],
   ['registered-not-saved', 'a registration that succeeded is not saved, so it is sent again', [['    root = { ...root, registered: true }\n    save()\n', '    root = { ...root, registered: true }\n']], 'page.js'],
 ]
 
@@ -87,7 +94,7 @@ function generate (name, edits, file) {
   return dir
 }
 
-test('id page broken twins', { timeout: 1_800_000 }, async (t) => {
+test('id page broken twins', { timeout: 3_600_000 }, async (t) => {
   try {
     await t.test('control: an unmodified copy, run from outside the repository, passes', async () => {
       const r = await run(generate('control', [], null))
@@ -95,7 +102,7 @@ test('id page broken twins', { timeout: 1_800_000 }, async (t) => {
       assert.ok(r.pass >= 14, `control: only ${r.pass} tests ran`)
     })
     const jobs = TWINS.map(([name, why, edits, file]) => [name, why, generate(name, edits, file)])
-    assert.equal(jobs.length, 31, 'twin count')
+    assert.equal(jobs.length, 38, 'twin count')
     const results = []
     const queue = [...jobs]
     const workers = Math.max(1, Math.floor(availableParallelism() / 4))
