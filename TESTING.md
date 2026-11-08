@@ -8,7 +8,8 @@ when its whole section here passes, including the anti-vacuity checks. Rule labe
 - **One invariant per file:** `tests/<layer>/<label>-<name>.test.mjs`. Mutation testing tracks coverage per file, so
   small files keep it precise and fast.
 - **Runner:** `node --test`, no other runner. Property tests use fast-check with a fixed seed in CI and a printed seed
-  on failure.
+  on failure. `npm test` runs every suite but the broken twins; `npm run test:twins` runs the twin harnesses
+  one at a time (each starts its own workers), as CI runs each in a job of its own.
 - **Vectors are data, not code.** `tests/vectors/<set>/` holds the files exactly as published, plus `SOURCE.md`
   (URL, upstream commit, SHA-256 of each file, licence). A test checks those hashes before using the files.
 - **Expected outputs come from outside the code under test:** written by hand, taken from a published vector set, or
@@ -567,6 +568,18 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   in Node: the current membership by `membershipState`, an ended identity, the change (next epoch, sorted roots,
   what it adds) and each refusal (pending, already a root, not a root record, five roots), the root-signed envelope,
   a change read back to co-sign.
+- Found by review (`P1`, `P2`): the root fingerprint (24 hex digits in groups of four; anything but an id refused),
+  the same on the joining device and in the adding device's review; a stored root read back only if of its form for
+  this rp ID, its id from its own record (an edited id ignored; another rp ID, a bad text, credential, identity or
+  flag refused, as are a function carrying a root's fields and an identity that only converts to an id; the flags
+  may be absent), and one of the wrong form forgotten, not shown; a tab open since before follows the identity
+  another tab creates, and a create begun before it heard adopts the stored identity rather than overwrite it, while
+  another key of the origin changing leaves an open review; framed (the headers removed), the page shows nothing to
+  act on, says why, and sends no pending registration, which the same page unframed then sends; served under another
+  origin than its configured one, the same. A co-signature whose answer is lost is kept (only a joining root's own,
+  adding it: another root's, one not adding it, anything else, or a non-joining root's refused) and sent again on
+  reload and by the button, once taken never again; one the passkey refuses is reported, and nothing kept or sent. Coverage is collected from every
+  frame.
 - The HTML (`P3-html.test.mjs`): one inline script, the import map, allowed by its hash; nothing from elsewhere.
 - Mutation testing runs inside the page: the test activates Stryker's mutant in the page and returns the page's
   coverage to the test process. Both files at 100%.
