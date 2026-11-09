@@ -119,3 +119,16 @@ test('the walk generator reaches every kind of state, two further epochs, eight 
   assert.equal(reached.steps, 8)
   assert.ok(reached.lies > USUAL / 2, `states after a lie: ${reached.lies}`)
 })
+
+// R1, R3: an epoch one more than its predecessor's. A record that skips one, signed by a majority and anchored by a
+// lying witness, is ignored by the model as by membershipState; the walks cannot make one, since every move is of
+// the next epoch (found by review).
+test('a membership record that skips an epoch, anchored, is ignored by the model and the verifier alike', () => {
+  const g = 'M1{a}<-'
+  const items = [...history('a', []), ...['a', 'b'].map((signer) => ({ kind: 'M', n: 5, roots: ['a', 'b'], prev: g, signer })),
+    { kind: 'A', id: `M5{a,b}<${g}`, at: 2 }]
+  const e = evaluate('a', items)
+  assert.equal(e.pending, false)
+  assert.equal(e.record.n, 1)
+  agree('a', items, 'an epoch skipped')
+})

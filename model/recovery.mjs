@@ -22,8 +22,9 @@ export const WINDOW = 1
 export const membershipId = (n, roots, prev) => `M${n}{${roots.join(',')}}<${prev}`
 export const genesisOf = (root) => ({ id: membershipId(1, [root], '-'), n: 1, roots: [root] })
 
-// R1: strict majority of the previous epoch's roots, and every added root, signed the payload.
+// R1: the next epoch, signed by a strict majority of the previous epoch's roots and every root it adds.
 export function validNext (prev, p) {
+  if (p.n !== prev.n + 1) return false
   if (p.roots.length < 1 || p.roots.length > MAX_ROOTS) return false
   let yes = 0
   for (const r of prev.roots) if (p.signers.has(r)) yes++

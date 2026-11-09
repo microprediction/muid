@@ -341,6 +341,8 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   explorer catches (added roots unsigned, new roots' authority while pending, a freeze lifted at anchoring, settlements
   ignored) in a sixth of its time; 5,000 also catch half counted as a majority, a contest without one, and one of two
   anchored rivals chosen, which the explorer cannot reach because its witness is honest.
+  A record that skips an epoch, signed by a majority and anchored, is ignored by the model and `membershipState` alike
+  (the model lacked the check; found by review).
 - **Hand cases:** memberships of every wrong shape (extra key, empty, six roots, unsorted, duplicate, non-id roots,
   wrong epoch, another identity, bad `prev`) ignored even when anchored; witness records with a bad signature shape,
   a negative `at` or a bad outcome ignored; contests and freezes of non-ids ignored; a witness that anchors two
@@ -352,6 +354,9 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   (two replacements and a deletion) to any one record gives the state with that record or without it, never another,
   and each kind holds a record whose loss changes the state. Positions are sampled with a fixed seed;
   `MUID_SWEEP=full` sweeps every position.
+- **List lengths:** a list whose length is not an array length (an object whose `valueOf` says 0 to the cap and
+  5,000 afterwards, `NaN`, a fraction, a negative, `Infinity`, a string, 2⁵³) is refused as `records` with no element
+  read (found by review).
 - **Twins:** half counted as a majority; added roots not required to sign; the witness window ignored; a contest
   without a majority; new roots with authority while pending; a freeze lifted at anchoring; settlements ignored; one
   of two anchored rivals chosen; root assertions not verified; the revocation cap applied only after the whole list is

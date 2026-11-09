@@ -845,9 +845,12 @@ weighted by attestation.
    cosigner, the contest window starting at the cosigned time of the first checkpoint that includes the anchor.
 11. **Freezes by incoming roots — decided: kept.** R2 lets any root of a pending record, new ones included, freeze it.
    None of the established systems ([`prior-art.md`](research/prior-art.md)) lets an incoming key lock anything. It is
-   kept because a freeze only removes trust: it stops a change, never makes one, so the worst an incoming root can do
-   is hold up the change that added it, and the owner who added it can supersede that change. In return an owner whose
-   new device sees an unexpected change can stop it. The alternative, limiting a pending record's freeze to the roots
+   kept because a freeze only removes trust: it never makes a change. It does not stop one either: the record it
+   freezes still settles, and the freeze then holds on it as the settled membership (R2), and on a successor while that
+   is pending. So the worst an incoming root can do is freeze the identity for the rest of the window of the change
+   that added it and the whole window of the owner's successor that drops it; the alternative to waiting, a contest,
+   ends the identity. In return an owner whose new device sees an unexpected change can freeze it at once, so that it
+   gives no one authority while the owner answers it. The alternative, limiting a pending record's freeze to the roots
    of its `prev`, stays available if a case against this appears.
 12. **Retaining subject-key revocations — decided: (c), with (b) and a per-root quota until it lands.** `exp − nbf`
    is bounded, but `nbf` is not, so a delegation signed today may become valid long after it was signed. A witness
