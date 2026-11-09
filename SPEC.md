@@ -961,6 +961,7 @@ never afterwards. Details and thresholds: `TESTING.md`; sources: [`assurance.md`
 | Secret scanning (gitleaks, checksum-verified) | a secret in any commit, except findings reviewed in `.gitleaksignore` |
 | Duplication (jscpd) | a clone in `src/` not in the reviewed `.jscpd-baseline.json` |
 | TLA+ models (`model/tla/`, TLC, exhaustive) | a model whose invariant TLC finds violated, or a negative control it no longer violates |
+| Tamarin theories (`model/tamarin/`) | a lemma not verified, or a negative control whose result changes |
 | SimpleWebAuthn differential | a root assertion accepted here and refused by SimpleWebAuthn; a known difference (where only it accepts) that changes |
 | Release-age cooldown | a locked package published less than seven days ago (`.npmrc` `min-release-age` holds new choices to the same) |
 

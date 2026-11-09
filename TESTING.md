@@ -494,6 +494,21 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
 - Run by `.github/scripts/tlc.sh`, the tools at a pinned release checked against their recorded SHA-256; a passing
   configuration must find no error, and each negative control must report the violation it names.
 
+## 4h3. Protocol proofs (`model/tamarin/`, Tamarin)
+
+- **The authentication chain (`Claims.spthy`):** against a network attacker who may also steal any root or delegate
+  key, for any number of sessions: an accepted delegation was authorised by the identity's root unless that root key
+  leaked; an accepted claim under an honest delegate's key was signed by it for exactly that request unless that key
+  leaked; no identity can count another identity's delegate as its own, even with its own root key stolen, unless
+  the delegate's key leaked; a claim accepted at one audience was made for it. An honest run exists (anti-vacuity).
+  The owner may authorise any key it is given, an attacker's included: the id page's defence is the fingerprint the
+  user compares, outside the protocol, so the claim and consent lemmas are about honest delegates' keys (Tamarin's
+  first traces were exactly that).
+- **Two defences for consent, each enough alone:** D6's consent and a claim naming its delegation's id. Without either
+  the lemma still holds; without both Tamarin finds the attack. The three controls are one-line edits of a copy, made
+  by `.github/scripts/tamarin.sh`, which fails if an edit no longer applies or a result differs from the one written.
+- Tamarin 1.12.0 and Maude 3.5.1 from pinned releases, each checked against the SHA-256 its release publishes.
+
 ## 4i. Transparency-log verification (proposal; `research/witness-tlog.md`)
 
 **Merkle proofs (`src/merkle.js`, RFC 9162 §2.1.3.2, §2.1.4.2).**
