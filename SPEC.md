@@ -945,9 +945,12 @@ never afterwards. Details and thresholds: `TESTING.md`; sources: [`assurance.md`
   Among them, the membership model past its explorer's bound: random walks of owner, thief, clock and lying-witness
   moves, `membershipState` checked against the model after each. And the model of F5's time and revocation rules
   (`model/timing.mjs`): generated calls at every boundary, and traces of heads signed, replayed and remembered.
+- Nightly (`fuzz.yml`): coverage-guided fuzzing (Jazzer.js, installed apart in `fuzz/` under the same pinning rules)
+  of `decode`, W1's `clientDataJSON` check and `verifyDelegation`/`verifyClaim` on spliced records, each from its
+  committed seeds; every seed is also run on every pull request. A finding fails the job with its input, and becomes
+  a pinned test.
 
 Not yet scheduled:
-- Coverage-guided fuzzing of `decode`, `verifyDelegation` and `verifyClaim` (Jazzer.js).
 - An adversarial review agent against the core. Its findings go to a **private** security advisory, never a public
   issue.
 - After every fix, a variant-analysis sweep for siblings of the bug.

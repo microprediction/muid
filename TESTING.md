@@ -335,9 +335,9 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   thief, the owner, the witness clock or a lying witness (a stolen witness key: anchors and settlements of its
   choosing, shown only to verifiers, the witness service keeping its own log). After every move, and on a partial view
   of the last state, `membershipState` must give the model's answer; the service's own items must have no forked
-  view. 200 walks per run (about 10 seconds), 5,000 in the nightly fuzz job. The walks the pinned seed draws must
-  reach dead, frozen, pending and settled states, two epochs past the history, eight moves, and states after a lie,
-  checked through the model alone so that it holds at any `FC_RUNS`. Against the twins: 200 walks catch the four the
+  view. 200 walks per run (about 10 seconds), 5,000 in the nightly fuzz job. The walk generator, sampled from the
+  pinned seed through the model alone, must reach dead, frozen, pending and settled states, two epochs past the history, eight moves, and states after a lie,
+  so that this holds at any `FC_RUNS`. Against the twins: 200 walks catch the four the
   explorer catches (added roots unsigned, new roots' authority while pending, a freeze lifted at anchoring, settlements
   ignored) in a sixth of its time; 5,000 also catch half counted as a majority, a contest without one, and one of two
   anchored rivals chosen, which the explorer cannot reach because its witness is honest.
@@ -698,6 +698,20 @@ ones run nightly (and on demand, from the Actions tab), and a nightly failure is
    followed transitively; the package files and the workflow are inputs of every config. A core module is reached
    by every suite through `tests/impl.mjs`, so a change to one runs every quick config; documentation runs none.
    A path built at run time is not seen, and the nightly run catches what a pull request's run missed.
+4. **Fuzzing** (`fuzz.yml`, nightly, not gating): every property test at 25 times its count with a new seed, and
+   coverage-guided fuzzing with Jazzer.js (libFuzzer), 15 minutes for each target in `fuzz/targets/`, from its seeds
+   in `fuzz/seeds/`, with only `src/` instrumented. The targets: `decode` (refuses only with an EncodingError, and
+   what it accepts `JSON.parse` reads the same); `client-data` (any `clientDataJSON`, signed by the passkey, so W1's
+   hand-written prefix check is reached: never a throw, and an assertion it accepts is read by `JSON.parse` as W1
+   requires, with no `topOrigin` and every other member a string); `verify` (a valid claim, delegation, root, head and
+   logged record, one spliced: `verifyDelegation` and `verifyClaim` never throw, and accept nothing changed).
+   Jazzer is installed apart from the repository, in `fuzz/` with its own lockfile (105 packages, none with an install
+   script, SLSA provenance, prebuilt N-API binaries), held by the pin guard and the release-age check to the
+   repository's rules; its registry signatures are checked before it runs. On every pull request
+   `tests/fuzz/F-seeds.test.mjs` runs each target on each seed without the fuzzer, so a target that breaks fails then,
+   not at night, and the job's list of targets must be the targets there are. Shown planted faults, the fuzzer found
+   each within a minute or two: head signatures unchecked, a duplicate `type` read by `JSON.parse` differently,
+   `topOrigin` accepted, and text after the closing brace accepted.
 
 Stryker's incremental mode was not used for this: it "will not detect any changes you've made in files other than
 mutated files and test files", and the tap runner reports results per file, not per test.
