@@ -1,8 +1,29 @@
 # muid
 
-**muid lets a person authorise devices and software agents to act under one continuing identity, each with its own
-key and its own limited, expiring permissions, so that any participating service can check — offline, from signed
-records — who authorised a piece of software, what it was allowed to do, and which identity its work belongs to.**
+**An identity for the agentic age.**
+
+Software agents increasingly act for people: they call services, submit work, spend and earn. A service an agent
+calls needs to know three things: **who** authorised it, **what** it was allowed to do, and **whose** its work is.
+Today agents borrow the answers: a person's session, an API key for one service's account, an OAuth token that only
+its issuer understands. None of these gives an agent an authority of its own that its owner limits, that any service
+can check, and that outlives the agent's keys.
+
+muid gives a person one continuing identity, rooted in passkeys, from which they authorise named agents. Each agent
+holds its own key, for one service, with the scopes and lifetime its owner chose, and can be retired at any time. Any
+participating service checks an agent's request offline, from signed records: that a live identity authorised this
+agent, for this service and this action, and that it has not been retired. The agent's work stays attributed to the
+identity after the agent and its keys are gone.
+
+In short:
+
+1. **A person creates an identity** with a passkey, and may add passkeys on other devices so that losing one, or
+   having one stolen, does not lose the identity.
+2. **They authorise agents**: each by name, with its own key, one audience, its scopes and an expiry. One passkey
+   prompt does it; the agent never sees the passkey.
+3. **Services verify** each agent request against a fresh, signed summary of the identity's keys and revocations,
+   with one synchronous function and no call to anyone.
+4. **Work stays attributed**: services keep logged receipts, so an agent's contributions, and whatever they earn,
+   belong to the identity long after the agent is retired.
 
 Services keep their own access and reputation policies. muid supplies the checkable facts they apply them to.
 
@@ -67,7 +88,7 @@ Each of these does part of it well, and muid borrows from most of them. None com
 | UCAN, Biscuit, macaroons | Delegable capability tokens | No identity continuity or recovery of their own: a token's authority traces to its issuer's key. Their chains and policy languages are more than this needs; muid allows one hop, an exact audience and flat scopes. |
 | did:plc, KERI | An identifier whose keys can rotate and be recovered | No audience-bound delegation to agents, and no request-bound proof of action. muid's recovery rules follow theirs. |
 | A key per service (API keys) | Lets software call one service | Each service's account is the identity. Nothing ties one service's key for an agent to another's, and a leaked key has the account's full power there. |
-| SPIFFE | Stable workload names over short-lived, rotated keys | Every credential is signed by an authority the trust domain runs, and services federate with each domain: built for an organisation's workloads, not a person's agents. muid's proposed agent names follow it. |
+| SPIFFE | Stable workload names over short-lived, rotated keys | Every credential is signed by an authority the trust domain runs, and services federate with each domain: built for an organisation's workloads, not a person's agents. muid's agent names follow it. |
 | Nostr NIP-26 | One key signs on behalf of another | No revocation, and delegated notes are shown as the delegator's, so agents cannot be told apart. Marked unrecommended. |
 | Sigstore | Short-lived signing certificates bound to a provider identity, logged for later verification | Built for signing software artefacts, with the provider account as the identity. muid borrows its pattern for lasting attribution. |
 
@@ -94,7 +115,12 @@ roots, delegations, provider attestations, membership changes with recovery, tra
 and the verifier relying parties call. Around it: the relying-party adapter ([`adapter/`](adapter/)), the witness
 and its service ([`witness/`](witness/)), the transparency log (Tessera, [`log/`](log/)), the identity page
 ([`id/`](id/)), and a two-application demo ([`demo/`](demo/)) that runs the example above end to end. Not yet:
-client packages, and a deployment.
+apps requesting delegations from the identity page, recovery actions on the page, issuing provider attestations,
+renewal without a weekly passkey prompt, client packages, and a deployment.
+
+Every rule is tested against known-answer vectors, independent implementations and executable models; deliberately
+broken copies of each module must fail the tests, mutation testing gates every module, and the core is fuzzed
+nightly. [`TESTING.md`](TESTING.md) lists each check.
 
 - [`SPEC.md`](SPEC.md): threat model, record formats and every rule the verifier applies.
 - [`TESTING.md`](TESTING.md): how each rule is tested.
