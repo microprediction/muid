@@ -6,6 +6,28 @@ records — who authorised a piece of software, what it was allowed to do, and w
 
 Services keep their own access and reputation policies. muid supplies the checkable facts they apply them to.
 
+## Heavy and light identities
+
+An identity is **heavy**: rooted in passkeys, and used rarely, to create it, to authorise and retire software, and to
+recover it. The work is done by **light** identities: devices, apps, servers and agents, each holding its own
+Ed25519 key, acting with nobody present, and limited to what the owner granted. Services deal only with light
+identities and check them offline. They never need the heavy identity to be present, yet the work of every light
+identity is attributed to the heavy identity behind it, which every service can see.
+
+What the light keys buy:
+
+- **Software can act.** A server, a scheduled job or an agent cannot use a passkey; it can use a light key.
+- **A leak costs little.** A stolen light key works at one service, with its scopes, until it expires. The passkey
+  never sits where keys are easy to steal.
+- **Retiring one agent touches nothing else.** Replacing a passkey is a contested succession; replacing a light key
+  is routine.
+- **No prompt per action.** One passkey prompt authorises a key for many signatures.
+- **Each action names the key that made it**, as well as the identity.
+
+Today a light identity is only its key, so a rotated key looks like a new agent, and renewing one needs the passkey
+weekly. [`research/light-identities.md`](research/light-identities.md) proposes stable agent names and renewal
+without the passkey (SPEC decision 13), and works one scenario through each of the designs below.
+
 ## The problem it solves
 
 The organizing example: **log in, authorise a temporary agent, let it contribute, retire it, and collect its later
@@ -43,6 +65,9 @@ Each of these does part of it well, and muid borrows from most of them. None com
 | Passkeys (WebAuthn) | Phishing-resistant sign-in, one key per site | No delegation to agents; continuity after losing devices rests on one sync provider's account recovery. muid uses passkeys as its root keys. |
 | UCAN, Biscuit, macaroons | Delegable capability tokens | No identity continuity or recovery of their own: a token's authority traces to its issuer's key. Their chains and policy languages are more than this needs; muid allows one hop, an exact audience and flat scopes. |
 | did:plc, KERI | An identifier whose keys can rotate and be recovered | No audience-bound delegation to agents, and no request-bound proof of action. muid's recovery rules follow theirs. |
+| A key per service (API keys) | Lets software call one service | Each service's account is the identity. Nothing ties one service's key for an agent to another's, and a leaked key has the account's full power there. |
+| SPIFFE | Stable workload names over short-lived, rotated keys | Every credential is signed by an authority the trust domain runs, and services federate with each domain: built for an organisation's workloads, not a person's agents. muid's proposed agent names follow it. |
+| Nostr NIP-26 | One key signs on behalf of another | No revocation, and delegated notes are shown as the delegator's, so agents cannot be told apart. Marked unrecommended. |
 | Sigstore | Short-lived signing certificates bound to a provider identity, logged for later verification | Built for signing software artefacts, with the provider account as the identity. muid borrows its pattern for lasting attribution. |
 
 What muid adds is the combination, in one small signed-record format with one synchronous verifier: a continuing

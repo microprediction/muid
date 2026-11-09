@@ -865,6 +865,15 @@ weighted by attestation.
    membership before it is anchored, and no change of membership bounds what a revocation can affect; and dropping a
    root's revocations once that root loses authority, because a root may revoke a key that another root delegated
    to, and that delegation would verify again once the revoking root is removed.
+13. **Light identities — proposed.** Delegates are the light identities that do an identity's work; the identity
+   itself is used only to authorise, retire and recover (§1). Two gaps: a delegate is only its key, so a replaced key
+   is a new agent to every service; and every delegation is signed by a root, so a long-running agent needs a passkey
+   prompt at least weekly (decision 3). Proposed: a ninth delegation field, `agent`, naming a light identity whose id
+   is derived from the identity id and the name, and which a head can retire for good (as SPIFFE names a workload
+   over rotating keys); and a renewal delegation, scoped only to `muid:renew` and lasting at most 90 days, whose key
+   signs day-long task delegations within its audience and `grants` (OAuth's refresh token, with UCAN's attenuation),
+   depth two by type as D3 is depth one. Light identities stay linkable to their identity (§10). Details, and why
+   other designs do not cover it, in [`research/light-identities.md`](research/light-identities.md).
 
 ## 10. What the reputation layer consumes (not core)
 
