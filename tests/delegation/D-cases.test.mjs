@@ -41,6 +41,8 @@ test('shape: each key missing, an extra key, wrong forms', () => {
     root: [['3'.repeat(64)], 'F'.repeat(64)],
     subject: [SUBJECT.toUpperCase(), SUBJECT.slice(2), 5],
     aud: [1, ['https://app.example']],
+    // The agent's name is of a scope's form (decision 13): a lower-case letter, then up to 63 of [a-z0-9_.:-].
+    agent: ['', 'Forecaster', '1st', 'a b', 'a/b', 'a'.repeat(65), 'é', 7, ['forecaster'], true],
     scopes: ['read', { read: true }],
     // Floats and unsafe integers cannot be sealed at all (the encoder refuses them), so they are not listed.
     nbf: ['1800000000', -1, true],
@@ -48,6 +50,12 @@ test('shape: each key missing, an extra key, wrong forms', () => {
   }
   for (const [k, values] of Object.entries(bad)) {
     for (const v of values) rejects(build({ body: { ...BODY, [k]: v } }), 'delegation-shape', `${k} = ${JSON.stringify(v)}`)
+  }
+})
+
+test('agent: any name of a scope\'s form, up to 64 characters', () => {
+  for (const agent of ['a', 'forecaster', 'z9_.:-', 'a'.repeat(64), 'eu-west.worker:3']) {
+    assert.equal(result(build({ body: { ...BODY, agent } })).ok, true, agent)
   }
 })
 

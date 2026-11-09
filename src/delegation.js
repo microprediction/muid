@@ -21,7 +21,7 @@ const UTF8 = new TextEncoder()
 const { isRefusal } = EnvelopeError
 const Bytes = Uint8Array
 
-const BODY_KEYS = freeze(['aud', 'exp', 'identity', 'membership', 'nbf', 'root', 'scopes', 'subject'])
+const BODY_KEYS = freeze(['agent', 'aud', 'exp', 'identity', 'membership', 'nbf', 'root', 'scopes', 'subject'])
 const SIG_KEYS = freeze(['root', 'subject'])
 const HEX64 = /^[0-9a-f]{64}$/
 const HEX128 = /^[0-9a-f]{128}$/
@@ -41,7 +41,8 @@ function hasKeys (o, keys) {
 }
 
 function bodyOk (b) {
-  return hasKeys(b, BODY_KEYS) && isHex(HEX64, b.identity) && isHex(HEX64, b.membership) && isHex(HEX64, b.root) &&
+  // The agent's name (decision 13) is of a scope's form.
+  return hasKeys(b, BODY_KEYS) && isHex(SCOPE, b.agent) && isHex(HEX64, b.identity) && isHex(HEX64, b.membership) && isHex(HEX64, b.root) &&
     isHex(HEX64, b.subject) && typeof b.aud === 'string' && isArray(b.scopes) && isTime(b.nbf) && isTime(b.exp)
 }
 

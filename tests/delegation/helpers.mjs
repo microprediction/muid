@@ -18,6 +18,7 @@ export const NBF = 1_800_000_000
 export const CTX = Object.freeze({ rootKey: ROOT_KEY, rpId: RP_ID, origin: ORIGIN, now: NBF + 10, skew: 60, maxLifetime: 2_592_000 })
 
 export const BODY = Object.freeze({
+  agent: 'forecaster',
   identity: '1'.repeat(64),
   membership: '2'.repeat(64),
   root: '44404d2d618dcf0680853eb9c05c20fe78d3958f7be85a0d8faa8a238200caae', // the test passkey's root id (tests/root)

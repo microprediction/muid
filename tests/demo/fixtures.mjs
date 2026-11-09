@@ -26,9 +26,9 @@ const w = witness({ rpId: RP_ID, origin: ORIGIN, witnessKeys: WITNESS_KEYS, key:
 const held = w.admit(w.empty(IDENTITY), 'root', rootText).held
 export const head = (at = NOW - 10) => w.head(held, at)
 
-export function worker (seed, { aud = FORECASTS, scopes = ['forecast'] } = {}) {
+export function worker (seed, { aud = FORECASTS, scopes = ['forecast'], agent = 'worker' } = {}) {
   const secret = Uint8Array.from({ length: 32 }, (_, i) => seed + i)
-  const d = idRecords.delegation({ identity: IDENTITY, membership: IDENTITY, root: ROOT, subject: hex(ed25519.getPublicKey(secret)), aud, scopes, now: NOW - 100, lifetime: 3600 })
+  const d = idRecords.delegation({ agent, identity: IDENTITY, membership: IDENTITY, root: ROOT, subject: hex(ed25519.getPublicKey(secret)), aud, scopes, now: NOW - 100, lifetime: 3600 })
   const subject = hex(ed25519.sign(Buffer.concat([Buffer.from('muid/v1/accept\n'), Buffer.from(d.id, 'hex')]), secret))
   const delegation = envelope.wrap(d.payload, { root: make({ covers: [d.id], secret: SECRET }), subject })
   const logged = w.log(held, delegation, NOW - 50).logged // R10: the witness has logged it
@@ -36,7 +36,7 @@ export function worker (seed, { aud = FORECASTS, scopes = ['forecast'] } = {}) {
     const { payload } = envelope.seal('claim', { delegation: d.id, scope, htm: 'POST', htu: `${aud}${path}`, at, data })
     return envelope.wrap(payload, { signature: hex(ed25519.sign(envelope.signedBytes(payload), secret)) })
   }
-  return { id: d.id, subject: d.body.subject, delegation, claim, records: (data, at, opts) => ({ claim: claim(data, at, opts), delegation, root: rootText, head: head(), logged }) }
+  return { id: d.id, subject: d.body.subject, agent: rootModule.agentIdOf(IDENTITY, agent), name: agent, delegation, claim, records: (data, at, opts) => ({ claim: claim(data, at, opts), delegation, root: rootText, head: head(), logged }) }
 }
 
 export const CLOSES = NOW + 600

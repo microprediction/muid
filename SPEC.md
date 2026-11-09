@@ -203,12 +203,18 @@ signature, and a creation time would be chosen by the signer and prove nothing.
 happens to its roots afterwards.
 
 **delegation** — signed by a root (passkey assertion). Never by an Ed25519 key.
-`{ identity, membership, root, subject, aud, scopes, nbf, exp }`. `root` is a member of `membership` (R6 below);
+`{ agent, identity, membership, root, subject, aud, scopes, nbf, exp }`. `agent` names the light identity the delegate
+is (decision 13), of a scope's form; `root` is a member of `membership` (R6 below);
 `subject` is an Ed25519 public key; `aud` is one exact origin;
 `scopes` is a sorted list of 1–16 distinct scope strings (`^[a-z][a-z0-9_.:-]{0,63}$`). A scope's meaning belongs
 to the relying party; the core checks only exact membership — no prefix, wildcard or hierarchy rule. `identity`,
 `membership` and `root` are ids (64 lowercase hex), `subject` is 64 lowercase hex, `nbf` and `exp` are
 non-negative integers.
+- **D8 AGENT:** every delegation of one identity with one `agent` is one light identity, whatever its key, window,
+  root or membership: successive delegations are its key history, as a SPIFFE ID stays fixed while the keys under it
+  rotate. Its id is `agentIdOf(identity, agent)` = hex SHA-256(`UTF-8("muid-agent\n")` ‖ the identity id as 32 raw
+  bytes ‖ `UTF-8(agent)`), derived as root and identity ids are, so nothing registers it. A name is unique only within
+  its identity and asserts nothing outside it.
 Its envelope's `sig` is `{ root, subject }`: `root` the passkey assertion (W0–W6), `subject` the D6 signature
 (128 lowercase hex).
 - **D1 WINDOW:** `nbf − skew ≤ now < exp`. Skew applies to `nbf` only; it never extends `exp`.
@@ -221,7 +227,7 @@ Its envelope's `sig` is `{ root, subject }`: `root` the passkey assertion (W0–
 - **D7 CHECKS, IN ORDER:** `checkDelegation(text, { rootKey, rpId, origin, now, skew, maxLifetime })` opens the
   envelope itself — so the id it checks is always the id of the bytes it was given — and returns
   `{ ok: true, id, body }` or `{ ok: false, reason }`, never throwing for any `text`. The context is read once.
-  Reasons: V4's, for the envelope; `delegation-shape` (body keys other than the eight, or a field of the wrong form,
+  Reasons: V4's, for the envelope; `delegation-shape` (body keys other than the nine, or a field of the wrong form,
   or `sig` not `{ root, subject }` with `subject` 128 lowercase hex); `scopes`; `aud` (O1); `subject-key` (K1, via K5's
   key checks); `lifetime`
   (`exp ≤ nbf` or D2); `not-yet` and `expired` (D1); `root` (the root id of `rootKey` under `rpId` is not the body's
@@ -359,7 +365,7 @@ one envelope each, so its `sig` names the signer: `{ root, assertion }`, where `
   head carried still holds, whatever a later head says: revocations are kept for good. The witness signs
   one, and appends it to its log like every record it signs, only for a delegation that verifies at its `now` (D7), is
   the identity's under its settled membership or pending successor, from a root with authority (R6), and that no
-  kept revocation names by id or subject key; a delegation signed in advance is logged once it is valid. The witness
+  kept revocation names by id, subject key or agent (D8); a delegation signed in advance is logged once it is valid. The witness
   therefore knows every delegation that can verify, as CRLite relies on certificate transparency's complete set, and
   keeps every revocation it admits for the life of the identity — except a root's revocation of a delegation id given
   with that delegation, kept until its `exp` — while a head's `revoked` is the kept targets that name a logged
@@ -497,7 +503,9 @@ Tested against `model/settled.mjs`'s `witness` on random histories of owner and 
 record goes through admission, the model is given what was admitted, and the anchors and settlements signed are the
 model's, text for text; a record admission refuses changes nothing the model's witness or verifier would do.
 
-**revocation** — `{ identity, target, at }`, where `target` is a delegation's record id or a subject key. It is signed
+**revocation** — `{ identity, target, at }`, where `target` is a delegation's record id, a subject key, or an agent's
+light identity id (D8), which retires the name: every delegation under it, past and future, is refused, and the
+witness never logs another (R10), so a later thief holding a root cannot revive an agent's history under it. It is signed
 by a root with authority (`sig = { root, assertion }`, as for membership records), or by the delegate for itself (`sig
 = { signature }` by the subject key, as for claims); the witness revokes its own attestations in its log (decision 8).
 The witness checks revocations and carries the live ones in heads (R9), which is how they reach verifiers; this
@@ -514,9 +522,9 @@ Research: [`delegation.md`](research/delegation.md), [`oidc-witness.md`](researc
 ```
 const v = verifier({ rpId, origin, audience, witnessKeys, skew, maxLifetime, maxStaleness, maxClaimAge })
 v.verifyDelegation({ delegation, root, head }, { now, scope, revoked, minHeadAt, lastHead })  // per call
-  -> { ok: true, id, body } | { ok: false, reason }
+  -> { ok: true, id, body, agent } | { ok: false, reason }
 v.verifyClaim({ claim, delegation, root, head }, { now, scope, method, url, nonce, contentDigest, revoked, minHeadAt, lastHead })
-  -> { ok: true, id, body, delegation: { id, body }, until } | { ok: false, reason }
+  -> { ok: true, id, body, delegation: { id, body, agent }, until } | { ok: false, reason }
 ```
 
 Configuration is set once, when the verifier is constructed, and cannot be changed per call: `rpId` and `origin`
@@ -524,7 +532,7 @@ are the id origin's; `audience` is this relying party's own origin (D5); `witnes
 pinned keys; `skew`, `maxLifetime` (D2), `maxStaleness` (R9) and `maxClaimAge` (C1, 300 s by default in
 deployments) are the values of decisions 1, 3 and 7. Per call,
 `delegation`, `root` and `head` are envelope texts: the delegation, the root record it names, and a head for its
-identity. `scope` is the one scope the request needs; `revoked` lists further revoked record ids or subject keys the
+identity. `scope` is the one scope the request needs; `revoked` lists further revoked record ids, subject keys or light identity ids (D8) the
 relying party holds; `minHeadAt` (optional) refuses heads older than one it has already seen; `lastHead` (optional)
 is the text of the newest head the relying party has accepted for the identity, which it keeps (decision 10).
 
@@ -543,7 +551,7 @@ is the text of the newest head the relying party has accepted for the identity, 
   reasons for `delegation`, given
   the root record's key; `identity` (the head's identity is not the delegation's); `membership` (the delegation's
   membership is not among the head's `memberships`); `authority` (its root is not among the head's `authority`);
-  `revoked` (its id or its subject key is in the head's `revoked`, the call's, or `lastHead`'s, so that a later head that drops it cannot restore the delegation); `logged` (`logged` does not open
+  `revoked` (its id, its subject key or its agent's light identity id is in the head's `revoked`, the call's, or `lastHead`'s, so that a later head that drops it cannot restore the delegation); `logged` (`logged` does not open
   as a `logged` record of this identity naming this delegation's id, signed as A4 requires by a pinned key whose
   window holds its `at`; R10); `audience` (its `aud` is
   not `audience`); `scope` (`scope` is not among its
@@ -696,7 +704,7 @@ rotation and the expiry boundary.
 **The id page (`id/`).** A static page with a strict CSP (scripts from its own origin, plus the import map by its
 hash; no inline handlers), using the core's own modules through an import map. It creates an identity — a resident
 ES256 passkey with user verification; the root record from its public key, kept in this browser — and authorises a
-worker: the user gives the worker's Ed25519 key, the audience, scopes (never `attest`) and a lifetime of at most 7 days (decision 3); the page
+worker: the user gives the agent's name (D8), the worker's Ed25519 key, the audience, scopes (never `attest`) and a lifetime of at most 7 days (decision 3); the page
 shows the fields of the exact payload it will ask the passkey to sign (I4), any edit withdraws it, and a signature
 that returns after an edit is discarded. One assertion (W1 challenge, user verification required, the identity's
 own credential only) signs it, and the page hands the worker the payload and assertion; the worker adds its own
@@ -742,7 +750,7 @@ I1–I3 window protocol for apps.
 - **I3 AUDIENCE FROM THE CHANNEL:** for a delegation an app requests, `aud` is the request's `event.origin`. An app
   cannot name a different audience. A machine delegation has no requesting app: the user chooses its `aud` on the id
   page, and the page shows it under I4.
-- **I4 WHAT YOU SEE IS WHAT YOU SIGN:** the page renders every record in `covers` — a delegation's `aud`, `scopes`
+- **I4 WHAT YOU SEE IS WHAT YOU SIGN:** the page renders every record in `covers` — a delegation's `agent`, `aud`, `scopes`
   and `exp`; a membership change's added and removed roots; what a contest or freeze stops — from
   the exact payloads whose ids become the challenge; nothing is computed between display and signing.
 - **I5 NO CACHED VERIFICATION:** every root assertion is a fresh ceremony with user verification; nothing is cached
@@ -769,7 +777,7 @@ the inclusion proof, as a bundle. **History** verifies an identity's bundles und
 A contribution's data is `{ question, forecast }` (basis points); the identity of the delegation it was made under
 is bound as its beneficiary when it is accepted, never decided later from whoever holds the agent's key. Once the
 operator resolves a question, each forecast of it earns its Brier score in basis points, credited to the identity
-with each agent's share shown (`GET /earnings`); the identity collects with a claim under any live delegation of it
+with each agent's share shown by its light identity (D8), so a replaced key keeps its share (`GET /earnings`); the identity collects with a claim under any live delegation of it
 holding the `collect` scope (`POST /collect`). Five scenarios run end to end in CI: limited authority, continuity
 across a replaced worker key, attribution that lasts past the delegations' expiry, revocation that takes effect at
 once through the relying party's memory, and the organizing example — an agent authorised for an hour contributes,
@@ -871,12 +879,12 @@ weighted by attestation.
    membership before it is anchored, and no change of membership bounds what a revocation can affect; and dropping a
    root's revocations once that root loses authority, because a root may revoke a key that another root delegated
    to, and that delegation would verify again once the revoking root is removed.
-13. **Light identities — proposed.** Delegates are the light identities that do an identity's work; the identity
+13. **Light identities — Part A decided (D8), Part B proposed.** Delegates are the light identities that do an identity's work; the identity
    itself is used only to authorise, retire and recover (§1). Two gaps: a delegate is only its key, so a replaced key
    is a new agent to every service; and every delegation is signed by a root, so a long-running agent needs a passkey
-   prompt at least weekly (decision 3). Proposed: a ninth delegation field, `agent`, naming a light identity whose id
-   is derived from the identity id and the name, and which a head can retire for good (as SPIFFE names a workload
-   over rotating keys); and a renewal delegation, scoped only to `muid:renew` and lasting at most 90 days, whose key
+   prompt at least weekly (decision 3). Decided (Part A, D8): a ninth delegation field, `agent`, naming a light
+   identity whose id is derived from the identity id and the name, and which a revocation retires for good (as SPIFFE
+   names a workload over rotating keys). Proposed (Part B): a renewal delegation, scoped only to `muid:renew` and lasting at most 90 days, whose key
    signs day-long task delegations within its audience and `grants` (OAuth's refresh token, with UCAN's attenuation),
    depth two by type as D3 is depth one. Light identities stay linkable to their identity (§10). Details, and why
    other designs do not cover it, in [`research/light-identities.md`](research/light-identities.md).

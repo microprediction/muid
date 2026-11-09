@@ -12,7 +12,7 @@ import { w, IDENTITY, BASE, WINDOW, M2, mBody, mId, signed, rootText, rootId } f
 const hex = (b) => Buffer.from(b).toString('hex')
 // A delegation from root a to an app's key, valid from BASE - 10 for an hour.
 const APP = Uint8Array.from({ length: 32 }, (_, i) => 60 + i)
-const del = envelope.seal('delegation', { identity: IDENTITY, membership: IDENTITY, root: rootId('a'), subject: hex(ed25519.getPublicKey(APP)),
+const del = envelope.seal('delegation', { agent: 'worker', identity: IDENTITY, membership: IDENTITY, root: rootId('a'), subject: hex(ed25519.getPublicKey(APP)),
   aud: 'https://app.example', scopes: ['post'], nbf: BASE - 10, exp: BASE + 3600 })
 const DELEGATION = envelope.wrap(del.payload, { root: make({ covers: [del.id], secret: secretOf('a') }),
   subject: hex(ed25519.sign(Buffer.concat([Buffer.from('muid/v1/accept\n'), Buffer.from(del.id, 'hex')]), APP)) })

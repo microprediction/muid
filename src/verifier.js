@@ -2,7 +2,7 @@
 // against configuration fixed at construction.
 import { open, signedBytes, EnvelopeError } from './envelope.js'
 import { checkEd25519 } from './ed25519.js'
-import { checkRoot } from './root.js'
+import { checkRoot, agentIdOf } from './root.js'
 import { checkDelegation } from './delegation.js'
 import { readWitnessKeys, isWitnessSig, witnessReason } from './attestation.js'
 import { isCanonicalOrigin } from './origin.js'
@@ -190,18 +190,19 @@ export function verifier (config) {
     if (h.identity !== b.identity) return refuse('identity')
     if (!has(h.memberships, b.membership)) return refuse('membership')
     if (!has(h.authority, b.root)) return refuse('authority')
-    if (has(h.revoked, d.id) || has(h.revoked, b.subject)) return refuse('revoked')
+    // Revoked by its id, its subject key, or its agent's light identity id (decision 13: a retired name stays retired).
+    const agent = agentIdOf(b.identity, b.agent)
+    const names = (list) => has(list, d.id) || has(list, b.subject) || has(list, agent)
+    if (names(h.revoked)) return refuse('revoked')
     // Revocations are kept for good (R10): one the last head accepted carried still holds, whatever a later head says.
-    if (last && (has(last.revoked, d.id) || has(last.revoked, b.subject))) return refuse('revoked')
-    const n = revoked.length
-    // Stryker disable next-line EqualityOperator: equivalent; one more step reads undefined, never an id
-    for (let i = 0; i < n; i++) if (revoked[i] === d.id || revoked[i] === b.subject) return refuse('revoked')
+    if (last && names(last.revoked)) return refuse('revoked')
+    if (names(revoked)) return refuse('revoked')
     const l = loggedBody(given.logged, cfg)
     // The witness logs a delegation only while it verifies: its record falls in the delegation's window (R10).
     if (l === undefined || l.identity !== b.identity || l.delegation !== d.id || l.at < b.nbf - cfg.skew || l.at >= b.exp) return refuse('logged')
     if (b.aud !== cfg.audience) return refuse('audience')
     if (!has(b.scopes, scope)) return refuse('scope')
-    return d
+    return accept({ id: d.id, body: b, agent })
   }
 
   // F6: a head alone, under the same call: { ok, identity, at }, or F5's head refusal. A relying party may remember
@@ -248,7 +249,7 @@ export function verifier (config) {
     const s = checkEd25519(claim.sig.signature, signedBytes(claim.payload), d.body.subject)
     if (!s.ok) return s
     // Replay inside the window is the caller's to refuse: keep the id until `until`, the first time it is refused.
-    return accept({ id: claim.id, body: b, delegation: freeze({ id: d.id, body: d.body }), until: b.at + cfg.maxClaimAge + 1 })
+    return accept({ id: claim.id, body: b, delegation: freeze({ id: d.id, body: d.body, agent: d.agent }), until: b.at + cfg.maxClaimAge + 1 })
   }
 
   return freeze({ verifyHead, verifyDelegation, verifyClaim })

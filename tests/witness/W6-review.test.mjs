@@ -90,7 +90,7 @@ test("a self-revocation counts only under a delegation from a root with authorit
   const key = Uint8Array.from({ length: 32 }, (_, i) => 90 + i)
   const subject = hex(ed25519.getPublicKey(key))
   const delegationBy = (letter) => {
-    const body = { identity: IDENTITY, membership: mId(M), root: rootId(letter), subject, aud: 'https://app.example', scopes: ['post'], nbf: now - 10, exp: now + 3600 }
+    const body = { agent: 'worker', identity: IDENTITY, membership: mId(M), root: rootId(letter), subject, aud: 'https://app.example', scopes: ['post'], nbf: now - 10, exp: now + 3600 }
     const { payload, id } = envelope.seal('delegation', body)
     return envelope.wrap(payload, { root: make({ covers: [id], secret: secretOf(letter) }),
       subject: hex(ed25519.sign(Buffer.concat([Buffer.from('muid/v1/accept\n'), Buffer.from(id, 'hex')]), key)) })

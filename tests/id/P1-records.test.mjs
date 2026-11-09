@@ -75,9 +75,9 @@ test("the assertion object from the passkey's buffers verifies under the core", 
 
 test('a delegation to a worker: signed by the passkey and the worker, the core accepts it', () => {
   const r = rootRecord(SPKI, -7, RP_ID)
-  const d = delegation({ identity: r.identity, membership: r.identity, root: r.id, subject: SUBJECT, aud: 'https://app.example',
+  const d = delegation({ agent: 'worker', identity: r.identity, membership: r.identity, root: r.id, subject: SUBJECT, aud: 'https://app.example',
     scopes: ['read', 'post', 'read'], now: NOW, lifetime: 86_400 })
-  assert.deepEqual(d.body, { identity: r.identity, membership: r.identity, root: r.id, subject: SUBJECT, aud: 'https://app.example',
+  assert.deepEqual(d.body, { agent: 'worker', identity: r.identity, membership: r.identity, root: r.id, subject: SUBJECT, aud: 'https://app.example',
     scopes: ['post', 'read'], nbf: NOW, exp: NOW + 86_400 })
   assert.equal(d.id, envelope.seal('delegation', d.body).id)
   const ad = authData({ rpId: RP_ID, flags: 0x05 })
@@ -92,7 +92,7 @@ test('a delegation to a worker: signed by the passkey and the worker, the core a
 })
 
 test('what the core would refuse is refused first, with a reason to show', () => {
-  const base = { identity: 'a'.repeat(64), membership: 'a'.repeat(64), root: 'b'.repeat(64), subject: SUBJECT, aud: 'https://app.example',
+  const base = { agent: 'worker', identity: 'a'.repeat(64), membership: 'a'.repeat(64), root: 'b'.repeat(64), subject: SUBJECT, aud: 'https://app.example',
     scopes: ['post'], now: NOW, lifetime: 3600 }
   const refusals = [
     [{ subject: 'x' }, "the worker's key must be an Ed25519 public key, 64 hex digits"],
@@ -101,6 +101,11 @@ test('what the core would refuse is refused first, with a reason to show', () =>
     [{ subject: SUBJECT + '0' }, "the worker's key must be an Ed25519 public key, 64 hex digits"],
     [{ subject: 1 }, "the worker's key must be an Ed25519 public key, 64 hex digits"],
     [{ subject: '0'.repeat(63) + '2' }, "the worker's key must be an Ed25519 public key, 64 hex digits"],
+    [{ agent: '' }, "the agent's name must be a lower-case name, such as forecaster"],
+    [{ agent: 'Forecaster' }, "the agent's name must be a lower-case name, such as forecaster"],
+    [{ agent: 'my agent' }, "the agent's name must be a lower-case name, such as forecaster"],
+    [{ agent: 'a'.repeat(65) }, "the agent's name must be a lower-case name, such as forecaster"],
+    [{ agent: undefined }, "the agent's name must be a lower-case name, such as forecaster"],
     [{ aud: 'https://App.example' }, 'the audience must be an origin, such as https://app.example'],
     [{ aud: 'https://app.example/' }, 'the audience must be an origin, such as https://app.example'],
     [{ scopes: [] }, 'scopes must be 1 to 16 lower-case names'],

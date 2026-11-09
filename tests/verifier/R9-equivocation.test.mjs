@@ -32,7 +32,7 @@ const X = 'f'.repeat(64) // another root, sorted after ROOT
 const WIDE = [ROOT, X].sort()
 
 function delegation (membership) {
-  const { payload, id } = envelope.seal('delegation', { identity: I, membership, root: ROOT, subject: key(APP), aud: AUD,
+  const { payload, id } = envelope.seal('delegation', { agent: 'worker', identity: I, membership, root: ROOT, subject: key(APP), aud: AUD,
     scopes: ['post'], nbf: NOW - 10, exp: NOW + 86_000 })
   const subject = hex(ed25519.sign(Buffer.concat([Buffer.from('muid/v1/accept\n'), Buffer.from(id, 'hex')]), APP))
   return envelope.wrap(payload, { root: make({ covers: [id] }), subject })

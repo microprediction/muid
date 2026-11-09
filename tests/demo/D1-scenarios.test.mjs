@@ -30,9 +30,9 @@ const ROOT = rootModule.checkRoot(rootText, { rpId: RP_ID }).id
 const IDENTITY = rootModule.identityOf(ROOT)
 
 // A worker's key, and a delegation to it signed by the owner's passkey and accepted by the worker (D6).
-function worker (seed, { aud = FORECASTS, scopes = ['forecast'], lifetime = 3600 } = {}) {
+function worker (seed, { aud = FORECASTS, scopes = ['forecast'], lifetime = 3600, agent = 'worker' } = {}) {
   const secret = Uint8Array.from({ length: 32 }, (_, i) => seed + i)
-  const d = idRecords.delegation({ identity: IDENTITY, membership: IDENTITY, root: ROOT, subject: hex(ed25519.getPublicKey(secret)), aud, scopes, now: now(), lifetime })
+  const d = idRecords.delegation({ agent, identity: IDENTITY, membership: IDENTITY, root: ROOT, subject: hex(ed25519.getPublicKey(secret)), aud, scopes, now: now(), lifetime })
   const subject = hex(ed25519.sign(Buffer.concat([Buffer.from('muid/v1/accept\n'), Buffer.from(d.id, 'hex')]), secret))
   const delegation = envelope.wrap(d.payload, { root: make({ covers: [d.id], secret: SECRET }), subject })
   // A claim for one request: POST to `path` at `origin`, with the forecast (or nothing) in `data`.
@@ -45,7 +45,7 @@ function worker (seed, { aud = FORECASTS, scopes = ['forecast'], lifetime = 3600
     const { payload } = envelope.seal('revocation', { identity: IDENTITY, target: d.body.subject, at: now() })
     return envelope.wrap(payload, { signature: hex(ed25519.sign(envelope.signedBytes(payload), secret)) })
   }
-  return { id: d.id, body: d.body, delegation, claim, retire }
+  return { id: d.id, body: d.body, agent: rootModule.agentIdOf(IDENTITY, agent), delegation, claim, retire }
 }
 
 test('the demo: limited authority, continuity, lasting attribution, revocation, an agent\'s earnings', { timeout: 300_000 }, async () => {
@@ -132,7 +132,7 @@ test('the demo: limited authority, continuity, lasting attribution, revocation, 
     // 5. The organizing example: log in, authorise a temporary agent, let it contribute, retire it, and collect its
     // later earnings under the continuing identity. The beneficiary was bound when each contribution was accepted.
     await sleep(1100)
-    const agent = worker(90, { lifetime: 3600 })
+    const agent = worker(90, { lifetime: 3600, agent: 'temporary' })
     const h3 = await head()
     for (const [question, forecast] of [['rain', 8000], ['snow', 1000]]) {
       assert.equal((await post(f, FORECASTS, { claim: agent.claim({ question, forecast }), delegation: agent.delegation, root: rootText, head: h3 })).status, 200)
@@ -147,7 +147,7 @@ test('the demo: limited authority, continuity, lasting attribution, revocation, 
     assert.equal(f.resolve('snow', 0), 1)
     const earned = (10_000 - 2000 ** 2 / 10_000) + (10_000 - 1000 ** 2 / 10_000)
     const e = await (await f.handle(new Request(`${FORECASTS}/earnings?identity=${IDENTITY}`))).json()
-    assert.deepEqual(e.agents.find((a) => a.delegation === agent.id), { agent: agent.body.subject, delegation: agent.id, contributions: 2, earned })
+    assert.deepEqual(e.agents.find((a) => a.agent === agent.agent), { agent: agent.agent, name: agent.body.agent, contributions: 2, earned })
     // The owner's own device collects; the retired agent cannot.
     const device = worker(110, { scopes: ['collect'] })
     const collect = async (w, h) => (await f.handle(new Request(`${FORECASTS}/collect`, { method: 'POST',

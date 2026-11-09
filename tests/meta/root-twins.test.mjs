@@ -24,6 +24,8 @@ const IMPORTS = [
 
 // [name, bug class, [find, replace] pairs]
 const TWINS = [
+  ['agent-id-without-prefix', 'the agent id omits its domain prefix, so it can equal another derived id', [["concat('muid-agent\\n', identity, agent)", "concat('', identity, agent)"]]],
+  ['agent-id-without-identity', 'the agent id hashes the name alone', [["concat('muid-agent\\n', identity, agent)", "concat('muid-agent\\n', '', agent)"]]],
   ['id-without-prefix', 'the root id omits its domain prefix', [["concat('muid-root\\n' + rpId + '\\n', pub)", "concat(rpId + '\\n', pub)"]]],
   ['id-over-hex-text', 'the root id hashes the key as hex text', [["concat('muid-root\\n' + rpId + '\\n', pub)", "concat('muid-root\\n' + rpId + '\\n' + pub, '')"]]],
   ['rp-id-unchecked', 'any rp ID is accepted', [["  if (b.rp_id !== rpId) return refuse('rp-id')\n", '']]],
@@ -72,7 +74,7 @@ test('root broken twins', { timeout: 600_000 }, async (t) => {
     })
 
     const jobs = TWINS.map(([name, why, edits]) => [name, why, generate(name, edits)])
-    assert.equal(jobs.length, 5, 'twin count')
+    assert.equal(jobs.length, 7, 'twin count')
     const results = []
     const queue = [...jobs]
     const workers = Math.max(1, Math.floor(availableParallelism() / 4))

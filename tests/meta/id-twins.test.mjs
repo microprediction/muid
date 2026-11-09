@@ -25,13 +25,15 @@ const TWINS = [
   ['lifetime-unbounded', 'a delegation may outlive 30 days', [['lifetime > MAX_LIFETIME', 'lifetime > 10 * MAX_LIFETIME']], 'records.js'],
   ['attest-granted', 'a worker may be granted attest', [["  if (list.includes('attest')) throw new Error('the attest scope is not granted to a worker') // SPEC §8\n", '']], 'records.js'],
   ['audience-unchecked', 'any audience text is signed', [["  if (!isCanonicalOrigin(aud)) throw new Error('the audience must be an origin, such as https://app.example')\n", '']], 'records.js'],
-  ['edit-keeps-review', 'an edit leaves the reviewed delegation signable', [["for (const id of ['subject', 'aud', 'scopes', 'days', 'new-root', 'cosign-payload']) $(id).addEventListener('input', withdraw)", "for (const id of ['new-root', 'cosign-payload']) $(id).addEventListener('input', withdraw)"]], 'page.js'],
+  ['rename-keeps-review', 'renaming the agent leaves the reviewed delegation signable', [["for (const id of ['agent', 'subject',", "for (const id of ['subject',"]], 'page.js'],
+  ['agent-not-shown', 'the agent is signed but not shown in the review (I4)', [["    $('show-agent').textContent = d.body.agent\n", '']], 'page.js'],
+  ['edit-keeps-review', 'an edit leaves the reviewed delegation signable', [["for (const id of ['agent', 'subject', 'aud', 'scopes', 'days', 'new-root', 'cosign-payload']) $(id).addEventListener('input', withdraw)", "for (const id of ['new-root', 'cosign-payload']) $(id).addEventListener('input', withdraw)"]], 'page.js'],
   ['late-signature-kept', 'a signature that returns after an edit is handed over', [['    if (pending.delegation !== d) return // withdrawn while the passkey was asked\n', '']], 'page.js'],
   ['uv-preferred', 'the assertion does not require user verification', [["rpId, challenge: challenge(covers), userVerification: 'required',", "rpId, challenge: challenge(covers), userVerification: 'preferred',"]], 'page.js'],
   ['any-passkey', 'any passkey for the site may sign', [["    allowCredentials: [{ type: 'public-key', id: fromB64u(root.credential) }],\n", '']], 'page.js'],
   ['not-discoverable', 'the passkey is not a resident credential', [["residentKey: 'required', userVerification: 'required'", "userVerification: 'required'"]], 'page.js'],
   ['cosign-anything', 'a change that does not add this passkey is co-signed', [["    if (!c.body.roots.includes(root.id)) throw new Error('that change does not add this passkey')\n", '']], 'page.js'],
-  ['add-edit-keeps-review', 'an edit of the new root leaves the change signable', [["for (const id of ['subject', 'aud', 'scopes', 'days', 'new-root', 'cosign-payload'])", "for (const id of ['subject', 'aud', 'scopes', 'days', 'cosign-payload'])"]], 'page.js'],
+  ['add-edit-keeps-review', 'an edit of the new root leaves the change signable', [["for (const id of ['agent', 'subject', 'aud', 'scopes', 'days', 'new-root', 'cosign-payload'])", "for (const id of ['agent', 'subject', 'aud', 'scopes', 'days', 'cosign-payload'])"]], 'page.js'],
   ['authority-unchecked', 'a passkey without authority yet signs delegations', [["    if (!s.authority.includes(root.id)) throw new Error('this passkey has no authority yet: wait for the change to settle')\n", '']], 'page.js'],
   ['membership-of-epoch-1', 'delegations name the first membership whatever the current one', [['membership: s.membership, root: root.id', 'membership: root.identity, root: root.id']], 'page.js'],
   ['root-unregistered', 'a new identity is not registered with the witness', [["    await submit(root.identity, 'root', root.text)\n", '']], 'page.js'],
@@ -105,7 +107,7 @@ test('id page broken twins', { timeout: 3_600_000 }, async (t) => {
       assert.ok(r.pass >= 14, `control: only ${r.pass} tests ran`)
     })
     const jobs = TWINS.map(([name, why, edits, file]) => [name, why, generate(name, edits, file)])
-    assert.equal(jobs.length, 38, 'twin count')
+    assert.equal(jobs.length, 40, 'twin count')
     const results = []
     const queue = [...jobs]
     const workers = Math.max(1, Math.floor(availableParallelism() / 4))

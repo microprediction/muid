@@ -16,7 +16,7 @@ test('an agent contributes, retires, and its earnings arrive later under the ide
   assert.equal((await s.post(agent.records(q('snow-tomorrow', 2000), NOW - 4))).status, 200)
   // Nothing is earned before the questions resolve.
   assert.deepEqual((await s.get(`/earnings?identity=${IDENTITY}`)).body, { identity: IDENTITY, earned: 0, collected: 0, balance: 0,
-    agents: [{ agent: agent.subject, delegation: agent.id, contributions: 2, earned: 0 }] })
+    agents: [{ agent: agent.agent, name: 'worker', contributions: 2, earned: 0 }] })
   // The agent's delegation lapses (it is gone); the questions resolve afterwards.
   now = NOW + 7200
   assert.deepEqual(s.f.resolve('rain-tomorrow', 1), 1)
@@ -25,10 +25,30 @@ test('an agent contributes, retires, and its earnings arrive later under the ide
   const rain = 10000 - (7000 - 10000) ** 2 / 10000
   const snow = 10000 - (2000 - 0) ** 2 / 10000
   assert.deepEqual((await s.get(`/earnings?identity=${IDENTITY}`)).body, { identity: IDENTITY, earned: rain + snow, collected: 0, balance: rain + snow,
-    agents: [{ agent: agent.subject, delegation: agent.id, contributions: 2, earned: rain + snow }] })
+    agents: [{ agent: agent.agent, name: 'worker', contributions: 2, earned: rain + snow }] })
   // A question resolves once: again with its outcome credits nothing more; with the other, it is an error.
   assert.equal(s.f.resolve('rain-tomorrow', 1), 0)
   assert.throws(() => s.f.resolve('rain-tomorrow', 0), { message: 'already resolved with the other outcome' })
+})
+
+// Decision 13: an agent's share follows its name, not its key. A replaced key under the same name continues the same
+// light identity's share; another name is another agent.
+test('an agent\'s share survives its key being replaced; another name is another share', async () => {
+  const s = setup({ questions: ['rain', 'snow', 'hail'] })
+  const first = worker(10)
+  const replaced = worker(50) // the same agent on a new server: a new key, the same name
+  const other = worker(70, { agent: 'scorer' })
+  assert.notEqual(first.subject, replaced.subject)
+  assert.equal(first.agent, replaced.agent)
+  for (const [w, question] of [[first, 'rain'], [replaced, 'snow'], [other, 'hail']]) {
+    assert.equal((await s.post(w.records(q(question, 5000)))).status, 200, question)
+  }
+  for (const question of ['rain', 'snow', 'hail']) s.f.resolve(question, 1)
+  const each = 10000 - (5000 - 10000) ** 2 / 10000
+  assert.deepEqual((await s.get(`/earnings?identity=${IDENTITY}`)).body.agents, [
+    { agent: first.agent, name: 'worker', contributions: 2, earned: 2 * each },
+    { agent: other.agent, name: 'scorer', contributions: 1, earned: each },
+  ])
 })
 
 test('earnings are collected by a live delegation of the identity, with the collect scope; not by the agent', async () => {
@@ -49,8 +69,8 @@ test('earnings are collected by a live delegation of the identity, with the coll
 // agent made it; more agents or more claims earn nothing more. Distinct questions are distinct work.
 test("one standing forecast per identity and question, its latest, whichever agent made it; each agent's share shown", async () => {
   const s = setup({ questions: ['x', 'y'] })
-  const a1 = worker(10)
-  const a2 = worker(50)
+  const a1 = worker(10, { agent: 'alpha' })
+  const a2 = worker(50, { agent: 'beta' })
   await s.post(a1.records(q('x', 10000)))
   await s.post(a2.records(q('x', 5000))) // the identity's later forecast of x stands
   await s.post(a1.records(q('y', 10000), NOW - 6))
@@ -58,7 +78,7 @@ test("one standing forecast per identity and question, its latest, whichever age
   assert.equal(s.f.resolve('y', 1), 1)
   const e = (await s.get(`/earnings?identity=${IDENTITY}`)).body
   assert.equal(e.earned, 7500 + 10000)
-  assert.deepEqual(e.agents.map((a) => [a.agent, a.contributions, a.earned]), [[a1.subject, 2, 10000], [a2.subject, 1, 7500]])
+  assert.deepEqual(e.agents.map((a) => [a.agent, a.contributions, a.earned]), [[a1.agent, 2, 10000], [a2.agent, 1, 7500]])
   assert.deepEqual((await s.get(`/earnings?identity=${'f'.repeat(64)}`)).body, { identity: 'f'.repeat(64), earned: 0, collected: 0, balance: 0, agents: [] })
 })
 
@@ -66,14 +86,14 @@ test("one standing forecast per identity and question, its latest, whichever age
 // over the identity's later one.
 test('the standing forecast is the one signed last, whatever order they arrive in; on a tie, the later to arrive', async () => {
   const s = setup()
-  const a1 = worker(10)
-  const a2 = worker(50)
+  const a1 = worker(10, { agent: 'alpha' })
+  const a2 = worker(50, { agent: 'beta' })
   await s.post(a2.records(q('q', 10000), NOW - 3)) // signed later, arrives first
   await s.post(a1.records(q('q', 0), NOW - 5)) // signed earlier, held back
   s.f.resolve('q', 1)
   const e = (await s.get(`/earnings?identity=${IDENTITY}`)).body
   assert.equal(e.earned, 10000)
-  assert.deepEqual(e.agents.map((a) => [a.agent, a.earned]), [[a2.subject, 10000], [a1.subject, 0]])
+  assert.deepEqual(e.agents.map((a) => [a.agent, a.earned]), [[a2.agent, 10000], [a1.agent, 0]])
 })
 
 test('the same forecast under a new claim, or again by the same agent, does not earn twice', async () => {

@@ -24,7 +24,7 @@ const ROOT = rootModule.checkRoot(rootText, { rpId: RP_ID }).id
 const IDENTITY = rootModule.identityOf(ROOT)
 
 function delegationText (over = {}, { secret, covers } = {}) {
-  const body = { identity: IDENTITY, membership: IDENTITY, root: ROOT, subject: hex(ed25519.getPublicKey(APP)), aud: AUD,
+  const body = { agent: 'worker', identity: IDENTITY, membership: IDENTITY, root: ROOT, subject: hex(ed25519.getPublicKey(APP)), aud: AUD,
     scopes: ['post', 'read'], nbf: NOW - 10, exp: NOW + 86_000, ...over }
   const { payload, id } = envelope.seal('delegation', body)
   const subject = hex(ed25519.sign(Buffer.concat([Buffer.from('muid/v1/accept\n'), Buffer.from(id, 'hex')]), APP))

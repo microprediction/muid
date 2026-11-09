@@ -20,7 +20,7 @@ test('a first-time user: one root, one delegation, a head, accepted by the relyi
   const identity = root.identityOf(r.id)
 
   // 2. The id page builds the delegation; the passkey signs its id (one prompt) and the app key countersigns.
-  const body = { identity, membership: identity, root: r.id, subject: hex(ed25519.getPublicKey(APP)), aud: AUD,
+  const body = { agent: 'worker', identity, membership: identity, root: r.id, subject: hex(ed25519.getPublicKey(APP)), aud: AUD,
     scopes: ['post'], nbf: NOW, exp: NOW + 86_400 }
   const { payload, id } = envelope.seal('delegation', body)
   const subject = hex(ed25519.sign(Buffer.concat([Buffer.from('muid/v1/accept\n'), Buffer.from(id, 'hex')]), APP))

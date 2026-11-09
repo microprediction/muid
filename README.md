@@ -24,9 +24,10 @@ What the light keys buy:
 - **No prompt per action.** One passkey prompt authorises a key for many signatures.
 - **Each action names the key that made it**, as well as the identity.
 
-Today a light identity is only its key, so a rotated key looks like a new agent, and renewing one needs the passkey
-weekly. [`research/light-identities.md`](research/light-identities.md) proposes stable agent names and renewal
-without the passkey (SPEC decision 13), and works one scenario through each of the designs below.
+Each delegation names its agent, so a light identity keeps its name, and its history at a service, when its key is
+replaced; retiring the name retires the agent for good. Renewing one still needs the passkey weekly:
+[`research/light-identities.md`](research/light-identities.md) proposes renewal without it (SPEC decision 13), and
+works one scenario through each of the designs below.
 
 ## The problem it solves
 

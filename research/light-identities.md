@@ -45,6 +45,9 @@ needs its owner at a browser at least weekly. That is the one place where the he
 
 ## 3. Part A: a name for each light identity
 
+Status: decided and built (SPEC D8).
+
+
 - A delegation gains a ninth field, `agent`: a name matching the scope pattern (`^[a-z][a-z0-9_.:-]{0,63}$`).
 - The light identity id is hex SHA-256(`UTF-8("muid-agent\n")` ‖ the identity id as 32 raw bytes ‖ `UTF-8(agent)`).
   It is derived, as root and identity ids are, so there is no registry and no record that creates it.

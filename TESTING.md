@@ -281,7 +281,12 @@ Interface under test: `checkRootAssertion(sig, { record, rpId, origin, key })` �
 - **Twins:** id without the domain prefix; id over the hex text instead of the bytes; rp ID not compared; identity
   over the hex root id.
 
-## 4d. Layer 5 — delegations (`src/delegation.js`): D1–D7
+- **Agent ids (D8, `R0-root.test.mjs`):** `agentIdOf` equals SHA-256 over the specified bytes, computed with
+  `node:crypto` (`"muid-agent\n"`, the identity id's 32 raw bytes, the name), for names of 1 and 64 characters; it
+  differs per identity, per name and from the identity id; a malformed identity id or name is a programming error.
+  Twins: the prefix omitted; the identity omitted.
+
+## 4d. Layer 5 — delegations (`src/delegation.js`): D1–D8
 
 Interface under test: `checkDelegation(text, ctx)` → frozen `{ ok: true }` or `{ ok: false, reason }` (D7), with
 envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shaped assertion (as in §4b).
@@ -308,6 +313,9 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
 - **K2:** arbitrary texts and values never throw; envelope faults give V4's reasons.
 - **Twins:** skew applied to `exp`; `<=` at `exp`; no lifetime cap; scopes prefix-matched or unsorted allowed; no D6;
   D6 over hex text; aud not checked; root assertion checked against a fixed record id.
+- **Agents (D8):** `agent` missing, empty, upper-case, starting with a digit, with a space or a slash, of 65
+  characters, non-ASCII, a number, a list or a boolean is `delegation-shape`; names of 1 to 64 characters of the scope
+  grammar are accepted. Twin: a name of any form accepted.
 
 ## 4e. Layer 6 — attestations (`src/attestation.js`): A1, A3, A4
 
@@ -361,6 +369,7 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   without a majority; new roots with authority while pending; a freeze lifted at anchoring; settlements ignored; one
   of two anchored rivals chosen; root assertions not verified; the revocation cap applied only after the whole list is
   read; a pending epoch in the head as if settled.
+
 
 ## 4g. Layer 8 — the verifier (`src/verifier.js`): F1–F5, R9
 
@@ -442,6 +451,12 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   authority unchecked while the memberships stand, allowed to grow, or to shrink at settlement; a head older than the
   last accepted; the last head's identity unchecked, checked at `now`, or not verified; the head's epoch unchecked
   against its memberships, or 0 allowed.
+- **Agents (D8, `F8-agents.test.mjs`):** the result carries the agent's light identity id (computed independently),
+  and a claim's delegation too; two delegations under one name, with different keys and windows, have one agent id,
+  another name another; a retired name is refused in the head, the call and the last head (a later head without it
+  does not revive it), for the delegation that was retired and for one signed after under a new key; another name,
+  and the same name under another identity, are unaffected. Twins: retirement ignored; the agent named without its
+  identity.
 
 ## 4h. The relying-party adapter (`adapter/`, not core): issue #21
 
@@ -493,6 +508,7 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   retired key cannot backdate), the claim (its id and its delegation).
 - `existedBy` is the quorum-th earliest cosignature; configuration read once; a foreign error fails closed.
 - Twins (13).
+
 
 ## 4j. The witness's decisions (`witness/`, not core)
 
@@ -581,6 +597,11 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   interleaved, a head kept after a change or for ever, a head unlogged, an unbounded body, and any type submitted; and in the log client, halves for the split, no full-tile fallback, a
   short tile used, unprefixed tile indices, any append answer taken, and the proof's order.
 
+- **Retired agents (D8, `W7-logged.test.mjs`):** a root's revocation of an agent id is in the head while a
+  delegation under the name is live; a new delegation under the name, with a new key, is refused as `revoked` then and
+  thirty days later, when the entry has left heads but is still kept; another name is logged. Twins: a revocation
+  naming an agent names nothing; a new delegation under a retired name logged.
+
 ## 4k. The id page (`id/`, not core)
 
 - `records.js` in Node (`P1-records.test.mjs`): the root record read by the core, and ES256 on P-256 only; base64url
@@ -629,6 +650,10 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   this passkey, an edit of the new root kept, authority unchecked, delegations under the first membership, the root
   or the added root not submitted, a change proposed while one is pending, its roots unsorted.
 
+- **The agent's name (D8):** the worker form takes the agent's name, shown in the review with the rest of what is
+  signed (spaces around it are not signed); renaming it withdraws the review; a name outside the grammar is refused
+  with a reason before anything is signed.
+
 ## 4l. The two-application demo (`demo/`, not core)
 
 - The four scenarios end to end (`tests/demo/D1-scenarios.test.mjs`): the witness service, Tessera with
@@ -648,6 +673,9 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   forecast refused and its claim spent. End to end, the agent retires itself through the witness and is then
   refused, its earnings resolved afterwards, and the owner's device collects.
 - Mutation 100%; twins (`tests/meta/demo-twins.test.mjs`, 17).
+
+- **Agents' shares (D8):** an agent's share of an identity's earnings follows its name: a worker whose key is replaced
+  keeps one share across both keys, and another name is another share.
 
 ## 5. Later layers (outline; each is expanded here before its code is written)
 

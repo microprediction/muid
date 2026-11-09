@@ -127,7 +127,7 @@ const idOf = (m) => (m === genesisOf(G).id ? I : createHash('sha256').update(m).
 const memo = new Map()
 const once = (k, f) => { if (!memo.has(k)) memo.set(k, f()); return memo.get(k) }
 const delegationFor = (membership, letter) => once(`d ${membership} ${letter}`, () => {
-  const { payload, id } = envelope.seal('delegation', { identity: I, membership, root: rootId(letter),
+  const { payload, id } = envelope.seal('delegation', { agent: 'worker', identity: I, membership, root: rootId(letter),
     subject: hex(ed25519.getPublicKey(APP)), aud: AUD, scopes: ['post'], nbf: NOW - 100, exp: NOW + 1000 })
   const subject = hex(ed25519.sign(Buffer.concat([Buffer.from('muid/v1/accept\n'), Buffer.from(id, 'hex')]), APP))
   return envelope.wrap(payload, { root: make({ covers: [id], secret: secretOf(letter) }), subject })

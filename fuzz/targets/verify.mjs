@@ -22,7 +22,7 @@ const witnessSigned = (type, body) => {
 const root = envelope.wrap(envelope.seal('root', { pub: KEY, rp_id: RP_ID }).payload)
 const ROOT = rootModule.checkRoot(root, { rpId: RP_ID }).id
 const IDENTITY = rootModule.identityOf(ROOT)
-const del = envelope.seal('delegation', { identity: IDENTITY, membership: IDENTITY, root: ROOT, subject: hex(ed25519.getPublicKey(APP)),
+const del = envelope.seal('delegation', { agent: 'worker', identity: IDENTITY, membership: IDENTITY, root: ROOT, subject: hex(ed25519.getPublicKey(APP)),
   aud: AUD, scopes: ['post'], nbf: NOW - 10, exp: NOW + 86_000 })
 const delegation = envelope.wrap(del.payload, { root: make({ covers: [del.id] }),
   subject: hex(ed25519.sign(Buffer.concat([Buffer.from('muid/v1/accept\n'), Buffer.from(del.id, 'hex')]), APP)) })

@@ -20,6 +20,7 @@ const IMPORTS = ['envelope', 'assertion', 'ed25519', 'origin', 'root', 'bytes'].
 
 // [name, bug class, [find, replace] pairs]
 const TWINS = [
+  ['agent-any-form', 'an agent\'s name of any form is accepted', [['isHex(SCOPE, b.agent)', "typeof b.agent === 'string'"]]],
   ['skew-on-exp', 'clock skew also extends the expiry', [["  if (ctx.now >= b.exp) return refuse('expired')", "  if (ctx.now >= b.exp + ctx.skew) return refuse('expired')"]]],
   ['inclusive-exp', 'a delegation is still valid at exp', [["  if (ctx.now >= b.exp) return refuse('expired')", "  if (ctx.now > b.exp) return refuse('expired')"]]],
   ['no-lifetime-cap', 'any lifetime is accepted', [[' || b.exp - b.nbf > ctx.maxLifetime', '']]],
@@ -72,7 +73,7 @@ test('delegation broken twins', { timeout: 600_000 }, async (t) => {
     })
 
     const jobs = TWINS.map(([name, why, edits]) => [name, why, generate(name, edits)])
-    assert.equal(jobs.length, 9, 'twin count')
+    assert.equal(jobs.length, 10, 'twin count')
     const results = []
     const queue = [...jobs]
     const workers = Math.max(1, Math.floor(availableParallelism() / 4))

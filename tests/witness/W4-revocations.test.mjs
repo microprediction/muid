@@ -19,7 +19,7 @@ const SUBJECT = hex(ed25519.getPublicKey(APP))
 const DEL_ID = 'd'.repeat(64)
 
 function delegation ({ identity = IDENTITY, membership = IDENTITY, root = 'a', subject = APP, nbf = NOW - 10, exp = NOW + 86_000 } = {}) {
-  const body = { identity, membership, root: rootId(root), subject: hex(ed25519.getPublicKey(subject)), aud: 'https://app.example',
+  const body = { agent: 'worker', identity, membership, root: rootId(root), subject: hex(ed25519.getPublicKey(subject)), aud: 'https://app.example',
     scopes: ['post'], nbf, exp }
   const { payload, id } = envelope.seal('delegation', body)
   return envelope.wrap(payload, { root: make({ covers: [id], secret: secretOf(root) }),

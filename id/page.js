@@ -129,7 +129,7 @@ async function register () {
 $('create-button').addEventListener('click', () => create(false))
 $('register-retry').addEventListener('click', () => { $('error').textContent = ''; register() })
 $('join-button').addEventListener('click', () => create(true))
-for (const id of ['subject', 'aud', 'scopes', 'days', 'new-root', 'cosign-payload']) $(id).addEventListener('input', withdraw)
+for (const id of ['agent', 'subject', 'aud', 'scopes', 'days', 'new-root', 'cosign-payload']) $(id).addEventListener('input', withdraw)
 
 $('review').addEventListener('click', async () => {
   withdraw()
@@ -137,11 +137,12 @@ $('review').addEventListener('click', async () => {
     const s = await state()
     if (!s.authority.includes(root.id)) throw new Error('this passkey has no authority yet: wait for the change to settle')
     const d = delegation({
-      identity: root.identity, membership: s.membership, root: root.id, subject: $('subject').value.trim(),
+      agent: $('agent').value.trim(), identity: root.identity, membership: s.membership, root: root.id, subject: $('subject').value.trim(),
       aud: $('aud').value.trim(), scopes: $('scopes').value.trim().split(/\s+/),
       now: Math.floor(Date.now() / 1000), lifetime: Math.round(Number($('days').value) * 86_400),
     })
     pending.delegation = d
+    $('show-agent').textContent = d.body.agent
     $('show-aud').textContent = d.body.aud
     $('show-scopes').textContent = d.body.scopes.join(' ')
     $('show-exp').textContent = new Date(d.body.exp * 1000).toISOString()
