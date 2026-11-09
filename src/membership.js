@@ -138,10 +138,10 @@ function copy (a, n = a.length) {
 
 function read (records, ctx) {
   const rootKeys = table()
-  const rootIds = [] // in the order given
+  const rootIds = [] // in the order given; a repeated root gives its own id and key again, which changes nothing
   each(records, 'roots', (t) => {
     const r = checkRoot(t, { rpId: ctx.rpId })
-    if (r.ok && rootKeys[r.id] === undefined) { rootKeys[r.id] = r.key; rootIds[rootIds.length] = r.id }
+    if (r.ok) { rootKeys[r.id] = r.key; rootIds[rootIds.length] = r.id }
   })
   const mine = (b) => b.identity === ctx.identity
   const counted = table()
