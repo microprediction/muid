@@ -96,7 +96,6 @@ test('note form: the signature block, its lines, and the characters allowed', ()
     ['not a string', Buffer.from(good)], ['a String object', new String(good)], ['too long', good + 'x'.repeat(65536)], // eslint-disable-line no-new-wrappers
     ['text running into the signatures', '\n' + logLine(LOG, '')], ['garbage before a line', good.replace(/\n— /, '\nx— ')],
     ['garbage after a line', good.replace(/(\n— [^\n]*)\n/, '$1 x\n')], ['a four-byte signature', `${text}\n— ${ORIGIN} AAAAAA==\n` + logLine(LOG, text)],
-    ['a 256-byte name', text + '\n' + logLine(LOG, text) + `— ${'n'.repeat(256)} AAAAAAA=\n`],
   ]) {
     assert.deepEqual(plain(verifyCheckpoint(n, CTX)), refused('note-form'), name)
   }
@@ -104,6 +103,11 @@ test('note form: the signature block, its lines, and the characters allowed', ()
     Array.from({ length: 61 }, (_, i) => cosignLine(keyPair(`x.example/${i}`, 4, 10 + i), text, NOW)).join('')
   assert.equal(verifyCheckpoint(many, CTX).ok, true, 'sixty-four signatures, sixty-one of them unknown')
   assert.equal(verifyCheckpoint(good + `— ${'n'.repeat(255)} AAAAAAA=\n`, CTX).ok, true, 'an unknown five-byte signature under a 255-byte name')
+  // C2SP signed-note: "Verifiers MUST ignore signatures from unknown keys", and puts no limit on a key name's length;
+  // the 255-byte limit is tlog-cosignature's, on a cosigner's own name, so it holds for configured keys only (found by
+  // review).
+  assert.equal(verifyCheckpoint(good + `— ${'n'.repeat(256)} AAAAAAA=\n`, CTX).ok, true, 'an unknown signature under a 256-byte name')
+  assert.equal(verifyCheckpoint(good + `— ${'n'.repeat(5000)} AAAAAAA=\n`, CTX).ok, true, 'and under a 5,000-byte name')
   assert.equal(note.verifyNote('\n\n' + logLine(LOG, '\n'), { keys: [LOG.vkey] }).ok, true, 'a text that is one empty line')
 })
 

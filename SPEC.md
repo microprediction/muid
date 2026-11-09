@@ -599,12 +599,15 @@ is the text of the newest head the relying party has accepted for the identity, 
   `identity`, at the service's time `at`. The service appends the receipt's envelope text to a transparency log; the
   log's entry is its UTF-8 bytes. `verifyReceipt({ receipt, checkpoint, proof, index, claim? }, ctx)` checks, in
   order: V4's reasons; `receipt-shape` (keys other than the five, an id not 64 lowercase hex, `service` not a
-  canonical origin (O1), `at` not a non-negative integer, or `sig` not as above); `service` (the key is not one the
-  caller pins for that origin); K5's signature reasons; `checkpoint` (the checkpoint does not verify under the
+  canonical origin (O1), `at` not a non-negative integer, or `sig` not as above); `service` (no window the
+  caller pins for that origin and key holds `at`; refused before the signature is tried, keys being named, never
+  found by trying, as A4's); K5's signature reasons; `checkpoint` (the checkpoint does not verify under the
   caller's log configuration, with at least one cosigner); `inclusion` (the entry is not at `index` in the
   checkpoint's tree); `receipt-time` (`at` is later than the quorum's time, or than `now`, plus `skew`: a receipt
-  cannot be accepted after it was logged, nor in the future); `service` (no pinned window for that key holds both `at` and the quorum's time, less
-  `skew`, each window `[nbf, exp)` as A1's and D1's are: a retired key cannot mint receipts by backdating); `claim` (a claim is given and its record id is not
+  cannot be accepted after it was logged, nor in the future); `service` (the quorum's time is at or
+  after the end, plus `skew`, of every pinned window for that key that holds `at` — it cannot fall before such a
+  window's `nbf` less `skew`, since `receipt-time` bounds `at` by it — each window `[nbf, exp)` as A1's and D1's are:
+  a retired key cannot mint receipts by backdating); `claim` (a claim is given and its record id is not
   `claim`, or it was made under another delegation). Within a key's window `at` is the service's word, bounded
   above by the quorum's time. A receipt is therefore kept with the checkpoint and proof obtained when it was logged,
   as a Sigstore bundle keeps its own: a checkpoint cosigned after the service key retired cannot vouch for it. It returns `{ service, identity, delegation, claim, at, existedBy }`, where `existedBy` is the

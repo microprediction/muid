@@ -472,7 +472,10 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
 - Cosignatures built from the specifications' wording: the quorum, times from the future not counted, times sorted
   as numbers, unknown keys ignored, every known signature checked, origin pinned, checkpoint and note form.
 - Configuration: one key under two names, the log's key as a cosigner, two keys with colliding 32-bit IDs (found by
-  search) are all programming errors; key names follow Unicode White_Space, as Go.
+  search) are all programming errors; key names follow Unicode White_Space, as Go. A signature line under an unknown name of any
+  length is ignored (signed-note: "Verifiers MUST ignore signatures from unknown keys"; the 255-byte limit is
+  tlog-cosignature's, on a cosigner's own name, so it holds for configured keys): one under a 256- or 5,000-byte name
+  leaves a valid checkpoint valid (found by review).
 - Totality, and any one-character change to a cosigned checkpoint is refused.
 - Twins (16).
 
