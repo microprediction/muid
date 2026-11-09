@@ -5,7 +5,7 @@ on:
     branches: [master]
   pull_request:
   schedule:
-    - cron: '17 6 * * *' # nightly, every mutation config whatever changed
+    - cron: '17 6 * * *' # nightly: the slow twins and every mutation config
   workflow_dispatch:
 
 # Read-only token; no job needs to write anything.
@@ -50,22 +50,19 @@ jobs:
           --test-coverage-lines=100 --test-coverage-branches=100 --test-coverage-functions=100
           "tests/!(meta)/*.test.mjs"
 
+  # Every pull request and push: the quick harnesses, in three jobs, each run one after another.
   twins:
     runs-on: ubuntu-24.04
     timeout-minutes: 60 # a hang fails the job instead of holding it for six hours
     strategy:
       fail-fast: false
       matrix:
-        # The slow harnesses run in jobs of their own; the quick ones share jobs, run one after another, so a push
-        # takes a dozen runner slots rather than forty.
         suite:
-          - tests/meta/id-twins.test.mjs
-          - tests/meta/witness-twins.test.mjs
           - >-
             tests/meta/membership-twins.test.mjs tests/meta/root-twins.test.mjs tests/meta/p256-twins.test.mjs
             tests/meta/origin-twins.test.mjs tests/meta/note-twins.test.mjs tests/meta/merkle-twins.test.mjs
+          - tests/meta/verifier-twins.test.mjs tests/meta/encoding-twins.test.mjs tests/meta/ed25519-twins.test.mjs
           - >-
-            tests/meta/verifier-twins.test.mjs tests/meta/encoding-twins.test.mjs tests/meta/ed25519-twins.test.mjs
             tests/meta/demo-twins.test.mjs tests/meta/adapter-twins.test.mjs tests/meta/envelope-twins.test.mjs
             tests/meta/delegation-twins.test.mjs tests/meta/bytes-twins.test.mjs tests/meta/attestation-twins.test.mjs
             tests/meta/assertion-twins.test.mjs tests/meta/receipt-twins.test.mjs
@@ -81,8 +78,31 @@ jobs:
       - name: Broken twins (each must make its suite fail)
         run: node --test --test-concurrency=1 ${{ matrix.suite }}
 
-  # A pull request runs the mutation configs whose inputs it changes (tests/mutation-plan.mjs); a push to master, the
-  # nightly run and a manual run take every config.
+  # Nightly and on demand: the slow harnesses, a job each.
+  twins-nightly:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60 # a hang fails the job instead of holding it for six hours
+    strategy:
+      fail-fast: false
+      matrix:
+        suite:
+          - tests/meta/id-twins.test.mjs
+          - tests/meta/witness-twins.test.mjs
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '26'
+      - name: Install (no install scripts)
+        run: npm ci --ignore-scripts
+      - name: Broken twins (each must make its suite fail)
+        run: node --test --test-concurrency=1 ${{ matrix.suite }}
+
+  # A pull request runs the quick mutation configs whose inputs it changes (tests/mutation-plan.mjs), a push to master
+  # every quick config, and the nightly and manual runs every config.
   plan:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -99,12 +119,13 @@ jobs:
       - name: Mutation configs to run
         id: plan
         run: |
-          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
-            git diff --name-only --no-renames HEAD^1 HEAD > "$RUNNER_TEMP/changed.txt"
-            jobs=$(node tests/mutation-plan.mjs "$RUNNER_TEMP/changed.txt")
-          else
-            jobs=$(node tests/mutation-plan.mjs)
-          fi
+          case "$GITHUB_EVENT_NAME" in
+            pull_request)
+              git diff --name-only --no-renames HEAD^1 HEAD > "$RUNNER_TEMP/changed.txt"
+              jobs=$(node tests/mutation-plan.mjs "$RUNNER_TEMP/changed.txt") ;;
+            schedule | workflow_dispatch) jobs=$(node tests/mutation-plan.mjs --nightly) ;;
+            *) jobs=$(node tests/mutation-plan.mjs) ;;
+          esac
           echo "jobs=$jobs" >> "$GITHUB_OUTPUT"
           echo "$jobs"
 
@@ -116,7 +137,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # The slow configs alone, the quick ones together (JOBS in tests/mutation-plan.mjs).
+        # The slow configs alone, the quick ones together (tests/mutation-plan.mjs).
         config: ${{ fromJSON(needs.plan.outputs.jobs) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

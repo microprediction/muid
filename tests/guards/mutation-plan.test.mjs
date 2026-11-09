@@ -1,5 +1,5 @@
-// tests/mutation-plan.mjs: a pull request runs every mutation config whose inputs it changes, and no other; every
-// other event runs them all.
+// tests/mutation-plan.mjs: a pull request runs the quick mutation configs whose inputs it changes, and no other; a
+// push runs every quick config; the nightly run every config.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
@@ -7,37 +7,48 @@ import { writeFileSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { JOBS, plan, inputs, reach, references, touches } from '../mutation-plan.mjs'
+import { JOBS, EVERY_RUN, NIGHTLY, plan, select, inputs, reach, references, touches } from '../mutation-plan.mjs'
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url))
 const ALL = JOBS.map((j) => j.join(' '))
 const configs = (jobs) => jobs.flatMap((j) => j.split(' ')).sort()
 const only = (...cs) => [...cs].sort()
 
-test('with no list of changes, every job runs', () => {
-  assert.deepEqual(plan(null), ALL)
+test('the nightly run takes every job; a push the quick job whole; a pull request the quick configs it affects', () => {
+  assert.deepEqual(plan(null, { nightly: true }), ALL)
+  assert.deepEqual(plan(['README.md'], { nightly: true }), ALL)
+  assert.deepEqual(plan(null), [EVERY_RUN.join(' ')])
+  assert.deepEqual(plan(['README.md']), [])
+  assert.deepEqual(plan(['src/bytes.js']), [EVERY_RUN.join(' ')])
+  assert.deepEqual(plan(['id/page.js']), ['stryker.id-records.config.json'])
+  assert.deepEqual(plan(['stryker.id-page.config.json']), [])
+  assert.deepEqual(JOBS, [...NIGHTLY, EVERY_RUN])
 })
 
-test('a change that no config reads runs no mutation job', () => {
-  assert.deepEqual(plan([]), [])
-  assert.deepEqual(plan(['README.md', 'SPEC.md', 'research/delegation.md', 'tests/guards/core-bans.test.mjs', '.github/workflows/scan.yml']), [])
+test('selection: with no list of changes, every job', () => {
+  assert.deepEqual(select(null), ALL)
 })
 
-test('a change to package files, the workflow or the plan runs every job', () => {
-  for (const f of ['package.json', 'package-lock.json', '.github/workflows/test.yml', 'tests/mutation-plan.mjs']) assert.deepEqual(plan([f]), ALL, f)
+test('selection: a change that no config reads selects nothing', () => {
+  assert.deepEqual(select([]), [])
+  assert.deepEqual(select(['README.md', 'SPEC.md', 'research/delegation.md', 'tests/guards/core-bans.test.mjs', '.github/workflows/scan.yml']), [])
 })
 
-test('a core module is read by every suite (through tests/impl.mjs), so a change to one runs every job', () => {
-  assert.deepEqual(plan(['src/bytes.js']), ALL)
-  assert.deepEqual(plan(['tests/impl.mjs']), ALL)
+test('selection: a change to package files, the workflow or the plan selects every job', () => {
+  for (const f of ['package.json', 'package-lock.json', '.github/workflows/test.yml', 'tests/mutation-plan.mjs']) assert.deepEqual(select([f]), ALL, f)
 })
 
-test('a change to the id page runs the configs whose tests load it, and only those', () => {
+test('selection: a core module is read by every suite (through tests/impl.mjs), so a change to one selects every job', () => {
+  assert.deepEqual(select(['src/bytes.js']), ALL)
+  assert.deepEqual(select(['tests/impl.mjs']), ALL)
+})
+
+test('selection: a change to the id page selects the configs whose tests load it, and only those', () => {
   const ids = ['stryker.id-page.config.json', 'stryker.id-records.config.json']
   // The demo's tests load id/ too (tests/id/impl.mjs), but not the page tests or their server.
-  for (const f of ['id/page.js', 'id/index.html', 'id/page.css', 'id/new.js']) assert.deepEqual(configs(plan([f])), only(...ids, 'stryker.demo.config.json'), f)
-  for (const f of ['tests/id/P2-page.test.mjs', 'tests/id/serve.mjs']) assert.deepEqual(configs(plan([f])), only(...ids), f)
-  assert.deepEqual(configs(plan(['stryker.id-page.config.json'])), ['stryker.id-page.config.json'])
+  for (const f of ['id/page.js', 'id/index.html', 'id/page.css', 'id/new.js']) assert.deepEqual(configs(select([f])), only(...ids, 'stryker.demo.config.json'), f)
+  for (const f of ['tests/id/P2-page.test.mjs', 'tests/id/serve.mjs']) assert.deepEqual(configs(select([f])), only(...ids), f)
+  assert.deepEqual(configs(select(['stryker.id-page.config.json'])), ['stryker.id-page.config.json'])
 })
 
 test('what a suite reaches from another directory counts: helpers, fixtures, models and vectors', () => {
@@ -45,10 +56,10 @@ test('what a suite reaches from another directory counts: helpers, fixtures, mod
   assert.ok(inputs('stryker.id-page.config.json').includes('witness/service.js'))
   assert.ok(inputs('stryker.membership.config.json').includes('model/recovery.mjs'))
   assert.ok(inputs('stryker.config.json').some((f) => f.startsWith('tests/vectors/jcs/input/')))
-  assert.ok(configs(plan(['tests/vectors/c2sp-note/anything'])).includes('stryker.note.config.json'))
-  assert.ok(!configs(plan(['tests/vectors/c2sp-note/anything'])).includes('stryker.id-page.config.json'))
+  assert.ok(configs(select(['tests/vectors/c2sp-note/anything'])).includes('stryker.note.config.json'))
+  assert.ok(!configs(select(['tests/vectors/c2sp-note/anything'])).includes('stryker.id-page.config.json'))
   // A deleted file a suite still names is a change to that suite's inputs.
-  assert.ok(configs(plan(['tests/witness/fixtures.mjs'])).includes('stryker.id-page.config.json'))
+  assert.ok(configs(select(['tests/witness/fixtures.mjs'])).includes('stryker.id-page.config.json'))
 })
 
 test('references: quoted and template paths, directories, and a template cut at its first substitution', () => {
@@ -67,13 +78,14 @@ test('a file that names the repository itself reaches everything, so every job r
   assert.equal(touches('id/page.js', ['id/page.js.orig']), false)
 })
 
-test('the command prints the jobs: all of them, or those the listed changes affect', () => {
+test('the command prints the jobs: the quick job, the quick configs the listed changes affect, or every job', () => {
   const dir = mkdtempSync(join(tmpdir(), 'muid-plan-'))
   try {
     const run = (...args) => JSON.parse(execFileSync(process.execPath, [join(ROOT, 'tests/mutation-plan.mjs'), ...args], { encoding: 'utf8' }))
-    assert.deepEqual(run(), ALL)
+    assert.deepEqual(run(), [EVERY_RUN.join(' ')])
+    assert.deepEqual(run('--nightly'), ALL)
     writeFileSync(join(dir, 'changed.txt'), 'README.md\nid/page.js\n')
-    assert.deepEqual(configs(run(join(dir, 'changed.txt'))), only('stryker.id-page.config.json', 'stryker.id-records.config.json', 'stryker.demo.config.json'))
+    assert.deepEqual(run(join(dir, 'changed.txt')), ['stryker.id-records.config.json'])
     writeFileSync(join(dir, 'changed.txt'), 'README.md\n')
     assert.deepEqual(run(join(dir, 'changed.txt')), [])
   } finally {
