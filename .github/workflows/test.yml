@@ -43,10 +43,11 @@ jobs:
         # Once, with the newest npm: older npm releases lack newer registry attestation keys.
         if: matrix.node == '26'
         run: npm audit signatures
-      # A test that never ends fails at five minutes, and a file whose tests have ended exits though a browser is left open.
+      # A test that never ends fails at ten minutes (on Node 22 the limit holds for each file too, and the slowest file takes
+      # about five), and a file whose tests have ended exits though a browser is left open.
       - name: Tests with full coverage of the core
         run: >-
-          node --test --test-timeout=300000 --test-force-exit --experimental-test-coverage --test-coverage-include='src/**' --test-coverage-include='adapter/**' --test-coverage-include='witness/**' --test-coverage-include='id/records.js' --test-coverage-include='demo/**'
+          node --test --test-timeout=600000 --test-force-exit --experimental-test-coverage --test-coverage-include='src/**' --test-coverage-include='adapter/**' --test-coverage-include='witness/**' --test-coverage-include='id/records.js' --test-coverage-include='demo/**'
           --test-coverage-lines=100 --test-coverage-branches=100 --test-coverage-functions=100
           "tests/!(meta)/*.test.mjs"
 

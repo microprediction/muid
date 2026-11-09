@@ -8,7 +8,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "test": "node --test --test-timeout=300000 --test-force-exit \"tests/!(meta)/*.test.mjs\"",
+    "test": "node --test --test-timeout=600000 --test-force-exit \"tests/!(meta)/*.test.mjs\"",
     "test:twins": "node --test --test-concurrency=1 \"tests/meta/*.test.mjs\""
   },
   "devDependencies": {
