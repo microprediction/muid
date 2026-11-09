@@ -13,7 +13,7 @@ import { workerData, parentPort } from 'node:worker_threads'
 const { relyingParty } = await import(workerData.adapter)
 const { sqliteStore } = await import(workerData.stores)
 const f = await import(workerData.fixtures)
-const rp = relyingParty({ verifier: f.verifier(), store: sqliteStore(workerData.file) })
+const rp = relyingParty({ verifier: f.verifier(), store: sqliteStore(workerData.file), clock: () => f.NOW })
 // A barrier: every instance is loaded and connected before any presents the claim, so they race in earnest.
 const count = new Int32Array(workerData.barrier)
 Atomics.add(count, 0, 1)

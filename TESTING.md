@@ -474,6 +474,25 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   taken for a verifier error; a consumed claim accepted again; a failed transaction taken as success; the stored
   head not passed; an unreadable stored head locking its identity out, or its time ignored; the records read twice;
   heads regressing in either store.
+- **Replay after cleanup (found by model checking):** a replay whose transaction waits, while another instance's
+  cleanup drops the claim's id, is refused as `claim-time` once the waiting instance's clock passes the claim's
+  `until` (memory and SQLite stores; the trace TLC found, replayed against the adapter). An adapter without a
+  `clock` is a programming error. Twin: the claim consumed whatever the clock says at the transaction.
+
+## 4h2. Model checking (`model/tla/`, TLC)
+
+- **The adapter (`Adapter.tla`):** an honest witness that may revoke the delegation; an attacker holding the
+  delegate's key, who signs claims with any time and presents any claim with any signed head, to either of two
+  instances whose clocks differ by 2 s, sharing one durable store; each request verified alone, then in a transaction,
+  with the other instance's requests, cleanup of expired ids, restarts and time passing in between. Explored
+  exhaustively: each claim is dispatched at most once; nothing is dispatched once the store remembers a revoking head;
+  a request is verified at most `maxStaleness` plus the clock difference after the revocation, a bound TLC showed is
+  reached. About 10 million states, a minute or so. Negative controls, each of which TLC must report: with the grace
+  below the clock difference, or without the claim's `until` checked at the transaction, a claim is dispatched twice;
+  with the freshness limit one second tighter, it is exceeded, so the limit cannot be improved. TLC first found the
+  adapter's own double dispatch (a request that waited outlived its id's stay in the store), fixed in §4h.
+- Run by `.github/scripts/tlc.sh`, the tools at a pinned release checked against their recorded SHA-256; a passing
+  configuration must find no error, and each negative control must report the violation it names.
 
 ## 4i. Transparency-log verification (proposal; `research/witness-tlog.md`)
 

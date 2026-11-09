@@ -6,7 +6,10 @@
 //   TUF client's stored metadata).
 // The records are verified inside one store transaction, against the memory as it stands there, which then advances
 // the head and consumes the claim: a database store holds its write lock for one verification. Storage that fails is
-// refused as `storage`, and the protected action does not run.
+// refused as `storage`, and the protected action does not run. The claim is consumed only while its `until` is still
+// ahead of `clock()` read in that transaction, not the call's `now`: a request that waited could otherwise outlive
+// its id's stay in the store and run again once another instance had dropped the id (model/tla/Adapter.tla).
+// `clock()` gives this instance's time in seconds, the clock the call's `now` is read from.
 const refusal = (reason) => Object.freeze({ ok: false, reason })
 
 // The call's fields, each read once (inherited ones too, as the verifier reads them), into a plain object to which
@@ -27,7 +30,8 @@ function readGiven (given) {
   return undefined
 }
 
-export function relyingParty ({ verifier, store }) {
+export function relyingParty ({ verifier, store, clock }) {
+  if (typeof clock !== 'function') throw new TypeError('the adapter needs clock(): this instance\'s time in seconds')
   // `check(call)` under the remembered { head, at }, if any. A stored head the verifier cannot read (corrupt, or
   // signed by a witness key since removed from its configuration) still bounds rollback: its time becomes
   // minHeadAt. A malformed call has already thrown in the checks before the transaction; anything the verifier throws
@@ -84,6 +88,7 @@ export function relyingParty ({ verifier, store }) {
           }
         }
         if (!r.ok) return refusal(r.reason)
+        if (method === 'verifyClaim' && !(clock() < r.until)) return refusal('claim-time')
         if (method === 'verifyClaim' && !tx.consume(r.id, r.until)) return refusal('replay')
         return r
       })

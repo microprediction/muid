@@ -44,7 +44,7 @@ export const CLOSES = NOW + 600
 // open until CLOSES.
 export function setup ({ log = fakeLog({ cosignTime: () => NOW }), clock = () => NOW, wait = async () => {}, realWait = false, questions = ['q'], store = memoryStore(), sign = (b) => hex(ed25519.sign(b, S)) } = {}) {
   const v = verifierModule.verifier({ rpId: RP_ID, origin: ORIGIN, audience: FORECASTS, witnessKeys: WITNESS_KEYS, maxStaleness: 86_400, maxClaimAge: 300, ...LIMITS })
-  const f = forecasts({ origin: FORECASTS, adapter: relyingParty({ verifier: v, store }), log, checkpoints: { ...CONFIG, skew: 60 },
+  const f = forecasts({ origin: FORECASTS, adapter: relyingParty({ verifier: v, store, clock }), log, checkpoints: { ...CONFIG, skew: 60 },
     key: SERVICE_KEY, sign, clock, ...(realWait ? {} : { wait }) })
   for (const q of questions) f.ask(q, CLOSES)
   const post = async (body, init = {}) => {

@@ -701,7 +701,14 @@ verifier can no longer read (corrupt, or signed by a witness key since removed f
 bounds rollback: its stored time becomes `minHeadAt`. Storage that fails is refused as `storage`, and the action does
 not run; an action that fails leaves its claim consumed, and the delegate makes a new claim. A claim id is kept a
 grace period past its `until` (60 s by default; set it to the largest clock difference between instances), so an
-instance whose clock is behind the one that expired it still refuses the replay. `memoryStore` serves one
+instance whose clock is behind the one that expired it still refuses the replay; and the transaction consumes a
+claim only while its `until` is ahead of the instance's clock read there (`clock()`, given to the adapter), not
+the call's `now`, so a request that waited between its verification and its transaction cannot outlive its id's stay
+in the store (refused as `claim-time`). Checked by TLC (`model/tla/Adapter.tla`): over two instances whose clocks
+differ, sharing one store, with requests interleaved with cleanup and restarts, each claim is dispatched at most
+once, nothing is dispatched once the store remembers a revoking head, and a request is verified at most
+`maxStaleness` plus the clock difference after a revocation, the limit no offline verifier can beat (R9); without
+the check at the transaction, or with a grace shorter than the clock difference, a claim is dispatched twice. `memoryStore` serves one
 process; `sqliteStore` serves processes sharing one database file. Tests: a race of eight instances on one file,
 a transaction held behind one that revokes, restart, rollback, storage failure, corrupt storage, a witness key
 rotation and the expiry boundary.
@@ -953,6 +960,7 @@ never afterwards. Details and thresholds: `TESTING.md`; sources: [`assurance.md`
 | Semgrep (`.semgrep/core.yml`, image pinned by digest) | any match in `src/`, or a rule that stops firing on its own cases (`semgrep --test`) |
 | Secret scanning (gitleaks, checksum-verified) | a secret in any commit, except findings reviewed in `.gitleaksignore` |
 | Duplication (jscpd) | a clone in `src/` not in the reviewed `.jscpd-baseline.json` |
+| TLA+ models (`model/tla/`, TLC, exhaustive) | a model whose invariant TLC finds violated, or a negative control it no longer violates |
 | SimpleWebAuthn differential | a root assertion accepted here and refused by SimpleWebAuthn; a known difference (where only it accepts) that changes |
 | Release-age cooldown | a locked package published less than seven days ago (`.npmrc` `min-release-age` holds new choices to the same) |
 

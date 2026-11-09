@@ -63,7 +63,7 @@ test('the demo: limited authority, continuity, lasting attribution, revocation, 
     // Forecasts at its origin; another service at another origin, with the same software.
     const service = (origin) => {
       const v = verifierModule.verifier({ rpId: RP_ID, origin: ORIGIN, audience: origin, witnessKeys: WITNESS_KEYS, maxStaleness: 86_400, maxClaimAge: 300, ...LIMITS })
-      return forecasts({ origin, adapter: relyingParty({ verifier: v, store: memoryStore() }), log, checkpoints: { ...logConfig, skew: 60 }, key: SERVICE_KEY,
+      return forecasts({ origin, adapter: relyingParty({ verifier: v, store: memoryStore(), clock: now }), log, checkpoints: { ...logConfig, skew: 60 }, key: SERVICE_KEY,
         sign: (b) => hex(ed25519.sign(b, S)), clock: now })
     }
     const f = service(FORECASTS)

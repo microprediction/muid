@@ -84,3 +84,19 @@ jobs:
           node-version: '26'
       - name: Every locked package public for at least seven days
         run: node .github/scripts/release-age.mjs
+
+  # SPEC §12: the TLA+ models (model/tla/), checked exhaustively by TLC; each negative control must report the
+  # violation it names. The tools come from a pinned release, checked against their recorded SHA-256.
+  tla:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: TLC over every model configuration
+        run: bash .github/scripts/tlc.sh
