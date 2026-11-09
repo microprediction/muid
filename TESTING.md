@@ -415,7 +415,10 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   fragment, over http, with a non-canonical origin, a space, a bare or lower-case escape, a nonce outside NQCHAR, a
   digest not canonical base64 of 32 bytes, negative or string time, signature not exactly 128 hex or not alone) is
   `claim-shape`; a claim for another scope, method or URL (another origin's URL refused even where that origin is
-  passed; the received URL's query and fragment dropped; a received URL outside the grammar refused, not thrown); a
+  passed; the received URL's query and fragment dropped; a received URL outside the grammar refused, not thrown; so
+  is a received method outside it — lower-case, empty, with a space, of 17 letters as a registered method may be, or
+  of 1,000 — and an `htm` of 17 letters is `claim-shape`, of 16 accepted (found by review); a nonce over 256
+  characters in the call is a programming error); a
   nonce or digest missing, unexpected or different; the request checked in order before the delegation; the delegation verified in
   full; another delegation named; time at and one past `maxClaimAge` and `skew`, and outside the delegation's window;
   a signature by another key or over the payload without its prefix; subject keys in the call's revoked list; the

@@ -116,12 +116,13 @@ function htuOrigin (x) {
 
 // The call's fields, each read once (the revoked list copied). A claim's call also names the request it is for: its
 // method, its URL (the query and fragment are dropped), and the nonce and body digest if the relying party uses them.
+// The method and URL come from the client, so one outside the grammar is refused when compared, never thrown.
 function readCall (call, claim, cfg) {
   const { now, scope, method, url, nonce, contentDigest, revoked, minHeadAt = 0, lastHead } = typeof call === 'object' && call !== null ? call : {}
   const list = allIds(revoked)
   const last = headBody(lastHead, cfg, undefined) // undefined when no last head is given
   if (!isTime(now) || !matches(SCOPE, scope) || !isTime(minHeadAt) || list === undefined ||
-    (claim && (!matches(METHOD, method) || typeof url !== 'string' || !optional(NONCE, nonce) || !optional(DIGEST, contentDigest))) ||
+    (claim && (typeof method !== 'string' || typeof url !== 'string' || !optional(NONCE, nonce) || !optional(DIGEST, contentDigest))) ||
     (lastHead !== undefined && last === undefined)) {
     throw new TypeError('call must hold now, a scope and a revoked list')
   }

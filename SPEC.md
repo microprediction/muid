@@ -563,9 +563,9 @@ is the text of the newest head the relying party has accepted for the identity, 
   content_digest, at, data }` is a record signed by the delegation's subject key: its `sig` is `{ signature }`, an
   Ed25519 signature over the claim's signed bytes (K7). `delegation` is the id of the delegation it is made under;
   `scope` the scope it is for; `htm` and `htu` the request it is for, as DPoP binds a proof to one (RFC 9449 §4.2):
-  the HTTP method (upper-case letters) and the target URI without query or fragment, whose origin is the audience
+  the HTTP method (1–16 upper-case letters) and the target URI without query or fragment, whose origin is the audience
   (a canonical origin, O1, then a path of RFC 3986 characters, any escape in upper-case hex); `nonce` (optional) a
-  nonce the relying party issued, as DPoP's (§8, `1*NQCHAR`); `content_digest` (optional) the body's RFC 9530
+  nonce the relying party issued, as DPoP's (§8, `1*NQCHAR`, here at most 256); `content_digest` (optional) the body's RFC 9530
   `sha-256`, canonical base64, since DPoP does not cover the body; `at` is the signer's time (DPoP's `iat`); `data`
   any object. A claim seen in transit therefore cannot be used for another method, origin or path. As in DPoP the
   query is not bound: a relying party that acts on query parameters takes them in the body and requires
@@ -582,11 +582,11 @@ is the text of the newest head the relying party has accepted for the identity, 
   issued, including present when none was or absent when one was); `claim-digest` (likewise); then F5's reasons for
   the delegation; `claim-delegation` (the claim names another delegation); `claim-time` (`at` more than
   `maxClaimAge` before `now`, more than `skew` after it, or outside the delegation's window); then K5's signature
-  reasons under the subject key. A received URL outside the grammar matches no claim and is refused as `claim-url`,
-  not thrown: it comes from the client. A claim is verifiable only while its delegation and head are. Replay within
+  reasons under the subject key. A received method outside the grammar matches no claim and is refused as `claim-method`, and a received URL outside it as `claim-url`,
+  not thrown: both come from the client. A claim is verifiable only while its delegation and head are. Replay within
   the window is the relying party's to refuse (DPoP §11.1's `jti` store): the result carries the claim id and `until`
   (`at + maxClaimAge + 1`, the first time the claim is refused), so a store shared by every instance serving the
-  audience keeps the id while `now < until`. A call whose `method` is not upper-case letters, whose `url` is not a
+  audience keeps the id while `now < until`. A call whose `method` or `url` is not a
   string, or whose `nonce` or `contentDigest` is present but not of its form, is a programming error. Every claim
   costs the full F5 check before its own signature; a relying party under load can rate-limit by delegation id.
   `data` is decoded data: frozen, with null prototypes. Deviations from DPoP, named: the proof is a muid record, not

@@ -87,6 +87,11 @@ test('claim-scope: the scope the relying party needs, exactly', () => {
 test('claim-method and claim-url: the request, as DPoP binds it (htm, htu)', () => {
   assert.deepEqual(call({ claim: claim({ htm: 'GET' }).text }), refused('claim-method'))
   assert.deepEqual(call({}, { method: 'PUT' }), refused('claim-method'))
+  // The method comes from the client, as the URL does: one outside the grammar (1–16 upper-case letters) matches no
+  // claim and is refused, never thrown (found by review). A registered method of 17 letters cannot be claimed at all.
+  for (const method of ['post', '', 'UPDATEREDIRECTREF', 'P'.repeat(1000), 'PO ST']) assert.deepEqual(call({}, { method }), refused('claim-method'), method)
+  assert.deepEqual(call({ claim: claim({ htm: 'UPDATEREDIRECTREF' }).text }, { method: 'UPDATEREDIRECTREF' }), refused('claim-shape'))
+  assert.deepEqual(call({ claim: claim({ htm: 'P'.repeat(16) }).text }, { method: 'P'.repeat(16) }), { ok: true }, 'sixteen letters')
   assert.deepEqual(call({}, { url: URL_ + '/1' }), refused('claim-url'))
   assert.deepEqual(call({ claim: claim({ htu: URL_ + '/' }).text }), refused('claim-url'))
   // The query and fragment are not part of htu: the relying party may pass the URL it received.
@@ -184,8 +189,8 @@ test('the signature: by the subject key, over the signed bytes', () => {
 
 test('programming errors and totality', () => {
   assert.throws(() => verifier({ ...CONFIG, maxClaimAge: -1 }), { name: 'TypeError' })
-  for (const c of [{ now: NOW }, { ...CALL, scope: undefined }, { ...CALL, method: undefined }, { ...CALL, method: 'post' }, { ...CALL, method: '' },
-    { ...CALL, url: undefined }, { ...CALL, url: 1 }, { ...CALL, nonce: '' }, { ...CALL, nonce: 'a b' }, { ...CALL, nonce: 1 },
+  for (const c of [{ now: NOW }, { ...CALL, scope: undefined }, { ...CALL, method: undefined }, { ...CALL, method: 1 },
+    { ...CALL, url: undefined }, { ...CALL, url: 1 }, { ...CALL, nonce: '' }, { ...CALL, nonce: 'a b' }, { ...CALL, nonce: 1 }, { ...CALL, nonce: 'a'.repeat(257) },
     { ...CALL, contentDigest: '07'.repeat(32) }, { ...CALL, contentDigest: null }]) {
     assert.throws(() => v.verifyClaim({ claim: C.text, delegation, root, head, logged }, c), { name: 'TypeError' })
   }
