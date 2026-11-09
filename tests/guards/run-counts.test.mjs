@@ -26,13 +26,14 @@ test('runs(): the file\'s count, scaled by FC_SCALE, overridden by FC_RUNS', () 
 // Files that may sample at a fixed count, and why. A sample measured for anti-vacuity must stay at the count it was
 // measured at, whatever FC_RUNS a mutation run or a twin sets.
 const FIXED = new Map([
-  ['membership/R8-walks.test.mjs', 'the pinned walks, run through the model alone, must reach every kind of state'],
+  ['membership/R8-walks.test.mjs', 'the walk generator, run through the model alone, must reach every kind of state'],
+  ['verifier/F-time-model.test.mjs', 'the call and trace generators, decided by the model alone, must reach every reason'],
 ])
 
 // What is wrong with one test file's run counts, as short strings; none means every count comes from runs().
 const faults = (text, name = '') => [
   ...(text.includes('process.env.FC_RUNS') ? ['reads FC_RUNS'] : []),
-  ...((FIXED.has(name) ? /numRuns: (?!runs\(|RUNS\b|1 \}|USUAL \})/ : /numRuns: (?!runs\(|RUNS\b|1 \})/).test(text) ? ['sets numRuns'] : []),
+  ...((FIXED.has(name) ? /numRuns: (?!runs\(|RUNS\b|1 \}|USUAL \}|TRACES \})/ : /numRuns: (?!runs\(|RUNS\b|1 \})/).test(text) ? ['sets numRuns'] : []),
 ]
 
 test('the run-count guard names each planted fault', () => {

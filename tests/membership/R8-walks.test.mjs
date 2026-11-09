@@ -108,9 +108,10 @@ test('random walks agree with the model after every move, and the witness servic
     { seed: SEED, numRuns: RUNS })
 })
 
-// The walks the usual count draws from the pinned seed, through the model alone (no records signed, so it runs at any
-// FC_RUNS): they must reach every kind of state, two epochs past the scenario's history, eight moves, and lies.
-test('the pinned walks reach every kind of state, two further epochs, eight moves and lies (anti-vacuity)', () => {
+// The walk generator, sampled at the usual count from the pinned seed and run through the model alone (no records
+// signed, so it holds at any FC_RUNS): it must reach every kind of state, two epochs past the scenario's history,
+// eight moves, and lies.
+test('the walk generator reaches every kind of state, two further epochs, eight moves and lies (anti-vacuity)', () => {
   const reached = fresh()
   for (const w of fc.sample(fc.tuple(...WALK), { seed: PINNED, numRuns: USUAL })) walk(w, () => {}, reached)
   assert.deepEqual([...reached.kinds].sort(), ['dead', 'frozen', 'pending', 'settled'])

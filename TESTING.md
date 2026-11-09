@@ -389,6 +389,19 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   some honest pairs, so the check has teeth. Heads from diverging histories are refused in part. Through the real
   verifier, every distinct honest pair is accepted in order and is `stale` reversed (including pairs of one second),
   and 300 diverging pairs, some of one second, are `equivocation`.
+- **The time model (`F-time-model.test.mjs`, `model/timing.mjs`):** a model of F5's time and revocation rules
+  written from this spec, not the code: D1 and D2, the head's key window and freshness (R9, `minHeadAt`,
+  `lastHead`), heads of one second (decision 10), revocation in the head, the call or the last head, and R10's
+  windows. A verifier with small windows (skew 2 s, lifetime 12 s, staleness 8 s, two overlapping witness keys) puts
+  every boundary within reach: 600 generated calls, each refused with the model's reason or accepted as it is, and
+  `verifyHead` giving its head checks; then 150 traces in which an honest witness revokes and lets an id's revocation
+  lapse after expiry plus `skew`, an attacker replays any head signed so far, and the relying party remembers the
+  newest head that verifies alone (§7). At every presentation the verifier agrees with the model; once the memory
+  holds a head revoking the delegation nothing is accepted; an honest witness's head is never refused as
+  `equivocation`. The generators, sampled from a pinned seed through the model alone, reach acceptance and every
+  reason. It catches each of the 22 twins within its scope; the rest (epochs, authority, claims, shapes) are other
+  sections' (writing it from the spec found that F5 did not say the last head's revocations count, which the code and
+  `F7-logged` already required).
 - **Logged (R10, `F7-logged.test.mjs`):** accepted with the witness's logged record naming the delegation; a logged record before its delegation's `nbf` less `skew`, or at its `exp`, refused, and the key window's edges tested under a delegation whose window holds them; a revocation (by id or subject key) in the last head refuses the delegation under a later head without it, another revoked does not (found by review); a signed logged record of the wrong form (an `at` that is an array, an object, a string, a boolean or negative; an identity or delegation that is not an id) refused as `logged`, never thrown on (found by the fuzz test); `logged`
   for none, a non-text, a non-envelope, a head, another delegation's or identity's record, an extra key, no time or a
   time that is not a number, an unpinned key, a forged signature, a time before or after the key's window (its first

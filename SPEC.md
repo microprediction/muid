@@ -543,7 +543,7 @@ is the text of the newest head the relying party has accepted for the identity, 
   reasons for `delegation`, given
   the root record's key; `identity` (the head's identity is not the delegation's); `membership` (the delegation's
   membership is not among the head's `memberships`); `authority` (its root is not among the head's `authority`);
-  `revoked` (its id or its subject key is in the head's `revoked` or the call's); `logged` (`logged` does not open
+  `revoked` (its id or its subject key is in the head's `revoked`, the call's, or `lastHead`'s, so that a later head that drops it cannot restore the delegation); `logged` (`logged` does not open
   as a `logged` record of this identity naming this delegation's id, signed as A4 requires by a pinned key whose
   window holds its `at`; R10); `audience` (its `aud` is
   not `audience`); `scope` (`scope` is not among its
@@ -943,11 +943,11 @@ never afterwards. Details and thresholds: `TESTING.md`; sources: [`assurance.md`
   JavaScript value: each refused with a reason, never thrown on). A failure prints the seed and the counterexample's
   path, to replay with `FC_SEED` and `FC_RUNS`, and its counterexample becomes a pinned test.
   Among them, the membership model past its explorer's bound: random walks of owner, thief, clock and lying-witness
-  moves, `membershipState` checked against the model after each.
+  moves, `membershipState` checked against the model after each. And the model of F5's time and revocation rules
+  (`model/timing.mjs`): generated calls at every boundary, and traces of heads signed, replayed and remembered.
 
 Not yet scheduled:
 - Coverage-guided fuzzing of `decode`, `verifyDelegation` and `verifyClaim` (Jazzer.js).
-- Models of the delegation, revocation and time-window rules, with their traces replayed against the verifier.
 - An adversarial review agent against the core. Its findings go to a **private** security advisory, never a public
   issue.
 - After every fix, a variant-analysis sweep for siblings of the bug.
