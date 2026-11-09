@@ -677,6 +677,32 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
 - **Agents' shares (D8):** an agent's share of an identity's earnings follows its name: a worker whose key is replaced
   keeps one share across both keys, and another name is another share.
 
+## 4m. Patched built-ins (`tests/patched/`, §4 FAIL CLOSED UNDER PATCHED BUILT-INS)
+
+Every function-valued property of the standard prototypes and namespaces the core and its libraries can reach (about
+300: `Array`, `String`, `RegExp`, `Object`, `Number`, typed arrays, `ArrayBuffer`, `DataView`, `Map`, `Set`,
+`TextEncoder`, `TextDecoder`, `BigInt`, `Error`, `Math`, `JSON`, `Reflect`, and their prototypes) is replaced, one at a
+time, by a stand-in that throws, one that answers true and one that returns its receiver, and a battery runs under each.
+A result may stay what it was or fail closed (a refusal or a throw), nothing else.
+
+- **The verifier (`P1`):** 18 record sets that must be refused (consent or a root assertion by another key, a tampered
+  payload, revoked by id, subject key or agent, expired, not yet valid, stale, a head by an unpinned key or for another
+  identity, a root without authority, another audience, an ungranted scope, not logged; claims by another key, for
+  another URL or too old) and two valid sets. Shown a verifier whose audience check calls `startsWith` on the received
+  string, it names the patch that makes another audience accepted.
+- **Membership (`P2`):** a settled change, a pending one, a frozen membership, a contested change, and two forgeries by
+  a lying witness. Found by this sweep: `membershipState` kept its tables in `Map` and `Set` and called `.some` on its
+  own lists, so a patched `Set.prototype.has` answering true counted a record half the roots signed as a majority; and
+  noble, which does not capture its built-ins, could be made to fail every signature, so that every record was
+  ignored and the identity reverted to its first root, a dead one revived. Fixed by null-prototype tables and index
+  loops, and by the known-answer self-test (`R8-shapes`: four built-ins noble uses, each patched two ways, refuse as
+  `self-test`); the sweep fails with the self-test removed.
+- **Receipts (`P3`):** a logged receipt, and receipts by another key, at the wrong index, below the quorum, from an
+  unpinned service, from the future, and naming another claim.
+
+Each sweep runs in the main test job only (a minute or so each), not in the module suites that mutation testing and
+the twins run once per change.
+
 ## 5. Later layers (outline; each is expanded here before its code is written)
 
 1. **Envelope and record id:** expanded as §3.

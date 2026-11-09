@@ -185,6 +185,13 @@ Research: [`encoding.md`](research/encoding.md).
 - **Residual (accepted):** the record id is computed by `@noble/hashes`, which uses typed-array built-ins when called.
   Code in the page that patches those after load can change an id or make `open` throw; such code is trusted (§1)
   and could equally change the caller. The envelope's own built-ins, and its hex encoding, are captured at load.
+- **FAIL CLOSED UNDER PATCHED BUILT-INS:** whatever one built-in such code patches, no decision is turned: the
+  verifier accepts nothing it would refuse, `verifyReceipt` likewise, and `membershipState` gives the state it would
+  give or refuses. The libraries do not capture their built-ins, and a membership record whose signature fails is
+  ignored, so a library broken this way would leave the first root alone; `membershipState` therefore checks known
+  answers on both curves before each use, one valid and one not, as FIPS 140 modules self-test, and refuses as
+  `self-test` on a wrong answer. Tested over every function on the standard prototypes and namespaces, each made to
+  throw, to answer true and to return its receiver (`tests/patched/`).
 
 ## 5. Record types
 
@@ -329,8 +336,8 @@ one envelope each, so its `sig` names the signer: `{ root, assertion }`, where `
   carries no authority and is ignored — and returns `{ ok: true, dead: true }`, or
   `{ ok: true, dead: false, identity, membership, settled, epoch, roots, pending, authority, frozen }` (`settled`
   is the last settled membership, `membership` the effective one), or `{ ok: false, reason }`
-  with `unknown-identity` when no root record given is the identity's first root, or `records` when a list is
-  longer than `MAX_RECORDS` (256) or cannot be read; a list that is not an array is empty. A signer already counted
+  with `self-test` when its known answers fail (§4), `unknown-identity` when no root record given is the identity's
+  first root, or `records` when a list is longer than `MAX_RECORDS` (256) or cannot be read; a list that is not an array is empty. A signer already counted
   for a record is not verified again, and `MAX_RECORDS` bounds each list, so the work a caller can cause is bounded.
   Records that carry no authority still count toward the cap, so the witness admits to an identity's set only a
   membership signature by a root of the admitted membership it names as `prev` (a root it adds, only once a majority

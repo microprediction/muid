@@ -2,12 +2,13 @@
 // specifies. Each record is verified on its own; one that does not verify carries no authority and is ignored.
 import { open } from './envelope.js'
 import { checkRootAssertion } from './assertion.js'
+import { checkEd25519 } from './ed25519.js'
 import { checkRoot, identityOf } from './root.js'
 import { readWitnessKeys, isWitnessSig, witnessReason } from './attestation.js'
 import { refuse, accept } from './bytes.js'
 
 const { apply } = Reflect
-const { freeze } = Object
+const { freeze, create } = Object
 const { isArray } = Array
 const { isSafeInteger } = Number
 const { exec } = RegExp.prototype
@@ -22,6 +23,23 @@ const isId = (x) => typeof x === 'string' && apply(exec, ID, [x]) !== null
 // An integer; a negative `at` or `epoch` fails the witness window or the epoch check (R1) after it.
 const isInteger = (x) => isSafeInteger(x)
 const has = (list, x) => apply(includes, list, [x])
+
+// §4 residual: code that patches built-ins the crypto library uses (noble does not capture them) could make every
+// valid signature fail, and every record would then be ignored, leaving the first root alone. So each call first
+// checks a known answer on each curve, as FIPS 140 modules self-test before use; a wrong one refuses the call
+// (self-test), never ignores records. Under a domain of its own: nothing it signs is a record. (No single patched
+// built-in makes the library accept an invalid signature, tests/patched/P1, so no known invalid answer is checked.)
+const KAT = freeze({
+  assertion: freeze({ covers: freeze(['5e'.repeat(32)]), authenticator_data: '_U6FGpYnHCmkyFsGmDRfk4qCxAphz7r_xdXj1gc0uk0FAAAAAA',
+    client_data_json: 'eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoiNnMtVFRZNU9uSmZhQzNNVVNIUW1BdDh5MEFZUnUwOHRVWXZCQkxGS1U2YyIsIm9yaWdpbiI6Imh0dHBzOi8vc2VsZi10ZXN0LmludmFsaWQiLCJjcm9zc09yaWdpbiI6ZmFsc2V9',
+    signature: 'MEQCIBO9E2nYAD7tqS1O8jJEK85RYgSYfKt2gJa9ZEkQX8z7AiBnbdSBvs-NzaWC_DvVQWBWsAw23HfqDWhBWeWZTQL02w' }),
+  ctx: freeze({ record: '5e'.repeat(32), rpId: 'self-test.invalid', origin: 'https://self-test.invalid',
+    key: '0483b1be1851edbe767622396bd3d0d6199279c9f6f82eadbca4cd1c2ceb4497c937e0664d65dab66f53ede17e3f7f98ea9aed97b48c4a953cac66b36379299fad' }),
+  edKey: 'c335bddf9858533d4dcc5182d85804da88075b9b862b64fb5ee16ea604a6c64a',
+  edSig: '3fe07f6135b59432071044525c5e6f72de0dd0366e583ee2137eab2cd90e0a5ed7eeb8eaf624b5cf719fe3da7ac0c44d98172a2c05d7b95aab2ca93e1402d608',
+})
+const KAT_MESSAGE = new TextEncoder().encode('muid self-test\n') // made at load
+const selfTest = () => checkRootAssertion(KAT.assertion, KAT.ctx).ok === true && checkEd25519(KAT.edSig, KAT_MESSAGE, KAT.edKey).ok === true
 
 // No keys but these, in canonical order; a missing key fails its own field check.
 function onlyKeys (o, keys) {
@@ -45,16 +63,20 @@ function readContext (ctx) {
   return { identity, rpId, origin, keys }
 }
 
+// Tables are null-prototype objects keyed by id, read with index loops, never Map or Set: no built-in a page could
+// patch after load stands between a record and its count (§4 residual, tests/patched/P2-membership).
+const table = () => create(null)
+
 // A root-signed record of `type` whose body passes `bodyOk`: { id, body, signer }, or undefined. A signer already
 // counted for that record (in `counted`, as id + signer) is not verified again.
 function rootSigned (text, type, bodyOk, ctx, rootKeys, counted) {
   const r = opened(text, type)
   if (r === undefined || !bodyOk(r.body) || !onlyKeys(r.sig, ['assertion', 'root'])) return undefined
-  const key = rootKeys.get(r.sig.root)
-  if (key === undefined || counted.has(r.id + r.sig.root)) return undefined
+  const key = isId(r.sig.root) ? rootKeys[r.sig.root] : undefined
+  if (key === undefined || counted[r.id + r.sig.root] === true) return undefined
   const a = checkRootAssertion(r.sig.assertion, { record: r.id, rpId: ctx.rpId, origin: ctx.origin, key })
   if (!a.ok) return undefined
-  counted.add(r.id + r.sig.root)
+  counted[r.id + r.sig.root] = true
   return { id: r.id, body: r.body, signer: r.sig.root }
 }
 
@@ -79,11 +101,11 @@ function validNext (cur, p) {
   if (p.body.epoch !== cur.epoch + 1) return false
   let yes = 0
   // Stryker disable next-line EqualityOperator: equivalent; one more step looks up undefined, never a signer
-  for (let i = 0; i < cur.roots.length; i++) if (p.signers.has(cur.roots[i])) yes++
+  for (let i = 0; i < cur.roots.length; i++) if (p.signers[cur.roots[i]] === true) yes++
   if (2 * yes <= cur.roots.length) return false
   for (let i = 0; i < p.body.roots.length; i++) {
     const r = p.body.roots[i]
-    if (!has(cur.roots, r) && !p.signers.has(r)) return false
+    if (!has(cur.roots, r) && p.signers[r] !== true) return false
   }
   return true
 }
@@ -115,27 +137,29 @@ function copy (a, n = a.length) {
 }
 
 function read (records, ctx) {
-  const rootKeys = new Map()
+  const rootKeys = table()
+  const rootIds = [] // in the order given
   each(records, 'roots', (t) => {
     const r = checkRoot(t, { rpId: ctx.rpId })
-    if (r.ok) rootKeys.set(r.id, r.key)
+    if (r.ok && rootKeys[r.id] === undefined) { rootKeys[r.id] = r.key; rootIds[rootIds.length] = r.id }
   })
   const mine = (b) => b.identity === ctx.identity
-  const counted = new Set()
-  const memberships = new Map()
+  const counted = table()
+  const memberships = table()
+  const proposals = [] // the memberships, in the order first seen
   each(records, 'memberships', (t) => {
     const m = rootSigned(t, 'membership', (b) => onlyKeys(b, ['epoch', 'identity', 'prev', 'roots']) && mine(b) &&
       isInteger(b.epoch) && isId(b.prev) && rootsOk(b.roots), ctx, rootKeys, counted)
     if (m === undefined) return
-    if (!memberships.has(m.id)) memberships.set(m.id, { id: m.id, body: m.body, signers: new Set() })
-    memberships.get(m.id).signers.add(m.signer)
+    if (memberships[m.id] === undefined) proposals[proposals.length] = memberships[m.id] = { id: m.id, body: m.body, signers: table() }
+    memberships[m.id].signers[m.signer] = true
   })
-  const contests = new Map()
+  const contests = table()
   each(records, 'contests', (t) => {
     const c = rootSigned(t, 'contest', (b) => onlyKeys(b, ['identity', 'record']) && mine(b) && isId(b.record), ctx, rootKeys, counted)
     if (c === undefined) return
-    if (!contests.has(c.body.record)) contests.set(c.body.record, { id: c.id, signers: new Set() })
-    contests.get(c.body.record).signers.add(c.signer)
+    if (contests[c.body.record] === undefined) contests[c.body.record] = { id: c.id, signers: table() }
+    contests[c.body.record].signers[c.signer] = true
   })
   // Stryker disable next-line ArrayDeclaration: equivalent; a stray element names no membership
   const freezes = []
@@ -144,21 +168,21 @@ function read (records, ctx) {
       rootKeys, counted)
     if (f !== undefined) freezes[freezes.length] = { membership: f.body.membership, signer: f.signer }
   })
-  const anchored = new Set()
+  const anchored = table()
   each(records, 'anchors', (t) => {
     const a = witnessSigned(t, 'anchor', (b) => onlyKeys(b, ['at', 'identity', 'record']) && mine(b) && isInteger(b.at) &&
       isId(b.record), ctx)
-    if (a !== undefined) anchored.add(a.record)
+    if (a !== undefined) anchored[a.record] = true
   })
-  const settled = new Map()
+  const settled = table() // prev -> the distinct outcomes the witness settled it with, in a list
   each(records, 'settlements', (t) => {
     const s = witnessSigned(t, 'settlement', (b) => onlyKeys(b, ['at', 'identity', 'outcome', 'prev']) && mine(b) &&
       isInteger(b.at) && isId(b.prev) && (b.outcome === 'contested' || isId(b.outcome)), ctx)
     if (s === undefined) return
-    if (!settled.has(s.prev)) settled.set(s.prev, new Set())
-    settled.get(s.prev).add(s.outcome)
+    if (settled[s.prev] === undefined) settled[s.prev] = []
+    if (!has(settled[s.prev], s.outcome)) settled[s.prev][settled[s.prev].length] = s.outcome
   })
-  return { rootKeys, memberships, contests, freezes, anchored, settled }
+  return { rootKeys, rootIds, memberships, proposals, contests, freezes, anchored, settled }
 }
 
 // R2–R7, as model/settled.mjs evaluates them.
@@ -166,26 +190,26 @@ function evaluate (first, ctx, r) {
   let cur = { id: ctx.identity, epoch: 1, roots: [first] }
   let pending
   for (;;) {
-    const outcomes = r.settled.get(cur.id)
+    const outcomes = r.settled[cur.id]
     if (outcomes !== undefined) {
-      if (outcomes.size > 1 || outcomes.has('contested')) return accept({ dead: true })
-      const [outcome] = outcomes
-      const next = r.memberships.get(outcome)
+      if (outcomes.length > 1 || outcomes[0] === 'contested') return accept({ dead: true })
+      const next = r.memberships[outcomes[0]]
       if (next === undefined || next.body.prev !== cur.id || !validNext(cur, next)) break // stale: not held
       cur = { id: next.id, epoch: next.body.epoch, roots: next.body.roots }
       continue
     }
     const candidates = []
-    for (const p of r.memberships.values()) {
-      if (p.body.prev === cur.id && r.anchored.has(p.id) && validNext(cur, p)) candidates[candidates.length] = p
+    for (let i = 0; i < r.proposals.length; i++) {
+      const p = r.proposals[i]
+      if (p.body.prev === cur.id && r.anchored[p.id] === true && validNext(cur, p)) candidates[candidates.length] = p
     }
     if (candidates.length > 1) return accept({ dead: true })
     if (candidates.length === 1) {
-      const c = r.contests.get(candidates[0].id)
-      if (c !== undefined && r.anchored.has(c.id)) {
+      const c = r.contests[candidates[0].id]
+      if (c !== undefined && r.anchored[c.id] === true) {
         let yes = 0
         // Stryker disable next-line EqualityOperator: equivalent; one more step looks up undefined, never a signer
-        for (let i = 0; i < cur.roots.length; i++) if (c.signers.has(cur.roots[i])) yes++
+        for (let i = 0; i < cur.roots.length; i++) if (c.signers[cur.roots[i]] === true) yes++
         if (2 * yes > cur.roots.length) return accept({ dead: true })
       }
       pending = { id: candidates[0].id, epoch: candidates[0].body.epoch, roots: candidates[0].body.roots }
@@ -195,7 +219,10 @@ function evaluate (first, ctx, r) {
   const m = pending ?? cur
   const authority = []
   for (let i = 0; i < m.roots.length; i++) if (!pending || has(cur.roots, m.roots[i])) authority[authority.length] = m.roots[i]
-  const frozenBy = (x) => r.freezes.some((f) => f.membership === x.id && has(x.roots, f.signer))
+  const frozenBy = (x) => {
+    for (let i = 0; i < r.freezes.length; i++) if (r.freezes[i].membership === x.id && has(x.roots, r.freezes[i].signer)) return true
+    return false
+  }
   return accept({
     dead: false,
     identity: ctx.identity,
@@ -212,13 +239,14 @@ function evaluate (first, ctx, r) {
 export function membershipState (records, context) {
   const ctx = readContext(context)
   if (ctx === undefined) throw new TypeError('context must hold identity, rpId, origin and witnessKeys')
+  if (!selfTest()) return refuse('self-test')
   let r
   try {
     r = read(typeof records === 'object' && records !== null ? records : {}, ctx)
   } catch {
     return refuse('records')
   }
-  for (const id of r.rootKeys.keys()) if (identityOf(id) === ctx.identity) return evaluate(id, ctx, r)
+  for (let i = 0; i < r.rootIds.length; i++) if (identityOf(r.rootIds[i]) === ctx.identity) return evaluate(r.rootIds[i], ctx, r)
   return refuse('unknown-identity')
 }
 

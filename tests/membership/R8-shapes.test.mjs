@@ -91,3 +91,22 @@ test('cost is bounded: duplicates are verified once, and each list is capped', (
     assert.equal(read, 0, `no element read under a length of ${String(length)}`)
   }
 })
+
+// §4 residual: with a built-in the crypto library uses patched to fail, every signature would fail and every record be
+// ignored, leaving the first root alone; the self-test refuses instead. Among the patches, one breaks P-256 alone
+// (Object.keys) and one Ed25519 alone (TypedArray.prototype.reverse), so each curve's known answer is needed.
+// (tests/patched/ sweeps every built-in.)
+test('self-test: when a built-in the crypto library uses is broken, the state is refused, not reduced to the first root', () => {
+  const { defineProperty, getOwnPropertyDescriptor } = Object
+  const typed = Object.getPrototypeOf(Uint8Array.prototype)
+  for (const [holder, key] of [[Array.prototype, 'find'], [Array.prototype, 'push'], [Math, 'max'], [Object, 'keys'], [typed, 'reverse']]) {
+    for (const value of [function () { throw new Error('patched') }, function () { return true }]) {
+      const saved = getOwnPropertyDescriptor(holder, key)
+      defineProperty(holder, key, { ...saved, value })
+      let r
+      try { r = membershipState(records, ctx) } catch (e) { r = { threw: String(e) } } finally { defineProperty(holder, key, saved) }
+      assert.deepEqual({ ...r }, { ok: false, reason: 'self-test' }, `${key} ${value}`)
+    }
+  }
+  assert.equal(membershipState(records, ctx).epoch, 2, 'restored, the state is read again')
+})
