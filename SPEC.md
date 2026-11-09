@@ -942,11 +942,12 @@ never afterwards. Details and thresholds: `TESTING.md`; sources: [`assurance.md`
   verifier's fuzz test among them (records edited, re-encoded under their old signatures, swapped, or replaced by any
   JavaScript value: each refused with a reason, never thrown on). A failure prints the seed and the counterexample's
   path, to replay with `FC_SEED` and `FC_RUNS`, and its counterexample becomes a pinned test.
+  Among them, the membership model past its explorer's bound: random walks of owner, thief, clock and lying-witness
+  moves, `membershipState` checked against the model after each.
 
 Not yet scheduled:
 - Coverage-guided fuzzing of `decode`, `verifyDelegation` and `verifyClaim` (Jazzer.js).
-- The membership model (`model/settled.mjs`) at greater depth than the pinned tests, and models of the delegation,
-  revocation and time-window rules, with their traces replayed against the verifier.
+- Models of the delegation, revocation and time-window rules, with their traces replayed against the verifier.
 - An adversarial review agent against the core. Its findings go to a **private** security advisory, never a public
   issue.
 - After every fix, a variant-analysis sweep for siblings of the bug.

@@ -23,10 +23,16 @@ test('runs(): the file\'s count, scaled by FC_SCALE, overridden by FC_RUNS', () 
   }
 })
 
+// Files that may sample at a fixed count, and why. A sample measured for anti-vacuity must stay at the count it was
+// measured at, whatever FC_RUNS a mutation run or a twin sets.
+const FIXED = new Map([
+  ['membership/R8-walks.test.mjs', 'the pinned walks, run through the model alone, must reach every kind of state'],
+])
+
 // What is wrong with one test file's run counts, as short strings; none means every count comes from runs().
-const faults = (text) => [
+const faults = (text, name = '') => [
   ...(text.includes('process.env.FC_RUNS') ? ['reads FC_RUNS'] : []),
-  ...(/numRuns: (?!runs\(|RUNS\b|1 \})/.test(text) ? ['sets numRuns'] : []),
+  ...((FIXED.has(name) ? /numRuns: (?!runs\(|RUNS\b|1 \}|USUAL \})/ : /numRuns: (?!runs\(|RUNS\b|1 \})/).test(text) ? ['sets numRuns'] : []),
 ]
 
 test('the run-count guard names each planted fault', () => {
@@ -35,6 +41,9 @@ test('the run-count guard names each planted fault', () => {
   assert.deepEqual(faults("fc.assert(p, { numRuns: Number(process.env.FC_RUNS ?? 9) })"), ['reads FC_RUNS', 'sets numRuns'])
   assert.deepEqual(faults("fc.assert(p, { numRuns: runs(500) }); fc.assert(q, { numRuns: RUNS }); fc.sample(a, { numRuns: 1 })"), [])
   assert.deepEqual(faults("// FC_RUNS lowers it"), [])
+  assert.deepEqual(faults("fc.sample(a, { seed: PINNED, numRuns: USUAL })"), ['sets numRuns'])
+  assert.deepEqual(faults("fc.sample(a, { seed: PINNED, numRuns: USUAL })", 'membership/R8-walks.test.mjs'), [])
+  assert.deepEqual(faults("fc.assert(p, { numRuns: 500 })", 'membership/R8-walks.test.mjs'), ['sets numRuns'])
 })
 
 test('no property test reads FC_RUNS itself, and every count comes from runs()', () => {
@@ -43,7 +52,7 @@ test('no property test reads FC_RUNS itself, and every count comes from runs()',
     if (!dir.isDirectory() || dir.name === 'meta' || dir.name === 'guards') continue
     for (const name of readdirSync(new URL(`${dir.name}/`, TESTS))) {
       if (!name.endsWith('.mjs')) continue
-      for (const f of faults(readFileSync(new URL(`${dir.name}/${name}`, TESTS), 'utf8'))) offenders.push(`${dir.name}/${name} ${f}`)
+      for (const f of faults(readFileSync(new URL(`${dir.name}/${name}`, TESTS), 'utf8'), `${dir.name}/${name}`)) offenders.push(`${dir.name}/${name} ${f}`)
     }
   }
   assert.deepEqual(offenders, [])

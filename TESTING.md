@@ -331,6 +331,16 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   `membershipState` must give the model's answer. The scenarios together must reach dead, frozen, pending and settled
   states. Sampled partial views (subsets a network attacker could show) must agree too. Under a small `FC_RUNS` a
   deterministic sample is used, keeping every dead and frozen state.
+- **Random walks past the explorer's bound (`R8-walks`):** from the same scenarios, walks of up to eight moves by the
+  thief, the owner, the witness clock or a lying witness (a stolen witness key: anchors and settlements of its
+  choosing, shown only to verifiers, the witness service keeping its own log). After every move, and on a partial view
+  of the last state, `membershipState` must give the model's answer; the service's own items must have no forked
+  view. 200 walks per run (about 10 seconds), 5,000 in the nightly fuzz job. The walks the pinned seed draws must
+  reach dead, frozen, pending and settled states, two epochs past the history, eight moves, and states after a lie,
+  checked through the model alone so that it holds at any `FC_RUNS`. Against the twins: 200 walks catch the four the
+  explorer catches (added roots unsigned, new roots' authority while pending, a freeze lifted at anchoring, settlements
+  ignored) in a sixth of its time; 5,000 also catch half counted as a majority, a contest without one, and one of two
+  anchored rivals chosen, which the explorer cannot reach because its witness is honest.
 - **Hand cases:** memberships of every wrong shape (extra key, empty, six roots, unsorted, duplicate, non-id roots,
   wrong epoch, another identity, bad `prev`) ignored even when anchored; witness records with a bad signature shape,
   a negative `at` or a bad outcome ignored; contests and freezes of non-ids ignored; a witness that anchors two
