@@ -2,9 +2,12 @@
 // its test files, and everything those reach through a relative path written in them (an import, a URL, a directory
 // served or read), followed transitively; a path into a directory takes the whole directory, and a path that stops at
 // a template's `${` takes the directory before it. Package files, this file and the workflow are inputs of every
-// config. A pull request runs the configs whose inputs it changes; a push to master and the nightly run take them all.
+// config. A pull request runs the quick configs whose inputs it changes, a push to master every quick config, and the
+// nightly and manual runs every config.
 //
-//   node tests/mutation-plan.mjs [changed.txt]  prints the jobs as JSON: every config, or those changed.txt affects
+//   node tests/mutation-plan.mjs              prints the jobs as JSON: the quick configs
+//   node tests/mutation-plan.mjs changed.txt  the quick configs that the paths listed in changed.txt affect
+//   node tests/mutation-plan.mjs --nightly    every config
 import { readFileSync, readdirSync, statSync, existsSync, globSync } from 'node:fs'
 import { join, dirname, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -12,17 +15,22 @@ import { fileURLToPath } from 'node:url'
 const ROOT = fileURLToPath(new URL('../', import.meta.url))
 const GLOBAL = ['package.json', 'package-lock.json', '.github/workflows/test.yml', 'tests/mutation-plan.mjs']
 
-// The slow configs run alone; the quick ones share a job, one after another.
-export const JOBS = [
+// Every pull request and push runs this job, for the configs the change affects: quick enough to wait for.
+export const EVERY_RUN = ['stryker.id-records.config.json', 'stryker.adapter.config.json', 'stryker.receipt.config.json',
+  'stryker.note.config.json', 'stryker.ed25519.config.json', 'stryker.root.config.json', 'stryker.p256.config.json',
+  'stryker.origin.config.json', 'stryker.merkle.config.json', 'stryker.envelope.config.json',
+  'stryker.delegation.config.json', 'stryker.bytes.config.json', 'stryker.attestation.config.json',
+  'stryker.assertion.config.json']
+
+// The nightly (and manual) run adds these: the slow configs alone, the others together.
+export const NIGHTLY = [
   ['stryker.id-page.config.json'],
   ['stryker.membership.config.json'],
   ['stryker.witness.config.json'],
-  ['stryker.id-records.config.json', 'stryker.verifier.config.json', 'stryker.config.json', 'stryker.demo.config.json'],
-  ['stryker.adapter.config.json', 'stryker.receipt.config.json', 'stryker.note.config.json', 'stryker.ed25519.config.json',
-    'stryker.root.config.json', 'stryker.p256.config.json', 'stryker.origin.config.json', 'stryker.merkle.config.json',
-    'stryker.envelope.config.json', 'stryker.delegation.config.json', 'stryker.bytes.config.json',
-    'stryker.attestation.config.json', 'stryker.assertion.config.json'],
+  ['stryker.verifier.config.json', 'stryker.config.json', 'stryker.demo.config.json'],
 ]
+
+export const JOBS = [...NIGHTLY, EVERY_RUN]
 
 const rel = (abs) => relative(ROOT, abs).split(sep).join('/')
 const isDir = (abs) => existsSync(abs) && statSync(abs).isDirectory()
@@ -76,14 +84,18 @@ export function inputs (name) {
 // Whether a change to the listed paths changes an input (a file, a directory ending /, or everything).
 export const touches = (input, changed) => input === EVERYTHING || (input.endsWith('/') ? changed.some((c) => c.startsWith(input)) : changed.includes(input))
 
-// The jobs to run: each a space-separated list of configs. `changed` is a list of root-relative paths, or null for all.
-export function plan (changed) {
+// Of these jobs, the configs a change to the listed paths affects (all of them for null), as space-separated lists.
+export function select (changed, jobs = JOBS) {
   const affected = (c) => changed === null || inputs(c).some((f) => touches(f, changed))
-  return JOBS.map((job) => job.filter(affected)).filter((job) => job.length > 0).map((job) => job.join(' '))
+  return jobs.map((job) => job.filter(affected)).filter((job) => job.length > 0).map((job) => job.join(' '))
 }
 
+// The jobs to run: every job nightly; otherwise the every-run job, for the configs the change affects (null: all).
+export const plan = (changed, { nightly = false } = {}) => nightly ? select(null) : select(changed, [EVERY_RUN])
+
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const file = process.argv[2]
-  const changed = file === undefined ? null : readFileSync(file, 'utf8').split('\n').filter((l) => l !== '')
-  process.stdout.write(JSON.stringify(plan(changed)) + '\n')
+  const arg = process.argv[2]
+  const nightly = arg === '--nightly'
+  const changed = arg === undefined || nightly ? null : readFileSync(arg, 'utf8').split('\n').filter((l) => l !== '')
+  process.stdout.write(JSON.stringify(plan(changed, { nightly })) + '\n')
 }

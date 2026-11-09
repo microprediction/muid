@@ -27,11 +27,12 @@ test('every Stryker config is in exactly one CI mutation job, with the break thr
   assert.match(mutation, /for c in \$\{\{ matrix\.config \}\}; do npx --no-install stryker run "\$c" \|\| status=1; done\n\s+exit \$status\n/)
 })
 
-test('the plan job takes every config except on a pull request, which it diffs against the base it merges into', () => {
+test('the plan job takes every config nightly and on demand, the quick ones on a push, and on a pull request those it affects', () => {
   const plan = workflow.slice(workflow.indexOf('\n  plan:\n'), workflow.indexOf('\n  mutation:\n'))
   assert.match(plan, /fetch-depth: 2 /)
-  assert.match(plan, /if \[ "\$GITHUB_EVENT_NAME" = pull_request \]; then\n\s+git diff --name-only --no-renames HEAD\^1 HEAD > "\$RUNNER_TEMP\/changed\.txt"\n\s+jobs=\$\(node tests\/mutation-plan\.mjs "\$RUNNER_TEMP\/changed\.txt"\)\n\s+else\n\s+jobs=\$\(node tests\/mutation-plan\.mjs\)\n/)
+  assert.match(plan, /case "\$GITHUB_EVENT_NAME" in\n\s+pull_request\)\n\s+git diff --name-only --no-renames HEAD\^1 HEAD > "\$RUNNER_TEMP\/changed\.txt"\n\s+jobs=\$\(node tests\/mutation-plan\.mjs "\$RUNNER_TEMP\/changed\.txt"\) ;;\n\s+schedule \| workflow_dispatch\) jobs=\$\(node tests\/mutation-plan\.mjs --nightly\) ;;\n\s+\*\) jobs=\$\(node tests\/mutation-plan\.mjs\) ;;\n\s+esac\n/)
   assert.match(workflow, /\n {2}schedule:\n {4}- cron: /)
+  assert.match(workflow, /\n {2}workflow_dispatch:\n/)
 })
 
 test('a config that names its test files one by one names every test file of its directory', () => {

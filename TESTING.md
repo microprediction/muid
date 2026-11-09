@@ -9,8 +9,7 @@ when its whole section here passes, including the anti-vacuity checks. Rule labe
   small files keep it precise and fast.
 - **Runner:** `node --test`, no other runner. Property tests use fast-check with a fixed seed in CI and a printed seed
   on failure. `npm test` runs every suite but the broken twins; `npm run test:twins` runs the twin harnesses
-  one at a time (each starts its own workers), as CI does within each of its jobs: the slow harnesses and Stryker
-  configs have a job each, the quick ones share one (§7).
+  one at a time (each starts its own workers), as CI does within each of its jobs (§7).
 - **Vectors are data, not code.** `tests/vectors/<set>/` holds the files exactly as published, plus `SOURCE.md`
   (URL, upstream commit, SHA-256 of each file, licence). A test checks those hashes before using the files.
 - **Expected outputs come from outside the code under test:** written by hand, taken from a published vector set, or
@@ -661,20 +660,21 @@ meta-test runs the layer's suite once per twin and passes only if every run exit
 
 ## 7. CI
 
-Three kinds of job run in parallel, so wall time is the slowest single job, not the sum:
+Every pull request and push runs the quick jobs, in parallel, so it is done in about a quarter of an hour; the slow
+ones run nightly (and on demand, from the Actions tab), and a nightly failure is fixed the next day.
 
-1. **Tests** on Node 22, 24 and 26: `npm ci --ignore-scripts`, the registry signature check, then every suite
-   outside `tests/meta/` (vector hashes, vectors, properties, adversarial cases, guards) with 100% coverage of `src/`.
-2. **Twins:** every harness in `tests/meta/`, on every run. The slow ones (the id page, the witness) have a job
-   each; the quick ones share two, run one after another.
-3. **Mutation testing:** one config per module. A push to master, a nightly run and a manual run take every config.
-   A pull request takes the configs whose inputs it changes (`tests/mutation-plan.mjs`): the files a config mutates,
-   its test files, and everything those name by a relative path (an import, a URL, a directory served or read),
-   followed transitively; the package files and the workflow are inputs of every config. A core module is reached by
-   every suite through `tests/impl.mjs`, so a change to one runs them all; a change to the id page runs the id and
-   demo configs; a change to documentation runs none. A path built at run time is not seen, and the full run on
-   master and each night catches what a pull request's run missed. The slow configs (the id page, membership, the
-   witness) have a job each; the rest share two.
+1. **Tests** on Node 22, 24 and 26, on every run: `npm ci --ignore-scripts`, the registry signature check, then
+   every suite outside `tests/meta/` (vector hashes, vectors, properties, adversarial cases, guards) with 100%
+   coverage of `src/`.
+2. **Twins:** the quick harnesses in `tests/meta/` on every run, in three jobs, each run one after another; the
+   slow ones (the id page, the witness) nightly, a job each.
+3. **Mutation testing:** one config per module. Nightly, every config: the slow ones (the id page, membership, the
+   witness) a job each, the others in two. On every push to master, the quick configs, in one job. On a pull
+   request, the quick configs whose inputs it changes (`tests/mutation-plan.mjs`): the files a config mutates, its
+   test files, and everything those name by a relative path (an import, a URL, a directory served or read),
+   followed transitively; the package files and the workflow are inputs of every config. A core module is reached
+   by every suite through `tests/impl.mjs`, so a change to one runs every quick config; documentation runs none.
+   A path built at run time is not seen, and the nightly run catches what a pull request's run missed.
 
 Stryker's incremental mode was not used for this: it "will not detect any changes you've made in files other than
 mutated files and test files", and the tap runner reports results per file, not per test.
