@@ -19,6 +19,8 @@ const IMPORTS = [["from '../" + "src/envelope.js'", "from '" + new URL('../../sr
 
 // [name, bug class, file, [find, replace] pairs]
 const TWINS = [
+  ['until-at-request-start', 'the claim is consumed whatever the clock says when the transaction runs (model/tla/Adapter.tla)', 'relying-party.js',
+    [["        if (method === 'verifyClaim' && !(clock() < r.until)) return refusal('claim-time')\n", '']]],
   ['memory-not-read-in-transaction', 'the transaction verifies without the memory as it stands there', 'relying-party.js',
     [['const stored = tx.lastHead(seen.identity)', 'const stored = undefined']]],
   ['consume-ignored', 'a claim already consumed is accepted again', 'relying-party.js',
@@ -95,7 +97,7 @@ test('adapter broken twins', { timeout: 900_000 }, async (t) => {
       assert.ok(r.pass >= 20, `control: only ${r.pass} tests ran`)
     })
     const jobs = TWINS.map(([name, why, file, edits]) => [name, why, generate(name, file, edits)])
-    assert.equal(jobs.length, 18, 'twin count')
+    assert.equal(jobs.length, 19, 'twin count')
     const results = []
     const queue = [...jobs]
     const workers = Math.max(1, Math.floor(availableParallelism() / 4))

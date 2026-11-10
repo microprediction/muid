@@ -40,7 +40,7 @@ const memo = new Map()
 const once = (k, f) => { if (!memo.has(k)) memo.set(k, f()); return memo.get(k) }
 
 const delegation = ({ nbf, exp }) => once(`d ${nbf} ${exp}`, () => {
-  const body = { identity: IDENTITY, membership: IDENTITY, root: ROOT, subject: SUBJECT, aud: AUD, scopes: ['post'], nbf: B + nbf, exp: B + exp }
+  const body = { agent: 'worker', identity: IDENTITY, membership: IDENTITY, root: ROOT, subject: SUBJECT, aud: AUD, scopes: ['post'], nbf: B + nbf, exp: B + exp }
   const { payload, id } = envelope.seal('delegation', body)
   const subject = hex(ed25519.sign(Buffer.concat([Buffer.from('muid/v1/accept\n'), Buffer.from(id, 'hex')]), APP))
   return { text: envelope.wrap(payload, { root: make({ covers: [id] }), subject }), id }

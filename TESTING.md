@@ -281,7 +281,12 @@ Interface under test: `checkRootAssertion(sig, { record, rpId, origin, key })` �
 - **Twins:** id without the domain prefix; id over the hex text instead of the bytes; rp ID not compared; identity
   over the hex root id.
 
-## 4d. Layer 5 — delegations (`src/delegation.js`): D1–D7
+- **Agent ids (D8, `R0-root.test.mjs`):** `agentIdOf` equals SHA-256 over the specified bytes, computed with
+  `node:crypto` (`"muid-agent\n"`, the identity id's 32 raw bytes, the name), for names of 1 and 64 characters; it
+  differs per identity, per name and from the identity id; a malformed identity id or name is a programming error.
+  Twins: the prefix omitted; the identity omitted.
+
+## 4d. Layer 5 — delegations (`src/delegation.js`): D1–D8
 
 Interface under test: `checkDelegation(text, ctx)` → frozen `{ ok: true }` or `{ ok: false, reason }` (D7), with
 envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shaped assertion (as in §4b).
@@ -308,6 +313,9 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
 - **K2:** arbitrary texts and values never throw; envelope faults give V4's reasons.
 - **Twins:** skew applied to `exp`; `<=` at `exp`; no lifetime cap; scopes prefix-matched or unsorted allowed; no D6;
   D6 over hex text; aud not checked; root assertion checked against a fixed record id.
+- **Agents (D8):** `agent` missing, empty, upper-case, starting with a digit, with a space or a slash, of 65
+  characters, non-ASCII, a number, a list or a boolean is `delegation-shape`; names of 1 to 64 characters of the scope
+  grammar are accepted. Twin: a name of any form accepted.
 
 ## 4e. Layer 6 — attestations (`src/attestation.js`): A1, A3, A4
 
@@ -361,6 +369,7 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   without a majority; new roots with authority while pending; a freeze lifted at anchoring; settlements ignored; one
   of two anchored rivals chosen; root assertions not verified; the revocation cap applied only after the whole list is
   read; a pending epoch in the head as if settled.
+
 
 ## 4g. Layer 8 — the verifier (`src/verifier.js`): F1–F5, R9
 
@@ -442,6 +451,12 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   authority unchecked while the memberships stand, allowed to grow, or to shrink at settlement; a head older than the
   last accepted; the last head's identity unchecked, checked at `now`, or not verified; the head's epoch unchecked
   against its memberships, or 0 allowed.
+- **Agents (D8, `F8-agents.test.mjs`):** the result carries the agent's light identity id (computed independently),
+  and a claim's delegation too; two delegations under one name, with different keys and windows, have one agent id,
+  another name another; a retired name is refused in the head, the call and the last head (a later head without it
+  does not revive it), for the delegation that was retired and for one signed after under a new key; another name,
+  and the same name under another identity, are unaffected. Twins: retirement ignored; the agent named without its
+  identity.
 
 ## 4h. The relying-party adapter (`adapter/`, not core): issue #21
 
@@ -459,6 +474,40 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   taken for a verifier error; a consumed claim accepted again; a failed transaction taken as success; the stored
   head not passed; an unreadable stored head locking its identity out, or its time ignored; the records read twice;
   heads regressing in either store.
+- **Replay after cleanup (found by model checking):** a replay whose transaction waits, while another instance's
+  cleanup drops the claim's id, is refused as `claim-time` once the waiting instance's clock passes the claim's
+  `until` (memory and SQLite stores; the trace TLC found, replayed against the adapter). An adapter without a
+  `clock` is a programming error. Twin: the claim consumed whatever the clock says at the transaction.
+
+## 4h2. Model checking (`model/tla/`, TLC)
+
+- **The adapter (`Adapter.tla`):** an honest witness that may revoke the delegation; an attacker holding the
+  delegate's key, who signs claims with any time and presents any claim with any signed head, to either of two
+  instances whose clocks differ by 2 s, sharing one durable store; each request verified alone, then in a transaction,
+  with the other instance's requests, cleanup of expired ids, restarts and time passing in between. Explored
+  exhaustively: each claim is dispatched at most once; nothing is dispatched once the store remembers a revoking head;
+  a request is verified at most `maxStaleness` plus the clock difference after the revocation, a bound TLC showed is
+  reached. About 10 million states, a minute or so. Negative controls, each of which TLC must report: with the grace
+  below the clock difference, or without the claim's `until` checked at the transaction, a claim is dispatched twice;
+  with the freshness limit one second tighter, it is exceeded, so the limit cannot be improved. TLC first found the
+  adapter's own double dispatch (a request that waited outlived its id's stay in the store), fixed in §4h.
+- Run by `.github/scripts/tlc.sh`, the tools at a pinned release checked against their recorded SHA-256; a passing
+  configuration must find no error, and each negative control must report the violation it names.
+
+## 4h3. Protocol proofs (`model/tamarin/`, Tamarin)
+
+- **The authentication chain (`Claims.spthy`):** against a network attacker who may also steal any root or delegate
+  key, for any number of sessions: an accepted delegation was authorised by the identity's root unless that root key
+  leaked; an accepted claim under an honest delegate's key was signed by it for exactly that request unless that key
+  leaked; no identity can count another identity's delegate as its own, even with its own root key stolen, unless
+  the delegate's key leaked; a claim accepted at one audience was made for it. An honest run exists (anti-vacuity).
+  The owner may authorise any key it is given, an attacker's included: the id page's defence is the fingerprint the
+  user compares, outside the protocol, so the claim and consent lemmas are about honest delegates' keys (Tamarin's
+  first traces were exactly that).
+- **Two defences for consent, each enough alone:** D6's consent and a claim naming its delegation's id. Without either
+  the lemma still holds; without both Tamarin finds the attack. The three controls are one-line edits of a copy, made
+  by `.github/scripts/tamarin.sh`, which fails if an edit no longer applies or a result differs from the one written.
+- Tamarin 1.12.0 and Maude 3.5.1 from pinned releases, each checked against the SHA-256 its release publishes.
 
 ## 4i. Transparency-log verification (proposal; `research/witness-tlog.md`)
 
@@ -493,6 +542,7 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   retired key cannot backdate), the claim (its id and its delegation).
 - `existedBy` is the quorum-th earliest cosignature; configuration read once; a foreign error fails closed.
 - Twins (13).
+
 
 ## 4j. The witness's decisions (`witness/`, not core)
 
@@ -581,6 +631,11 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   interleaved, a head kept after a change or for ever, a head unlogged, an unbounded body, and any type submitted; and in the log client, halves for the split, no full-tile fallback, a
   short tile used, unprefixed tile indices, any append answer taken, and the proof's order.
 
+- **Retired agents (D8, `W7-logged.test.mjs`):** a root's revocation of an agent id is in the head while a
+  delegation under the name is live; a new delegation under the name, with a new key, is refused as `revoked` then and
+  thirty days later, when the entry has left heads but is still kept; another name is logged. Twins: a revocation
+  naming an agent names nothing; a new delegation under a retired name logged.
+
 ## 4k. The id page (`id/`, not core)
 
 - `records.js` in Node (`P1-records.test.mjs`): the root record read by the core, and ES256 on P-256 only; base64url
@@ -629,6 +684,10 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   this passkey, an edit of the new root kept, authority unchecked, delegations under the first membership, the root
   or the added root not submitted, a change proposed while one is pending, its roots unsorted.
 
+- **The agent's name (D8):** the worker form takes the agent's name, shown in the review with the rest of what is
+  signed (spaces around it are not signed); renaming it withdraws the review; a name outside the grammar is refused
+  with a reason before anything is signed.
+
 ## 4l. The two-application demo (`demo/`, not core)
 
 - The four scenarios end to end (`tests/demo/D1-scenarios.test.mjs`): the witness service, Tessera with
@@ -648,6 +707,35 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   forecast refused and its claim spent. End to end, the agent retires itself through the witness and is then
   refused, its earnings resolved afterwards, and the owner's device collects.
 - Mutation 100%; twins (`tests/meta/demo-twins.test.mjs`, 17).
+
+- **Agents' shares (D8):** an agent's share of an identity's earnings follows its name: a worker whose key is replaced
+  keeps one share across both keys, and another name is another share.
+
+## 4m. Patched built-ins (`tests/patched/`, §4 FAIL CLOSED UNDER PATCHED BUILT-INS)
+
+Every function-valued property of the standard prototypes and namespaces the core and its libraries can reach (about
+300: `Array`, `String`, `RegExp`, `Object`, `Number`, typed arrays, `ArrayBuffer`, `DataView`, `Map`, `Set`,
+`TextEncoder`, `TextDecoder`, `BigInt`, `Error`, `Math`, `JSON`, `Reflect`, and their prototypes) is replaced, one at a
+time, by a stand-in that throws, one that answers true and one that returns its receiver, and a battery runs under each.
+A result may stay what it was or fail closed (a refusal or a throw), nothing else.
+
+- **The verifier (`P1`):** 18 record sets that must be refused (consent or a root assertion by another key, a tampered
+  payload, revoked by id, subject key or agent, expired, not yet valid, stale, a head by an unpinned key or for another
+  identity, a root without authority, another audience, an ungranted scope, not logged; claims by another key, for
+  another URL or too old) and two valid sets. Shown a verifier whose audience check calls `startsWith` on the received
+  string, it names the patch that makes another audience accepted.
+- **Membership (`P2`):** a settled change, a pending one, a frozen membership, a contested change, and two forgeries by
+  a lying witness. Found by this sweep: `membershipState` kept its tables in `Map` and `Set` and called `.some` on its
+  own lists, so a patched `Set.prototype.has` answering true counted a record half the roots signed as a majority; and
+  noble, which does not capture its built-ins, could be made to fail every signature, so that every record was
+  ignored and the identity reverted to its first root, a dead one revived. Fixed by null-prototype tables and index
+  loops, and by the known-answer self-test (`R8-shapes`: four built-ins noble uses, each patched two ways, refuse as
+  `self-test`); the sweep fails with the self-test removed.
+- **Receipts (`P3`):** a logged receipt, and receipts by another key, at the wrong index, below the quorum, from an
+  unpinned service, from the future, and naming another claim.
+
+Each sweep runs in the main test job only (a minute or so each), not in the module suites that mutation testing and
+the twins run once per change.
 
 ## 5. Later layers (outline; each is expanded here before its code is written)
 

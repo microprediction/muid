@@ -49,7 +49,7 @@ async function bounded (request, max) {
 
 export function forecasts ({ origin, adapter, log, checkpoints, key, sign, clock, wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) }) {
   // Stryker disable next-line ArrayDeclaration: equivalent; a stray element has no identity, so is never listed
-  const kept = [] // { identity, agent, delegation, claim, question, forecast, receipt, index, bundle, credits }
+  const kept = [] // { identity, agent, name, delegation, claim, question, forecast, receipt, index, bundle, credits }
   const collected = new Map() // identity -> credits collected
   const questions = new Map() // question -> { closes, outcome }
 
@@ -140,7 +140,7 @@ export function forecasts ({ origin, adapter, log, checkpoints, key, sign, clock
     const now = clock()
     const q = questions.get(f.question)
     if (q === undefined || q.outcome !== undefined || now >= q.closes) return { refused: 'question' }
-    const k = { identity: accepted.delegation.body.identity, agent: accepted.delegation.body.subject, delegation: accepted.delegation.id,
+    const k = { identity: accepted.delegation.body.identity, agent: accepted.delegation.agent, name: accepted.delegation.body.agent, delegation: accepted.delegation.id,
       claim: records.claim, signedAt: accepted.body.at, ...f, receipt: receipt(accepted, now), index: undefined, bundle: undefined, credits: undefined }
     kept.push(k)
     return (await published(k)) ? { bundle: k.bundle } : { pending: true, receipt: k.receipt }
@@ -155,12 +155,13 @@ export function forecasts ({ origin, adapter, log, checkpoints, key, sign, clock
   })
 
   // An identity's earnings: what its contributions earned once resolved, what was collected, and each agent's share.
+  // An agent is a light identity (decision 13): its share follows its name across its keys and delegations.
   function earnings (identity) {
     const mine = kept.filter((k) => k.identity === identity)
     const agents = []
     for (const k of mine) {
-      let a = agents.find((x) => x.delegation === k.delegation)
-      if (a === undefined) agents.push(a = { agent: k.agent, delegation: k.delegation, contributions: 0, earned: 0 })
+      let a = agents.find((x) => x.agent === k.agent)
+      if (a === undefined) agents.push(a = { agent: k.agent, name: k.name, contributions: 0, earned: 0 })
       a.contributions += 1
       a.earned += k.credits ?? 0
     }

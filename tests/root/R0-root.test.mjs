@@ -98,3 +98,21 @@ test('a context read once: a getter cannot change rpId between reads', () => {
   assert.deepEqual(result(text({ pub: KEY, rp_id: RP_ID }), ctx), { ok: true, id: ROOT_ID, key: KEY })
   assert.equal(reads, 1)
 })
+
+// Decision 13: a light identity's id is derived from its identity and its agent name, as root and identity ids are:
+// SHA-256(UTF-8("muid-agent\n") ‖ the identity id as 32 raw bytes ‖ UTF-8(agent)), lowercase hex.
+test('agentIdOf: the specified hash, distinct per identity and per name; anything else a programming error', () => {
+  const { agentIdOf } = root
+  const want = (identity, agent) => createHash('sha256').update(Buffer.concat([Buffer.from('muid-agent\n'), Buffer.from(identity, 'hex'), Buffer.from(agent)])).digest('hex')
+  const I = 'ab'.repeat(32)
+  for (const agent of ['a', 'forecaster', 'a'.repeat(64)]) assert.equal(agentIdOf(I, agent), want(I, agent), agent)
+  assert.notEqual(agentIdOf(I, 'a'), agentIdOf('cd'.repeat(32), 'a'))
+  assert.notEqual(agentIdOf(I, 'ab'), agentIdOf(I, 'a'))
+  assert.notEqual(agentIdOf(I, 'a'), root.identityOf(I), 'its own domain')
+  // An object that reads as a valid id or name is not one: only strings are.
+  const like = (text) => ({ toString: () => text })
+  for (const [identity, agent] of [[I.toUpperCase(), 'a'], [I.slice(1), 'a'], [1, 'a'], [I, ''], [I, 'A'], [I, 'a'.repeat(65)], [I, 7],
+    [like(I), 'a'], [I, like('a')]]) {
+    assert.throws(() => agentIdOf(identity, agent), { name: 'TypeError', message: 'an identity id and an agent name' }, String([identity, agent]))
+  }
+})

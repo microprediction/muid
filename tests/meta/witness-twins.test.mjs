@@ -21,6 +21,8 @@ const NOBLE = ['@noble/hashes/sha2.js', '@noble/curves/ed25519.js'].map((m) => [
 
 // [name, bug class, [find, replace] pairs, file (witness.js unless named)]
 const TWINS = [
+  ['agent-retirement-ignored', "a revocation naming an agent's light identity id names nothing", [[' || x.target === l.agent', '']]],
+  ['retired-agent-relogged', 'a new delegation under a retired name is logged', [['names(x, { delegation: r.id, subject: d.subject, agent })', 'names(x, { delegation: r.id, subject: d.subject })']]],
   ['rival-admitted', 'a record whose prev is not the effective membership is held (R3)', [["    if (b.prev !== s.membership) return refuse('prev')\n", '']]],
   ['epoch-unchecked', 'a membership record of another epoch is held', [["    if (b.epoch !== s.epoch + 1) return refuse('epoch')\n", '']]],
   ['added-root-early', "an added root's signature is held before a majority signed", [['2 * signersOf(held, r.id, s.roots) > s.roots.length', 'true']]],
@@ -90,8 +92,8 @@ const TWINS = [
   ['purge-winner', 'the settled record goes with the losers', [["return x.body.prev !== prev || x.id === outcome", 'return x.body.prev !== prev']]],
   ['head-cap-off', 'head entries may outnumber what a head carries', [['if (es.length >= MAX_REVOKED ||', 'if (']]],
   ['head-all-kept', 'the head carries every kept revocation, logged or not', [['headOf(s, now, entries(held, s, now).map((x) => x.target))', 'headOf(s, now, kept(held, now).map((x) => x.target))']]],
-  ['log-revoked', 'a revoked delegation is logged', [["    if (kept(held, now).some((x) => names(x, { delegation: r.id, subject: d.subject }))) return refuse('revoked')\n", '']]],
-  ['log-by-id-only', 'a delegation whose subject key is revoked is logged', [['names(x, { delegation: r.id, subject: d.subject })', 'x.target === r.id']]],
+  ['log-revoked', 'a revoked delegation is logged', [["    if (kept(held, now).some((x) => names(x, { delegation: r.id, subject: d.subject, agent }))) return refuse('revoked')\n", '']]],
+  ['log-by-id-only', 'a delegation whose subject key is revoked is logged', [['names(x, { delegation: r.id, subject: d.subject, agent })', 'x.target === r.id || x.target === agent']]],
   ['log-any-membership', 'a delegation under a membership not current is logged', [["    if (d.membership !== s.settled && d.membership !== s.membership) return refuse('membership')\n", '']]],
   ['log-any-root', 'a delegation from a root without authority is logged', [["    if (!has(s.authority, d.root)) return refuse('authority')\n", "    if (!rootKeys(held).has(d.root)) return refuse('authority')\n"]]],
   ['log-unverified', 'a delegation is logged without being verified at now', [['    if (!c.ok) return c\n', '']]],
@@ -153,7 +155,7 @@ test('witness broken twins', { timeout: 1_800_000 }, async (t) => {
       assert.ok(r.pass >= 25, `control: only ${r.pass} tests ran`)
     })
     const jobs = TWINS.map(([name, why, edits, file]) => [name, why, generate(name, edits, file)])
-    assert.equal(jobs.length, 81, 'twin count')
+    assert.equal(jobs.length, 83, 'twin count')
     const results = []
     const queue = [...jobs]
     const workers = Math.max(1, Math.floor(availableParallelism() / 4))

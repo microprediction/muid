@@ -16,22 +16,22 @@ const SUITE = readdirSync(SUITE_DIR).filter((f) => f.endsWith('.test.mjs')).map(
 
 // A twin lives outside the repository, so its imports are made absolute.
 const absolute = (m) => new URL('../../src/' + m + '.js', import.meta.url).href
-const IMPORTS = ['envelope', 'assertion', 'root', 'attestation', 'bytes'].map((m) => ["from './" + m + ".js'", "from '" + absolute(m) + "'"])
+const IMPORTS = ['envelope', 'assertion', 'ed25519', 'root', 'attestation', 'bytes'].map((m) => ["from './" + m + ".js'", "from '" + absolute(m) + "'"])
 
 // [name, bug class, [find, replace] pairs]
 const TWINS = [
   ['head-length-reread', "a head's revoked list has its length read at every step", [['  for (let i = 0; i < n; i++) {\n    const x = revoked[i]', '  for (let i = 0; i < revoked.length; i++) {\n    const x = revoked[i]']]],
   ['half-is-majority', 'exactly half of the previous roots can change membership', [['  if (2 * yes <= cur.roots.length) return false', '  if (2 * yes < cur.roots.length) return false']]],
-  ['added-roots-unsigned', 'a root can be added without its own signature', [['    if (!has(cur.roots, r) && !p.signers.has(r)) return false', '    if (false) return false']]],
+  ['added-roots-unsigned', 'a root can be added without its own signature', [['    if (!has(cur.roots, r) && p.signers[r] !== true) return false', '    if (false) return false']]],
   ['witness-window-ignored', 'anchors and settlements are accepted whatever the witness key\'s window', [['ctx.keys, r.body.at, r.body.at + 1)', 'ctx.keys, 0, 0)']]],
   ['contest-without-majority', 'any one root can end the identity with a contest', [['        if (2 * yes > cur.roots.length) return accept({ dead: true })', '        if (yes > 0) return accept({ dead: true })']]],
   ['pending-full-authority', 'new roots have authority before settlement', [['if (!pending || has(cur.roots, m.roots[i])) authority', 'if (true) authority']]],
   ['freeze-lifted-at-anchor', 'a freeze on the settled membership stops applying once a successor is anchored', [['frozenBy(m) || frozenBy(cur)', 'frozenBy(m)']]],
-  ['settlements-ignored', 'settlements are not followed', [['    const outcomes = r.settled.get(cur.id)', '    const outcomes = undefined']]],
+  ['settlements-ignored', 'settlements are not followed', [['    const outcomes = r.settled[cur.id]', '    const outcomes = undefined']]],
   ['rival-chosen', 'of two anchored rivals the first is taken', [['    if (candidates.length > 1) return accept({ dead: true })\n', '']]],
   ['revoked-cap-after-loop', 'a long revocation list is read in full before the cap applies', [['    if (list.length > MAX_REVOKED) return undefined\n  }\n', '  }\n  if (list.length > MAX_REVOKED) return undefined\n']]],
   ['head-epoch-pending', 'a head carries the pending epoch as if it were settled', [['epoch: state.pending ? state.epoch - 1 : state.epoch', 'epoch: state.epoch']]],
-  ['assertion-unchecked', 'root signatures are not verified', [['  if (!a.ok) return undefined\n  counted.add', '  counted.add']]],
+  ['assertion-unchecked', 'root signatures are not verified', [['  if (!a.ok) return undefined\n  counted[', '  counted[']]],
 ]
 
 function run (implPath) {

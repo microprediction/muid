@@ -1,0 +1,100 @@
+theory Claims
+begin
+
+/*
+  The authentication chain of SPEC §5–§6, symbolically, against a Dolev-Yao network attacker who may also steal any
+  root (passkey) key and any delegate key. A passkey root signs a delegation (D1–D7) for one audience and one delegate
+  key, through a WebAuthn assertion over the record's id (W1); the delegate consents to it (D6); the delegate signs
+  claims (C1), each bound to one request whose origin is the audience; a relying party accepts a claim only under all
+  three signatures. Domain separation is the tags: the passkey signs only assertions, and the delegate key signs
+  consents and claims, each under its own tag (the byte-level prefixes are tested in the code, not here).
+
+  Lemmas, each with the key compromise that is its only escape:
+  - delegation_authentic: an accepted delegation was authorised by the identity's root, unless that root key leaked;
+  - claim_authentic: an accepted claim under an honest delegate's key was signed by it for exactly that request,
+    unless that key leaked;
+  - consent: an identity cannot count another identity's delegate as its own, even with its own root key stolen,
+    unless the delegate's key leaked (D6);
+  - audience: a claim accepted at one audience was made for that audience, so it cannot be replayed at another.
+  - executable: the honest run is possible, so none of the above holds vacuously.
+  Two defences give consent, and each is enough alone: D6's consent, and a claim that names its delegation's id (C1),
+  which an honest delegate signs only under its own. Controls (made by .github/scripts/tamarin.sh, each a
+  one-line edit of a copy): without the consent check, or with claims that do not name their delegation, consent still
+  holds; without both, it must be falsified, so it is no tautology.
+*/
+
+builtins: signing, hashing
+
+// An identity's passkey root: its public key is public; its private key never leaves the authenticator.
+rule Root:
+  [ Fr(~sk) ] --[ Root($I, pk(~sk)) ]-> [ !RootKey($I, ~sk), !RootPk($I, pk(~sk)), Out(pk(~sk)) ]
+
+rule RevealRoot:
+  [ !RootKey(I, sk) ] --[ RevealRoot(I) ]-> [ Out(sk) ]
+
+// A delegate's Ed25519 key, made for one identity's owner.
+rule DelegateKey:
+  [ Fr(~dk) ] --[ DelegateOf(pk(~dk), $I) ]-> [ !DelegKey(pk(~dk), ~dk, $I), Out(pk(~dk)) ]
+
+rule RevealDelegate:
+  [ !DelegKey(p, dk, I) ] --[ RevealDelegate(p) ]-> [ Out(dk) ]
+
+// The owner authorises a delegate key it is given, for audience A: the passkey's assertion over the record's id.
+rule Authorise:
+  let d = <'delegation', I, $A, p> in
+  [ !RootKey(I, sk), In(p) ]
+  --[ Authorised(I, $A, p) ]->
+  [ Out(<d, sign(<'assert', h(d)>, sk)>) ]
+
+// The delegate consents only to a delegation from its own identity (D6).
+rule Consent:
+  let d = <'delegation', I, A, p> in
+  [ !DelegKey(p, dk, I), In(d) ]
+  --[ Consented(p, I, A) ]->
+  [ Out(sign(<'accept', h(d)>, dk)) ]
+
+// The delegate signs a claim for one request, at the audience its delegation names (C1: htu's origin is aud).
+rule Claim:
+  let d = <'delegation', I, A, p> in
+  [ !DelegKey(p, dk, I), In(<d, $path>) ]
+  --[ ClaimSigned(p, h(d), <A, $path>) ]->
+  [ Out(<h(d), <A, $path>, sign(<'claim', h(d), <A, $path>>, dk)>) ]
+
+// A relying party at audience A accepts a claim for a request at A, under the root's assertion, the delegate's
+// consent and the delegate's claim signature (F5, C1).
+rule Accept:
+  let d = <'delegation', I, A, p>
+      req = <A, path> in
+  [ !RootPk(I, rpk), In(<d, rs, cs>), In(<h(d), req, csig>) ]
+  --[ Eq(verify(rs, <'assert', h(d)>, rpk), true),
+      Eq(verify(cs, <'accept', h(d)>, p), true),
+      Eq(verify(csig, <'claim', h(d), req>, p), true),
+      Accepted(I, A, p, req) ]->
+  [ ]
+
+restriction Equality:
+  "All x y #i. Eq(x, y) @i ==> x = y"
+
+lemma executable:
+  exists-trace
+  "Ex I A p req #i. Accepted(I, A, p, req) @i
+     & not (Ex #j. RevealRoot(I) @j) & not (Ex #k. RevealDelegate(p) @k)"
+
+lemma delegation_authentic:
+  "All I A p req #i. Accepted(I, A, p, req) @i
+     ==> (Ex #j. Authorised(I, A, p) @j) | (Ex #k. RevealRoot(I) @k)"
+
+// The owner may authorise any key it is given, an attacker's included (the id page's defence is the fingerprint the
+// user compares, outside the protocol); what the protocol promises is about an honest delegate's key.
+lemma claim_authentic:
+  "All I I2 A p req #i #m. Accepted(I, A, p, req) @i & DelegateOf(p, I2) @m
+     ==> (Ex d #j. ClaimSigned(p, d, req) @j & j < i) | (Ex #k. RevealDelegate(p) @k)"
+
+lemma consent:
+  "All I I2 A p req #i #m. Accepted(I, A, p, req) @i & DelegateOf(p, I2) @m
+     ==> I = I2 | (Ex #k. RevealDelegate(p) @k)"
+
+lemma audience:
+  "All I A p A2 path #i. Accepted(I, A, p, <A2, path>) @i ==> A = A2"
+
+end

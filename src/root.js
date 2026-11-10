@@ -16,12 +16,14 @@ const KEYS = freeze(['pub', 'rp_id'])
 const textEncode = TextEncoder.prototype.encode
 const UTF8 = new TextEncoder()
 
-// UTF-8 of the text, then the bytes of the hex.
-function concat (text, hex) {
+// The text's UTF-8, the hex as raw bytes, then the tail's UTF-8.
+function concat (text, hex, tail = '') {
   const head = apply(textEncode, UTF8, [text])
-  const out = new Bytes(head.length + hex.length / 2)
+  const end = apply(textEncode, UTF8, [tail])
+  const out = new Bytes(head.length + hex.length / 2 + end.length)
   apply(set, out, [head])
   apply(set, out, [fromHex(hex), head.length])
+  apply(set, out, [end, head.length + hex.length / 2])
   return out
 }
 
@@ -33,6 +35,14 @@ export function rootIdOf (rpId, pub) {
 export function identityOf (rootId) {
   if (typeof rootId !== 'string' || apply(exec, ID, [rootId]) === null) throw new TypeError('root id must be 64 lowercase hex')
   return toHex(sha256(concat('muid-identity\n', rootId)))
+}
+
+// Decision 13: a light identity's id, derived from its identity and its delegations' agent name.
+const AGENT = /^[a-z][a-z0-9_.:-]{0,63}$/
+export function agentIdOf (identity, agent) {
+  if (typeof identity !== 'string' || apply(exec, ID, [identity]) === null || typeof agent !== 'string' ||
+    apply(exec, AGENT, [agent]) === null) throw new TypeError('an identity id and an agent name')
+  return toHex(sha256(concat('muid-agent\n', identity, agent)))
 }
 
 export function checkRoot (text, ctx) {

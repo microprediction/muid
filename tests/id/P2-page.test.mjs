@@ -129,7 +129,8 @@ async function createIdentity (page, name = 'test') {
   return { text: await page.inputValue('#root-text'), identity: await page.textContent('#identity-id') }
 }
 
-async function authorise (page, { subject = SUBJECT, aud = 'https://app.example', scopes = 'post read', days = '1' } = {}) {
+async function authorise (page, { agent = 'forecaster', subject = SUBJECT, aud = 'https://app.example', scopes = 'post read', days = '1' } = {}) {
+  await page.fill('#agent', agent)
   await page.fill('#subject', subject)
   await page.fill('#aud', aud)
   await page.fill('#scopes', scopes)
@@ -154,8 +155,9 @@ test('create an identity and authorise a worker: the core, the witness and the v
     assert.equal(JSON.parse(await t.page.evaluate(() => localStorage.getItem('muid.root'))).text, r.text)
 
     // Surrounding spaces are not part of what is signed.
-    await authorise(t.page, { subject: ` ${SUBJECT} `, aud: ' https://app.example ', scopes: ' post  read ' })
+    await authorise(t.page, { agent: ' forecaster ', subject: ` ${SUBJECT} `, aud: ' https://app.example ', scopes: ' post  read ' })
     await t.page.waitForSelector('#review-panel:not([hidden])')
+    assert.equal(await t.page.textContent('#show-agent'), 'forecaster')
     assert.equal(await t.page.textContent('#show-aud'), 'https://app.example')
     assert.equal(await t.page.textContent('#show-scopes'), 'post read')
     assert.equal(await t.page.textContent('#show-subject'), SUBJECT)
@@ -212,6 +214,13 @@ test('I4: what is shown is what is signed; any change withdraws it, and refusals
     await t.page.evaluate(() => document.getElementById('sign').click())
     assert.equal(await t.page.isHidden('#handoff'), true, 'nothing is signed without a review')
     assert.equal(await t.page.textContent('#error'), '')
+    await authorise(t.page)
+    await t.page.waitForSelector('#review-panel:not([hidden])')
+    await t.page.fill('#agent', 'scorer')
+    assert.equal(await t.page.isHidden('#review-panel'), true, 'renaming the agent withdraws it too')
+    await authorise(t.page, { agent: 'My agent' })
+    await errorShown(t.page)
+    assert.equal(await t.page.textContent('#error'), "the agent's name must be a lower-case name, such as forecaster")
     await authorise(t.page, { subject: 'x' })
     await errorShown(t.page)
     assert.equal(await t.page.textContent('#error'), "the worker's key must be an Ed25519 public key, 64 hex digits")
@@ -344,6 +353,7 @@ test('another tab that creates an identity is followed here, and one is never cr
     assert.equal(await other.textContent('#identity-id'), a.identity)
     assert.equal(JSON.parse(await t.page.evaluate(() => localStorage.getItem('muid.root'))).identity, a.identity, 'not overwritten')
     // A review open in the other tab is withdrawn when what is stored changes; storage cleared there is followed too.
+    await other.fill('#agent', 'forecaster')
     await other.fill('#subject', SUBJECT)
     await other.fill('#aud', 'https://app.example')
     await other.fill('#scopes', 'post')

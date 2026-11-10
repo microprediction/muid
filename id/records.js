@@ -80,7 +80,9 @@ export function assertion (covers, { authenticatorData, clientDataJSON, signatur
 
 // A delegation to a worker's Ed25519 key, from `now` for `lifetime` seconds: { body, payload, id }. Scopes are
 // sorted and duplicates dropped; anything the verifier would refuse is refused here first, with a reason to show.
-export function delegation ({ identity, membership, root, subject, aud, scopes, now, lifetime }) {
+export function delegation ({ agent, identity, membership, root, subject, aud, scopes, now, lifetime }) {
+  // Decision 13: the light identity the worker is, by a name of a scope's form; its key may change, the name stays.
+  if (typeof agent !== 'string' || !SCOPE.test(agent)) throw new Error("the agent's name must be a lower-case name, such as forecaster")
   if (!checkEd25519Key(subject).ok) { // 64 lower-case hex digits, a point on the curve
     throw new Error("the worker's key must be an Ed25519 public key, 64 hex digits")
   }
@@ -91,7 +93,7 @@ export function delegation ({ identity, membership, root, subject, aud, scopes, 
   }
   if (list.includes('attest')) throw new Error('the attest scope is not granted to a worker') // SPEC §8
   if (!Number.isSafeInteger(lifetime) || lifetime < 1 || lifetime > MAX_LIFETIME) throw new Error('the lifetime must be 1 second to 7 days')
-  const body = { identity, membership, root, subject, aud, scopes: list, nbf: now, exp: now + lifetime }
+  const body = { agent, identity, membership, root, subject, aud, scopes: list, nbf: now, exp: now + lifetime }
   return { body, ...seal('delegation', body) }
 }
 

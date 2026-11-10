@@ -63,6 +63,7 @@
   </section>
   <section id="authorise" hidden>
     <h2>Authorise a worker</h2>
+    <label>Agent name <input id="agent" autocomplete="off" spellcheck="false" placeholder="forecaster"></label>
     <label>Worker key (Ed25519, hex) <input id="subject" autocomplete="off" spellcheck="false"></label>
     <label>Audience <input id="aud" autocomplete="off" placeholder="https://app.example"></label>
     <label>Scopes <input id="scopes" autocomplete="off" placeholder="post read"></label>
@@ -71,6 +72,7 @@
     <div id="review-panel" hidden>
       <p>Your passkey will sign exactly this:</p>
       <dl>
+        <dt>Agent</dt><dd id="show-agent"></dd>
         <dt>Audience</dt><dd id="show-aud"></dd>
         <dt>Scopes</dt><dd id="show-scopes"></dd>
         <dt>Expires</dt><dd id="show-exp"></dd>

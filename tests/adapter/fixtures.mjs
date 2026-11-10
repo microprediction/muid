@@ -18,7 +18,7 @@ export const verifier = () => verifierModule.verifier(CONFIG)
 export const root = envelope.wrap(envelope.seal('root', { pub: KEY, rp_id: RP_ID }).payload)
 const ROOT = rootModule.checkRoot(root, { rpId: RP_ID }).id
 export const IDENTITY = rootModule.identityOf(ROOT)
-const del = envelope.seal('delegation', { identity: IDENTITY, membership: IDENTITY, root: ROOT, subject: hex(ed25519.getPublicKey(APP)), aud: AUD,
+const del = envelope.seal('delegation', { agent: 'worker', identity: IDENTITY, membership: IDENTITY, root: ROOT, subject: hex(ed25519.getPublicKey(APP)), aud: AUD,
   scopes: ['forecast'], nbf: NOW - 10, exp: NOW + 86_000 })
 export const delegation = envelope.wrap(del.payload, { root: make({ covers: [del.id] }),
   subject: hex(ed25519.sign(Buffer.concat([Buffer.from('muid/v1/accept\n'), Buffer.from(del.id, 'hex')]), APP)) })
@@ -30,7 +30,7 @@ export function head (at, { revoked = [], secret = W, epoch = 1, memberships = [
 export const DELEGATION_ID = del.id
 // A second delegation from the same root, to another app's key: an honest request alongside the first.
 const APP2 = Uint8Array.from({ length: 32 }, (_, i) => 100 + i)
-const del2 = envelope.seal('delegation', { identity: IDENTITY, membership: IDENTITY, root: ROOT, subject: hex(ed25519.getPublicKey(APP2)), aud: AUD,
+const del2 = envelope.seal('delegation', { agent: 'worker', identity: IDENTITY, membership: IDENTITY, root: ROOT, subject: hex(ed25519.getPublicKey(APP2)), aud: AUD,
   scopes: ['forecast'], nbf: NOW - 10, exp: NOW + 86_000 })
 export const delegation2 = envelope.wrap(del2.payload, { root: make({ covers: [del2.id] }),
   subject: hex(ed25519.sign(Buffer.concat([Buffer.from('muid/v1/accept\n'), Buffer.from(del2.id, 'hex')]), APP2)) })

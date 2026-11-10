@@ -4,7 +4,7 @@
 // of R1: an anchor is kept only if, with it, verifiers see that record pending (R3: "applies R1 exactly as verifiers
 // do"). Storage, the network and the transparency log are the service's; the signing key is held by `sign`.
 import { open, seal, wrap, signedBytes, EnvelopeError } from '../src/envelope.js'
-import { checkRoot, identityOf } from '../src/root.js'
+import { checkRoot, identityOf, agentIdOf } from '../src/root.js'
 import { checkRootAssertion } from '../src/assertion.js'
 import { membershipState, headOf, MAX_RECORDS, MAX_REVOKED } from '../src/membership.js'
 import { checkDelegation } from '../src/delegation.js'
@@ -292,7 +292,8 @@ export function witness (config) {
   // R10: the logged delegations that can still verify at `now` in state `s` (R6, D7); no other can ever again.
   const live = (held, s, now) => held.logged.filter((l) => now < l.exp + skew && (l.membership === s.settled || l.membership === s.membership) &&
     has(s.authority, l.root))
-  const names = (x, l) => x.target === l.delegation || x.target === l.subject
+  // A revocation names a logged delegation by its id, its subject key or its agent's light identity id (decision 13).
+  const names = (x, l) => x.target === l.delegation || x.target === l.subject || x.target === l.agent
   // The head's entries: the kept revocations that name a live logged delegation.
   const entries = (held, s, now) => {
     const ls = live(held, s, now)
@@ -317,13 +318,14 @@ export function witness (config) {
     if (!has(s.authority, d.root)) return refuse('authority')
     const c = checkDelegation(text, { rootKey: rootKeys(held).get(d.root), rpId, origin, now, skew, maxLifetime })
     if (!c.ok) return c
-    if (kept(held, now).some((x) => names(x, { delegation: r.id, subject: d.subject }))) return refuse('revoked')
+    const agent = agentIdOf(held.identity, d.agent)
+    if (kept(held, now).some((x) => names(x, { delegation: r.id, subject: d.subject, agent }))) return refuse('revoked')
     const known = held.logged.find((l) => l.delegation === r.id)
     if (known !== undefined) return accept({ held, logged: known.text, fresh: false })
     const ls = live(held, s, now)
     if (ls.length >= MAX_RECORDS) return refuse('full')
     const logged = make('logged', { identity: held.identity, delegation: r.id, at: now })
-    const entry = freeze({ text: logged, delegation: r.id, subject: d.subject, root: d.root, membership: d.membership, exp: d.exp })
+    const entry = freeze({ text: logged, delegation: r.id, subject: d.subject, agent, root: d.root, membership: d.membership, exp: d.exp })
     return accept({ held: freeze({ ...held, logged: freeze([...ls, entry]) }), logged, fresh: true })
   }
 

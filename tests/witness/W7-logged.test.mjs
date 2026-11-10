@@ -6,7 +6,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { ed25519 } from '@noble/curves/ed25519.js'
-import { envelope, verifier as verifierModule } from '../impl.mjs'
+import { envelope, verifier as verifierModule, root as rootModule } from '../impl.mjs'
 import { make } from '../assertion/helpers.mjs'
 import { secretOf } from '../membership/translate.mjs'
 import { w, IDENTITY, BASE, WINDOW, start, withM2, M2, mId, signed, rootId, rootText, admitAll, state, CONFIG } from './fixtures.mjs'
@@ -18,8 +18,8 @@ const DAY = 86_400
 const key = (i) => Uint8Array.from({ length: 32 }, (_, j) => (i * 7 + j) % 256)
 const subjectOf = (secret) => hex(ed25519.getPublicKey(secret))
 
-function delegation ({ secret = key(1), membership = IDENTITY, root = 'a', nbf = NOW - 10, exp = NOW + 3600, identity = IDENTITY } = {}) {
-  const body = { identity, membership, root: rootId(root), subject: subjectOf(secret), aud: 'https://app.example', scopes: ['post'], nbf, exp }
+function delegation ({ secret = key(1), membership = IDENTITY, root = 'a', nbf = NOW - 10, exp = NOW + 3600, identity = IDENTITY, agent = 'worker' } = {}) {
+  const body = { agent, identity, membership, root: rootId(root), subject: subjectOf(secret), aud: 'https://app.example', scopes: ['post'], nbf, exp }
   const { payload, id } = envelope.seal('delegation', body)
   return { id, text: envelope.wrap(payload, { root: make({ covers: [id], secret: secretOf(root) }),
     subject: hex(ed25519.sign(Buffer.concat([Buffer.from('muid/v1/accept\n'), Buffer.from(id, 'hex')]), secret)) }) }
@@ -237,4 +237,23 @@ test("each root has its own bucket: one root's revocations leave another's as th
   h = w.revoke(h, byRoot(target(12), 'b', now), now).held
   assert.equal(refused(w.revoke(h, byRoot(target(13), 'a', now), now)), 'quota', "a's bucket is still empty")
   assert.deepEqual(h.buckets.map((x) => [x.root, x.tokens]), [[rootId('a'), 0], [rootId('b'), 11]])
+})
+
+// Decision 13: a root retires an agent by its light identity id. While a delegation under the name is live, the head
+// carries the entry, so verifiers refuse it; the witness keeps the entry for good and never logs another delegation
+// under the name, so none can verify again, whatever its key. Another name is unaffected.
+test('a retired agent: in the head while one of its delegations is live, and never logged again', () => {
+  const retired = rootModule.agentIdOf(IDENTITY, 'worker')
+  const d = delegation()
+  let held = logAll(start(), [d.text, delegation({ secret: key(2), agent: 'scorer' }).text])
+  const r = w.revoke(held, byRoot(retired), NOW)
+  assert.equal(r.ok, true, refused(r))
+  held = r.held
+  assert.deepEqual(revokedIn(held), [retired], 'in the head while worker\'s delegation is live')
+  assert.equal(refused(w.log(held, delegation({ secret: key(3), nbf: NOW }).text, NOW)), 'revoked', 'a new key under the name')
+  assert.equal(w.log(held, delegation({ secret: key(4), agent: 'reader' }).text, NOW).ok, true, 'another name')
+  // Long after every delegation under the name has expired, the entry has left the head but is still kept.
+  const later = NOW + 30 * DAY
+  assert.deepEqual(revokedIn(held, later) ?? [], [], 'not in a head once nothing under it is live')
+  assert.equal(refused(w.log(held, delegation({ secret: key(5), nbf: later, exp: later + 3600 }).text, later)), 'revoked', 'still never reissued')
 })

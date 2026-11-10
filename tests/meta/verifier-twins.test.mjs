@@ -22,8 +22,10 @@ const IMPORTS = ['envelope', 'ed25519', 'root', 'delegation', 'attestation', 'or
 const TWINS = [
   ['no-staleness', 'a head of any age is accepted', [['h.at < now - cfg.maxStaleness || ', '']]],
   ['min-head-at-ignored', 'a head older than one already seen is accepted', [[' || h.at < minHeadAt', '']]],
-  ['head-revocations-ignored', 'revocations carried by the head are not applied', [["    if (has(h.revoked, d.id) || has(h.revoked, b.subject)) return refuse('revoked')\n", '']]],
-  ['revoke-by-id-only', 'revoking a subject key does not revoke its delegations', [[' || has(h.revoked, b.subject)', '']]],
+  ['head-revocations-ignored', 'revocations carried by the head are not applied', [["    if (names(h.revoked)) return refuse('revoked')\n", '']]],
+  ['revoke-by-id-only', 'revoking a subject key does not revoke its delegations', [[' || has(list, b.subject)', '']]],
+  ['agent-retirement-ignored', 'retiring an agent\'s name revokes nothing', [[' || has(list, agent)', '']]],
+  ['agent-across-identities', 'an agent is named without its identity, so one name is one agent everywhere', [['agentIdOf(b.identity, b.agent)', "agentIdOf('0'.repeat(64), b.agent)"]]],
   ['equivocation-unchecked', 'a head inconsistent with the last one accepted is accepted', [["    if (last && forked(last, h)) return refuse(h.at === last.at && !forked(h, last) ? 'stale' : 'equivocation')\n", '']]],
   ['same-second-as-evidence', 'two honest heads of one second, shown in reverse, are called equivocation', [["h.at === last.at && !forked(h, last) ? 'stale' : 'equivocation'", "'equivocation'"]]],
   ['epoch-may-fall', 'a lower settled epoch is accepted', [['if (h.epoch < l.epoch || h.epoch', 'if (h.epoch']]],
@@ -55,7 +57,7 @@ const TWINS = [
   ['claim-htu-any-form', 'an htu outside the grammar is accepted', [['return m !== null && isCanonicalOrigin(m[1]) ? m[1] : undefined', 'return typeof x === \'string\' ? x.split(\'/\').slice(0, 3).join(\'/\') : undefined']]],
   ['claim-keys-any', 'a claim with keys of its own is accepted', [["    for (const k in b) if (!has(CLAIM_KEYS, k)) return refuse('claim-shape')\n", '']]],
   ['claim-outside-delegation', 'a claim dated outside its delegation\'s window is accepted', [[' || b.at < d.body.nbf - cfg.skew ||\n      b.at >= d.body.exp', '']]],
-  ['call-revoked-by-id-only', 'a subject key in the call\'s revoked list is ignored', [[' || revoked[i] === b.subject', '']]],
+  ['call-revoked-by-id-only', 'a subject key in the call\'s revoked list is ignored', [["    if (names(revoked)) return refuse('revoked')", "    if (has(revoked, d.id) || has(revoked, agent)) return refuse('revoked')"]]],
   ['key-window-at-head-only', 'a retired witness key\'s heads are accepted', [['  const until = (now > b.at ? now : b.at) + 1', '  const until = b.at + 1']]],
   ['key-window-from-head-only', 'a key not yet valid now is accepted for a head dated within skew', [['  const from = now < b.at ? now : b.at', '  const from = b.at']]],
   ['head-from-the-future', 'a head dated after now is accepted', [[' || h.at > now + cfg.skew', '']]],
@@ -63,14 +65,14 @@ const TWINS = [
   ['membership-unchecked', 'the delegation may name any membership', [["    if (!has(h.memberships, b.membership)) return refuse('membership')\n", '']]],
   ['authority-unchecked', 'any root of the identity may delegate', [["    if (!has(h.authority, b.root)) return refuse('authority')\n", '']]],
   ['identity-unchecked', 'a head of another identity is accepted', [["    if (h.identity !== b.identity) return refuse('identity')\n", '']]],
-  ['revocations-ignored', 'revoked delegations are accepted', [["    for (let i = 0; i < n; i++) if (revoked[i] === d.id || revoked[i] === b.subject) return refuse('revoked')\n", '']]],
+  ['revocations-ignored', 'revoked delegations are accepted', [["    if (names(revoked)) return refuse('revoked')\n", '']]],
   ['audience-unchecked', 'a delegation for another relying party is accepted', [["    if (b.aud !== cfg.audience) return refuse('audience')\n", '']]],
   ['scope-unchecked', 'any scope is granted', [["    if (!has(b.scopes, scope)) return refuse('scope')\n", '']]],
   ['head-unsigned', 'the head\'s signature is not checked', [['  if (!isWitnessSig(r.sig) || witnessReason(r.sig, r.payload, cfg.keys, from, until) !== undefined) return undefined\n', '']]],
   ['logged-unchecked', 'a delegation is accepted without its logged record', [["    if (l === undefined || l.identity !== b.identity || l.delegation !== d.id || l.at < b.nbf - cfg.skew || l.at >= b.exp) return refuse('logged')\n", '']]],
   ['logged-any-delegation', "another delegation's logged record is accepted", [['l.identity !== b.identity || l.delegation !== d.id ||', 'l.identity !== b.identity ||']]],
   ['logged-any-identity', "another identity's logged record is accepted", [['l === undefined || l.identity !== b.identity ||', 'l === undefined ||']]],
-  ['last-head-revocations-forgotten', "a revocation the last head carried is forgotten once a later head drops it", [["    if (last && (has(last.revoked, d.id) || has(last.revoked, b.subject))) return refuse('revoked')\n", '']]],
+  ['last-head-revocations-forgotten', "a revocation the last head carried is forgotten once a later head drops it", [["    if (last && names(last.revoked)) return refuse('revoked')\n", '']]],
   ['logged-any-window', "a logged record is accepted outside its delegation's window", [[' || l.at < b.nbf - cfg.skew || l.at >= b.exp) return', ') return']]],
   ['logged-form-unchecked', "a logged record's body is used before its form is checked", [["  if (r === undefined || !isId(r.body.identity) || !isId(r.body.delegation) || !isTime(r.body.at)) return undefined\n  if (", '  if (r === undefined || ']]],
   ['logged-unsigned', 'a logged record is accepted without its signature checked', [['  if (!isWitnessSig(r.sig) || witnessReason(r.sig, r.payload, cfg.keys, r.body.at, r.body.at + 1) !== undefined) return undefined\n', '']]],
@@ -121,7 +123,7 @@ test('verifier broken twins', { timeout: 600_000 }, async (t) => {
     })
 
     const jobs = TWINS.map(([name, why, edits]) => [name, why, generate(name, edits)])
-    assert.equal(jobs.length, 58, 'twin count')
+    assert.equal(jobs.length, 60, 'twin count')
     const results = []
     const queue = [...jobs]
     const workers = Math.max(1, Math.floor(availableParallelism() / 4))
