@@ -101,7 +101,9 @@ export function delegation ({ agent, identity, membership, root, subject, aud, s
 // and builds the delegations of up to MAX_BATCH of them again for one assertion (W0 covers at most eight records).
 export const MAX_BATCH = 8
 export const MAX_WORKERS = 32
-const sameWorker = (a, b) => a.agent === b.agent && a.subject === b.subject
+// An agent's name outlives its keys, and it has one key at a time: an entry gives way to a newer one of its agent
+// that has another key (the key was replaced) or the same audience (the delegation was).
+const givesWay = (old, worker) => old.agent === worker.agent && (old.subject !== worker.subject || old.aud === worker.aud)
 
 function workerOf (x) {
   if (x === null || typeof x !== 'object' || Array.isArray(x) || Object.keys(x).length !== 5 ||
@@ -110,14 +112,19 @@ function workerOf (x) {
   return { agent: x.agent, subject: x.subject, aud: x.aud, scopes: [...x.scopes], lifetime: x.lifetime }
 }
 
-// The list with `worker` last, in place of an older entry of the same agent and key; the oldest dropped past
+// The list with `worker` last, in place of the older entries that give way to it; the oldest dropped past
 // MAX_WORKERS.
 export function remember (list, worker) {
-  return [...list.filter((w) => !sameWorker(w, worker)), worker].slice(-MAX_WORKERS)
+  return [...list.filter((w) => !givesWay(w, worker)), worker].slice(-MAX_WORKERS)
+}
+
+// The keys remembered for the worker's agent that remembering it would replace, each once.
+export function retired (list, worker) {
+  return [...new Set(list.filter((w) => w.agent === worker.agent && w.subject !== worker.subject).map((w) => w.subject))]
 }
 
 // The workers the page kept in storage, read back as untrusted: only entries of a worker's form, the latest of each
-// agent and key. Their values are checked when a delegation is built from them, as a new one's are.
+// agent and audience, under the agent's latest key. Their values are checked when a delegation is built from them, as a new one's are.
 export function storedWorkers (x) {
   if (!Array.isArray(x)) return []
   let out = []
@@ -135,6 +142,7 @@ export function renewals (workers, { identity, membership, root, now }) {
   const delegations = workers.map((w) => delegation({ ...w, identity, membership, root, now }))
   const covers = delegations.map((d) => d.id).sort()
   if (new Set(covers).size !== covers.length) throw new Error('a worker is listed twice')
+  if (workers.some((w) => workers.some((v) => v.agent === w.agent && v.subject !== w.subject))) throw new Error('an agent is listed with two keys')
   return { delegations, covers }
 }
 

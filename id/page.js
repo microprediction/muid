@@ -4,7 +4,7 @@
 // payload (I4); changing any input withdraws it, and a signature that returns after an edit is discarded. The root
 // record and the credential id are kept in this browser only. The workers it authorised are remembered here too, so
 // that one assertion renews up to eight of them at once (decision 3).
-import { rootRecord, challenge, assertion, delegation, handOff, b64u, fromB64u, currentMembership, addRoot, rootSigned, changeToSign, fingerprint, storedRoot, cosignedIdentity, storedWorkers, remember, renewals } from './records.js'
+import { rootRecord, challenge, assertion, delegation, handOff, b64u, fromB64u, currentMembership, addRoot, rootSigned, changeToSign, fingerprint, storedRoot, cosignedIdentity, storedWorkers, remember, retired, renewals } from './records.js'
 
 const $ = (id) => document.getElementById(id)
 const meta = (name) => document.querySelector(`meta[name="${name}"]`).content
@@ -57,7 +57,7 @@ function listWorkers () {
     box.addEventListener('change', withdraw)
     const forget = element('button', 'Forget')
     forget.type = 'button'
-    forget.addEventListener('click', () => { withdraw(); keepWorkers((list) => list.filter((x) => x.agent !== w.agent || x.subject !== w.subject)) })
+    forget.addEventListener('click', () => { withdraw(); keepWorkers((list) => list.filter((x) => x.agent !== w.agent || x.aud !== w.aud)) })
     return element('li', element('label', box, ` ${w.agent} at ${w.aud}: ${w.scopes.join(' ')} `, element('code', w.subject)), forget)
   }))
 }
@@ -190,6 +190,9 @@ $('review').addEventListener('click', async () => {
     $('show-scopes').textContent = d.body.scopes.join(' ')
     $('show-exp').textContent = new Date(d.body.exp * 1000).toISOString()
     $('show-subject').textContent = d.body.subject
+    // An agent has one key at a time (issue #70): signing this replaces the key remembered for it, said here first.
+    const old = retired(workers, d.body)
+    $('show-retires').textContent = old.length === 0 ? '' : `This replaces the key remembered for ${d.body.agent}, ${old.join()}: that key will no longer be renewed here. It keeps working until what it was given expires, unless it is revoked.`
     $('review-panel').hidden = false
   } catch (e) { fail(e) }
 })

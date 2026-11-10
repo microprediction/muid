@@ -868,6 +868,66 @@ test('renewal: the workers authorised here are remembered, and one assertion ren
   }
 })
 
+// Issue #70: a new key authorised for an agent replaces the key remembered for it. The review says so before the
+// passkey signs; afterwards only the new key is listed, renewed and stored, and a stored old key is not read back.
+test('renewal: a new key for an agent retires its old one, said at the review; only the new key is renewed', { timeout: 180_000 }, async () => {
+  const t = await open()
+  try {
+    await createIdentity(t.page)
+    await authorise(t.page, { agent: 'forecaster', subject: workerPub(1), scopes: 'post' })
+    await t.page.waitForSelector('#review-panel:not([hidden])')
+    assert.equal(await t.page.textContent('#show-retires'), '', 'nothing remembered: nothing replaced')
+    await t.page.click('#sign')
+    await t.page.waitForSelector('#handoff:not([hidden])')
+    await authoriseAndSign(t.page, { agent: 'other', subject: workerPub(3), scopes: 'post' })
+    // The same key again, here at another audience: nothing is replaced.
+    await authorise(t.page, { agent: 'forecaster', subject: workerPub(1), aud: 'https://other.example', scopes: 'post' })
+    await t.page.waitForSelector('#review-panel:not([hidden])')
+    assert.equal(await t.page.textContent('#show-retires'), '', 'the same key')
+    await t.page.click('#sign')
+    await t.page.waitForSelector('#handoff:not([hidden])')
+    assert.equal(await t.page.locator('#workers li').count(), 3)
+
+    // A new key for the agent: the review names the key it replaces, and until it is signed nothing changes.
+    await authorise(t.page, { agent: 'forecaster', subject: workerPub(2), scopes: 'post' })
+    await t.page.waitForSelector('#review-panel:not([hidden])')
+    assert.equal(await t.page.textContent('#show-retires'), `This replaces the key remembered for forecaster, ${workerPub(1)}: that key will no longer be renewed here. ` +
+      'It keeps working until what it was given expires, unless it is revoked.')
+    assert.equal(await t.page.locator('#workers li').count(), 3)
+    assert.equal((await kept(t.page)).length, 3)
+    await t.page.click('#sign')
+    await t.page.waitForSelector('#handoff:not([hidden])')
+    const now = [{ agent: 'other', subject: workerPub(3), aud: 'https://app.example', scopes: ['post'], lifetime: 86_400 },
+      { agent: 'forecaster', subject: workerPub(2), aud: 'https://app.example', scopes: ['post'], lifetime: 86_400 }]
+    assert.deepEqual(await kept(t.page), now, 'the old key is gone, at both audiences')
+    assert.deepEqual(await t.page.$$eval('#workers code', (cs) => cs.map((c) => c.textContent)), [workerPub(3), workerPub(2)])
+
+    // Reviewed again once remembered, the new key replaces nothing: the notice is not left over.
+    await authorise(t.page, { agent: 'forecaster', subject: workerPub(2), scopes: 'post' })
+    await t.page.waitForSelector('#review-panel:not([hidden])')
+    assert.equal(await t.page.textContent('#show-retires'), '')
+
+    // The renewal signs the new key and never the old.
+    await t.page.click('#renew-review')
+    await t.page.waitForSelector('#renew-panel:not([hidden])')
+    await t.page.click('#renew-sign')
+    await t.page.waitForSelector('#renew-handoffs:not([hidden])')
+    const handed = await t.page.$$eval('#renew-handoffs textarea', (ts) => ts.map((x) => x.value))
+    const subjectOf = (h) => envelope.open(envelope.wrap(h.payload, { root: h.root, subject: '0'.repeat(128) }), 'delegation').body.subject
+    assert.deepEqual(handed.map((h) => subjectOf(JSON.parse(h))), [workerPub(3), workerPub(2)])
+
+    // An old key written back into storage (another tab of an older page, or anything on the origin) is not read back.
+    await seed(t.page, [{ ...now[1], subject: workerPub(1) }, ...now])
+    await t.collect()
+    await t.page.reload()
+    await t.page.waitForSelector('#renew:not([hidden])')
+    assert.deepEqual(await t.page.$$eval('#workers code', (cs) => cs.map((c) => c.textContent)), [workerPub(3), workerPub(2)])
+    assert.deepEqual(t.problems, [])
+  } finally {
+    await t.close()
+  }
+})
+
 test('renewal, I4: 1 to 8 at once; a change of selection withdraws; a forgotten worker is gone; stored workers are untrusted', { timeout: 180_000 }, async () => {
   const t = await open()
   try {
@@ -922,15 +982,14 @@ test('renewal, I4: 1 to 8 at once; a change of selection withdraws; a forgotten 
     await t.page.click('#renew-review')
     await errorShown(t.page)
     assert.equal(await t.page.textContent('#error'), 'renew 1 to 8 workers at once')
-    // Two workers of one agent name, with different keys, are two entries: forgetting one keeps the other. So are two
-    // agents with one key.
-    await seed(t.page, [stored(1), stored(2, { agent: 'w1' }), stored(1, { agent: 'w5' })])
+    // One agent at two audiences is two entries, and so are two agents with one key: forgetting one keeps the others.
+    await seed(t.page, [stored(1), stored(1, { aud: 'https://other.example' }), stored(1, { agent: 'w5' })])
     await t.collect()
     await t.page.reload()
     await t.page.waitForSelector('#renew:not([hidden])')
     assert.equal(await t.page.locator('#workers li').count(), 3)
     await t.page.locator('#workers button').nth(0).click()
-    assert.deepEqual(await kept(t.page), [stored(2, { agent: 'w1' }), stored(1, { agent: 'w5' })])
+    assert.deepEqual(await kept(t.page), [stored(1, { aud: 'https://other.example' }), stored(1, { agent: 'w5' })])
     // The last one forgotten, there is nothing to renew.
     await t.page.locator('#workers button').nth(0).click()
     await t.page.locator('#workers button').nth(0).click()

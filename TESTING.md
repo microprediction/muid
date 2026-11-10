@@ -696,7 +696,7 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   wait is cut to 15 s and every test to 60 s, and once one test fails or times out, the rest fail at once. Without
   this, a broken page made each test wait out its limits in turn, and the mutant was counted only when Stryker's
   own timeout ran out.
-- Twins (`tests/meta/id-twins.test.mjs`, 51 in all): the challenge's domain, any algorithm, unsorted scopes, an unbounded
+- Twins (`tests/meta/id-twins.test.mjs`, 57 in all): the challenge's domain, any algorithm, unsorted scopes, an unbounded
   lifetime, an unchecked audience, an edit that keeps the review, a late signature kept, verification preferred,
   any passkey, a credential that is not resident, inline scripts allowed, hidden parts shown; attest granted; a change co-signed that does not add
   this passkey, an edit of the new root kept, authority unchecked, delegations under the first membership, the root
@@ -716,10 +716,19 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   audience; nine refused and none refused; a change of selection, a forgotten worker and another tab's change each
   withdraw a review; a signature returning after a change of selection is not handed over; a refused passkey is
   reported; stored text is shown as text; unreadable storage offers nothing; a passkey with no identity yet, or
-  still joining, is offered nothing to renew. Twins (11 of the 51): the batch unbounded, covers unsorted, storage
+  still joining, is offered nothing to renew. Twins (11 of the 57): the batch unbounded, covers unsorted, storage
   trusted, the selection or a late signature not withdrawing, an unticked worker renewed, a delegation signed but
   not shown, the assertion not covering each, renewal offered while joining, a worker not remembered or not
   forgotten.
+- **One key per agent (issue #70):** `P1`: a new key remembered for an agent removes its entries under any other
+  key, at every audience; the same key at another audience is kept, and the same agent, key and audience replaced;
+  another agent with the same key is untouched; storage holding two keys for an agent reads back with the latest
+  only; the keys a new worker would replace are listed, each once; a renewal naming one agent under two keys is
+  refused. `P2`: a key authorised for a remembered agent is shown, before signing, as replacing the old key by
+  name, and nothing changes until it is signed; then only the new key is listed, stored and renewed; reviewed again
+  the notice is gone; an old key written back into storage is not read back; a worker forgotten at one audience
+  stays at its other. Twins (6 of the 57): the old key kept, or kept at its other audiences; two keys renewed;
+  the replacement unsaid, or said when there is none; one audience's Forget forgetting every audience.
 
 ## 4l. The two-application demo (`demo/`, not core)
 

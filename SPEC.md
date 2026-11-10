@@ -741,7 +741,11 @@ witness anchors it, and it settles once its contest window has passed; until the
 scopes and lifetime, never a signature — lists them, each ticked until the user unticks or forgets it, builds the
 ticked ones' delegations again from now under the current membership, shows every one (I4), and signs 1 to 8 of them
 with one assertion (W0), handing each worker its payload with that assertion. What it remembered is read back as
-untrusted, as the root is, and every check a new delegation gets is made again. `id/records.js` builds every record
+untrusted, as the root is, and every check a new delegation gets is made again. An agent has one key at a time, as its
+name outlives its keys: authorising a new key for an agent replaces what was remembered under its old key, at every
+audience, and the review says so before the passkey signs; the same key at another audience is kept beside it, and
+one agent under two keys is never renewed. Forgetting or replacing a key only stops its renewal here: it works until
+what it was given expires, unless it is revoked. `id/records.js` builds every record
 with the core's functions and refuses first what the core would. Not yet: removing a root, freezes and contests, and
 the I1–I3 window protocol for apps.
 

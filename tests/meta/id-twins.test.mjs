@@ -68,7 +68,13 @@ const TWINS = [
   ['renew-partly-signed', 'the assertion does not cover every renewed delegation', [['    const a = await sign(r.covers)\n', '    const a = await sign([r.covers[0]])\n']], 'page.js'],
   ['renew-unauthorised', 'a passkey still joining is offered workers to renew', [["  $('renew').hidden = root === null || joining || workers.length === 0\n", "  $('renew').hidden = root === null || workers.length === 0\n"]], 'page.js'],
   ['worker-not-remembered', 'an authorised worker is not kept for renewal', [["  try { localStorage.setItem(WORKERS, JSON.stringify(workers)) } catch { /* kept for this visit only */ }\n", '']], 'page.js'],
-  ['forget-keeps', 'a forgotten worker stays listed', [['keepWorkers((list) => list.filter((x) => x.agent !== w.agent || x.subject !== w.subject))', 'keepWorkers((list) => list)']], 'page.js'],
+  ['forget-keeps', 'a forgotten worker stays listed', [['keepWorkers((list) => list.filter((x) => x.agent !== w.agent || x.aud !== w.aud))', 'keepWorkers((list) => list)']], 'page.js'],
+  ['forget-every-audience', "forgetting a worker at one audience forgets it at the others", [['list.filter((x) => x.agent !== w.agent || x.aud !== w.aud)', 'list.filter((x) => x.agent !== w.agent)']], 'page.js'],
+  ['old-key-renewable', "an agent's replaced key stays remembered for renewal (issue #70)", [['(old.subject !== worker.subject || old.aud === worker.aud)', '(old.subject === worker.subject && old.aud === worker.aud)']], 'records.js'],
+  ['old-key-elsewhere', "an agent's replaced key stays remembered at its other audiences", [['(old.subject !== worker.subject || old.aud === worker.aud)', 'old.aud === worker.aud']], 'records.js'],
+  ['two-keys-renewed', 'a renewal signs one agent under two keys', [["  if (workers.some((w) => workers.some((v) => v.agent === w.agent && v.subject !== w.subject))) throw new Error('an agent is listed with two keys')\n", '']], 'records.js'],
+  ['retires-unsaid', 'a review does not say that it replaces a remembered key', [["    $('show-retires').textContent = old.length === 0 ? '' : `", "    $('show-retires').textContent = true ? '' : `"]], 'page.js'],
+  ['retires-left-over', 'a review says a key is replaced when none is', [["    $('show-retires').textContent = old.length === 0 ? '' : `", "    if (old.length > 0) $('show-retires').textContent = `"]], 'page.js'],
   ['registered-not-saved', 'a registration that succeeded is not saved, so it is sent again', [['    root = { ...root, registered: true }\n    save()\n', '    root = { ...root, registered: true }\n']], 'page.js'],
 ]
 
@@ -118,7 +124,7 @@ test('id page broken twins', { timeout: 3_600_000 }, async (t) => {
       assert.ok(r.pass >= 14, `control: only ${r.pass} tests ran`)
     })
     const jobs = TWINS.map(([name, why, edits, file]) => [name, why, generate(name, edits, file)])
-    assert.equal(jobs.length, 51, 'twin count')
+    assert.equal(jobs.length, 57, 'twin count')
     const results = []
     const queue = [...jobs]
     const workers = Math.max(1, Math.floor(availableParallelism() / 4))

@@ -9,7 +9,7 @@ import * as wf from '../witness/fixtures.mjs'
 import { root as rootModule, assertion as assertionModule, delegation as delegationModule, envelope } from '../impl.mjs'
 import { challengeFor, authData, clientData, signOver, sha256 } from '../assertion/helpers.mjs'
 
-const { rootRecord, challenge, assertion, delegation, handOff, b64u, fromB64u, MAX_LIFETIME, currentMembership, addRoot, rootSigned, changeToSign, storedWorkers, remember, renewals, MAX_WORKERS, MAX_BATCH } = records
+const { rootRecord, challenge, assertion, delegation, handOff, b64u, fromB64u, MAX_LIFETIME, currentMembership, addRoot, rootSigned, changeToSign, storedWorkers, remember, retired, renewals, MAX_WORKERS, MAX_BATCH } = records
 const hex = (b) => Buffer.from(b).toString('hex')
 const RP_ID = 'localhost'
 const ORIGIN = 'http://localhost:8080'
@@ -264,6 +264,37 @@ test('remember: a worker added, or replaced in place of its older entry, the old
   assert.deepEqual(remember(full, W(99)), [...full.slice(1), W(99)])
 })
 
+// Issue #70: an agent's name outlives its keys. A new key authorised for an agent retires the keys remembered for it,
+// so a later renewal never renews a key that was replaced; the same key at another audience is kept beside it.
+test('remember: one key per agent; a new key retires the agent\'s older ones, at every audience', () => {
+  const KEY2 = W(2).subject
+  const other = 'https://other.example'
+  // The same agent and key at a second audience: both are kept.
+  assert.deepEqual(remember([W(1)], W(1, { aud: other })), [W(1), W(1, { aud: other })])
+  // The same agent, key and audience: the newer replaces the older.
+  assert.deepEqual(remember([W(1), W(1, { aud: other })], W(1, { scopes: ['read'] })), [W(1, { aud: other }), W(1, { scopes: ['read'] })])
+  // A new key: every entry of the agent under another key goes, whatever its audience; other agents stay.
+  assert.deepEqual(remember([W(1), W(3), W(1, { aud: other })], W(1, { subject: KEY2 })), [W(3), W(1, { subject: KEY2 })])
+  assert.deepEqual(remember([W(1), W(3), W(1, { aud: other })], W(1, { subject: KEY2, aud: other })), [W(3), W(1, { subject: KEY2, aud: other })])
+  // The same key under another agent's name is that agent's, untouched.
+  assert.deepEqual(remember([W(1)], W(3, { subject: W(1).subject })), [W(1), W(3, { subject: W(1).subject })])
+  // Read back from storage, an agent has only its latest key: a replaced key is never brought back.
+  assert.deepEqual(storedWorkers([W(1), W(3), W(1, { subject: KEY2 }), W(1, { subject: KEY2, aud: other })]),
+    [W(3), W(1, { subject: KEY2 }), W(1, { subject: KEY2, aud: other })])
+  assert.deepEqual(storedWorkers([W(1, { subject: KEY2 }), W(1)]), [W(1)])
+})
+
+test('retired: the keys remembered for an agent that a new key would replace, each once', () => {
+  const KEY2 = W(2).subject
+  const list = [W(1), W(3), W(1, { aud: 'https://other.example' })]
+  assert.deepEqual(retired(list, W(1, { subject: KEY2 })), [W(1).subject])
+  assert.deepEqual(retired(list, W(1)), [], 'the same key')
+  assert.deepEqual(retired(list, W(1, { scopes: ['read'], aud: 'https://third.example' })), [])
+  assert.deepEqual(retired(list, W(4)), [], 'an agent not remembered')
+  assert.deepEqual(retired(list, W(4, { subject: W(1).subject })), [], 'another agent with a remembered key')
+  assert.deepEqual(retired([], W(1)), [])
+})
+
 test('renewals: each worker\'s delegation built again under the current membership, its ids sorted for one assertion', () => {
   const r = rootRecord(SPKI, -7, RP_ID)
   const ctx = { identity: r.identity, membership: r.identity, root: r.id, now: NOW }
@@ -297,4 +328,8 @@ test('renewals: each worker\'s delegation built again under the current membersh
   // W0's covers are distinct: the same delegation twice is refused, while one key under two names is two delegations.
   assert.throws(() => renewals([W(1), W(1)], ctx), { message: 'a worker is listed twice' })
   assert.equal(renewals([W(1), W(1, { agent: 'other' })], ctx).covers.length, 2)
+  // Issue #70: one agent under two keys is never renewed, however the list came about.
+  assert.throws(() => renewals([W(1), W(1, { subject: W(2).subject })], ctx), { message: 'an agent is listed with two keys' })
+  assert.throws(() => renewals([W(1), W(3), W(1, { subject: W(2).subject, aud: 'https://other.example' })], ctx), { message: 'an agent is listed with two keys' })
+  assert.equal(renewals([W(1), W(1, { aud: 'https://other.example' })], ctx).covers.length, 2, 'one key at two audiences')
 })
