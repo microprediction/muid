@@ -797,7 +797,8 @@ forecast kept and a receipt (C2) signed, appended to the log and kept with the c
 the inclusion proof, as a bundle. **History** verifies an identity's bundles under its own pinned services and log.
 A contribution's data is `{ question, forecast }` (basis points); the identity of the delegation it was made under
 is bound as its beneficiary when it is accepted, never decided later from whoever holds the agent's key. Once the
-operator resolves a question, each forecast of it earns its Brier score in basis points, credited to the identity
+operator resolves a question, each forecast of it earns the Brier score's exact numerator (10^8 − (f − 10,000·o)²
+units; nothing is rounded, since a rounded Brier score is not proper), credited to the identity
 with each agent's share shown by its light identity (D8), so a replaced key keeps its share (`GET /earnings`); the identity collects with a claim under any live delegation of it
 holding the `collect` scope (`POST /collect`). Five scenarios run end to end in CI: limited authority, continuity
 across a replaced worker key, attribution that lasts past the delegations' expiry, revocation that takes effect at
