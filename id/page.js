@@ -47,14 +47,20 @@ const element = (tag, ...children) => {
 const fields = (b) => [['Agent', b.agent], ['Audience', b.aud], ['Scopes', b.scopes.join(' ')], ['Expires', new Date(b.exp * 1000).toISOString()],
   ['Worker key', b.subject]]
 
+// A remembered worker's place in the list: its agent at its audience. Those the user unticked, for as long as they
+// are listed, are not renewed.
+const slot = (w) => JSON.stringify([w.agent, w.aud])
+const unticked = new Set()
 // The remembered workers, each selected for renewal until unticked, with a button to forget it. Stored text is shown
 // as text only.
 function listWorkers () {
+  const listed = new Set(workers.map(slot))
+  for (const s of unticked) if (!listed.has(s)) unticked.delete(s)
   $('workers').replaceChildren(...workers.map((w) => {
     const box = element('input')
     box.type = 'checkbox'
-    box.checked = true
-    box.addEventListener('change', withdraw)
+    box.checked = !unticked.has(slot(w))
+    box.addEventListener('change', () => { if (box.checked) unticked.delete(slot(w)); else unticked.add(slot(w)); withdraw() })
     const forget = element('button', 'Forget')
     forget.type = 'button'
     forget.addEventListener('click', () => { withdraw(); keepWorkers((list) => list.filter((x) => x.agent !== w.agent || x.aud !== w.aud)) })
@@ -121,7 +127,10 @@ async function sign (covers) {
   return assertion(covers, a.response)
 }
 
+// Counts withdrawals: a review that waited for the witness goes on only if nothing was withdrawn meanwhile.
+let withdrawals = 0
 function withdraw () {
+  withdrawals++
   pending.delegation = null
   pending.change = null
   pending.cosign = null
@@ -178,12 +187,14 @@ for (const id of ['agent', 'subject', 'aud', 'scopes', 'days', 'new-root', 'cosi
 
 $('review').addEventListener('click', async () => {
   withdraw()
+  const asked = withdrawals
   try {
-    const d = delegation({
-      agent: $('agent').value.trim(), identity: root.identity, membership: await membership(), root: root.id, subject: $('subject').value.trim(),
-      aud: $('aud').value.trim(), scopes: $('scopes').value.trim().split(/\s+/),
-      now: Math.floor(Date.now() / 1000), lifetime: Math.round(Number($('days').value) * 86_400),
-    })
+    // Read before the witness is asked: what is shown is what was in the fields when Review was pressed.
+    const entered = { agent: $('agent').value.trim(), subject: $('subject').value.trim(), aud: $('aud').value.trim(),
+      scopes: $('scopes').value.trim().split(/\s+/), lifetime: Math.round(Number($('days').value) * 86_400) }
+    const current = await membership()
+    if (asked !== withdrawals) return // withdrawn while the witness was asked
+    const d = delegation({ ...entered, identity: root.identity, membership: current, root: root.id, now: Math.floor(Date.now() / 1000) })
     pending.delegation = d
     $('show-agent').textContent = d.body.agent
     $('show-aud').textContent = d.body.aud
@@ -216,10 +227,12 @@ $('sign').addEventListener('click', async () => {
 // signed by one assertion over them all (W0).
 $('renew-review').addEventListener('click', async () => {
   withdraw()
+  const asked = withdrawals
   try {
-    const boxes = $('workers').querySelectorAll('input')
-    const chosen = workers.filter((_, i) => boxes[i].checked)
-    const r = renewals(chosen, { identity: root.identity, membership: await membership(), root: root.id, now: Math.floor(Date.now() / 1000) })
+    const chosen = workers.filter((w) => !unticked.has(slot(w)))
+    const current = await membership()
+    if (asked !== withdrawals) return // withdrawn while the witness was asked
+    const r = renewals(chosen, { identity: root.identity, membership: current, root: root.id, now: Math.floor(Date.now() / 1000) })
     pending.renewal = r
     $('renew-list').replaceChildren(...r.delegations.map((d) =>
       element('li', element('dl', ...fields(d.body).flatMap(([name, value]) => [element('dt', name), element('dd', value)])))))

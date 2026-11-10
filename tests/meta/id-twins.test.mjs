@@ -61,9 +61,16 @@ const TWINS = [
   ['renew-unbounded', 'more than eight workers are put under one assertion', [['  if (workers.length < 1 || workers.length > MAX_BATCH) throw', '  if (workers.length < 1) throw']], 'records.js'],
   ['renew-covers-unsorted', "a renewal's covers are in the order listed", [['  const covers = delegations.map((d) => d.id).sort()\n', '  const covers = delegations.map((d) => d.id)\n']], 'records.js'],
   ['workers-any-form', 'whatever storage holds is taken as a worker', [['    const w = workerOf(e)\n', '    const w = e ?? undefined\n']], 'records.js'],
-  ['renew-selection-keeps-review', 'a change of selection leaves the reviewed renewal signable', [["    box.addEventListener('change', withdraw)\n", '']], 'page.js'],
+  ['renew-selection-keeps-review', 'a change of selection leaves the reviewed renewal signable', [["else unticked.add(slot(w)); withdraw() })", "else unticked.add(slot(w)) })"]], 'page.js'],
   ['renew-late-signature-kept', 'a renewal signed after a change of selection is handed over', [['    if (pending.renewal !== r) return // withdrawn while the passkey was asked\n', '']], 'page.js'],
-  ['renew-unticked', 'a worker that was unticked is renewed', [['    const chosen = workers.filter((_, i) => boxes[i].checked)\n', '    const chosen = workers\n']], 'page.js'],
+  ['renew-unticked', 'a worker that was unticked is renewed', [['    const chosen = workers.filter((w) => !unticked.has(slot(w)))\n', '    const chosen = workers\n']], 'page.js'],
+  ['review-wait-keeps', 'a review edited while the witness is asked is shown all the same', [["    if (asked !== withdrawals) return // withdrawn while the witness was asked\n    const d = delegation(", "    const d = delegation("]], 'page.js'],
+  ['renew-wait-keeps', 'a renewal changed while the witness is asked is shown all the same', [["    if (asked !== withdrawals) return // withdrawn while the witness was asked\n    const r = renewals(", "    const r = renewals("]], 'page.js'],
+  ['withdrawals-uncounted', 'a withdrawal is not counted, so a waiting review goes on', [['  withdrawals++\n', '']], 'page.js'],
+  ['reticked', 'a list drawn again ticks what was unticked', [['  for (const s of unticked) if (!listed.has(s)) unticked.delete(s)\n', '  unticked.clear()\n']], 'page.js'],
+  ['untick-outlives-entry', 'a forgotten worker authorised again comes back unticked', [['  for (const s of unticked) if (!listed.has(s)) unticked.delete(s)\n', '']], 'page.js'],
+  ['stored-key-unchecked', 'a stored worker whose key is not a key is kept', [[' || !checkEd25519Key(x.subject).ok) return undefined', ') return undefined']], 'records.js'],
+  ['workers-change-keeps-review', "another tab's change of the workers leaves a review signable", [['workers = loadWorkers(); withdraw(); show() }', 'workers = loadWorkers(); if (e.key !== WORKERS) withdraw(); show() }']], 'page.js'],
   ['renew-partly-shown', 'a renewal signs delegations it does not show (I4)', [["    $('renew-list').replaceChildren(...r.delegations.map((d) =>", "    $('renew-list').replaceChildren(...r.delegations.slice(0, 1).map((d) =>"]], 'page.js'],
   ['renew-partly-signed', 'the assertion does not cover every renewed delegation', [['    const a = await sign(r.covers)\n', '    const a = await sign([r.covers[0]])\n']], 'page.js'],
   ['renew-unauthorised', 'a passkey still joining is offered workers to renew', [["  $('renew').hidden = root === null || joining || workers.length === 0\n", "  $('renew').hidden = root === null || workers.length === 0\n"]], 'page.js'],
@@ -124,7 +131,7 @@ test('id page broken twins', { timeout: 3_600_000 }, async (t) => {
       assert.ok(r.pass >= 14, `control: only ${r.pass} tests ran`)
     })
     const jobs = TWINS.map(([name, why, edits, file]) => [name, why, generate(name, edits, file)])
-    assert.equal(jobs.length, 57, 'twin count')
+    assert.equal(jobs.length, 64, 'twin count')
     const results = []
     const queue = [...jobs]
     const workers = Math.max(1, Math.floor(availableParallelism() / 4))

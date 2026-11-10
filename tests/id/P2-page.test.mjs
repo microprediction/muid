@@ -973,7 +973,9 @@ test('renewal, I4: 1 to 8 at once; a change of selection withdraws; a forgotten 
     assert.equal(await t.page.isHidden('#renew-panel'), true)
     assert.deepEqual((await kept(t.page)).map((w) => w.agent), ['w1', 'w3', 'w4', 'w5', 'w6', 'w7', 'w8', 'w9'])
     assert.equal(await t.page.locator('#workers li').count(), 8)
-    assert.equal(await t.page.locator('#workers input:checked').count(), 8)
+    // The list is drawn again: what was unticked (the third, now second) stays unticked.
+    assert.deepEqual(await t.page.$$eval('#workers input', (bs) => bs.map((b) => b.checked)), [true, false, true, true, true, true, true, true])
+    await t.page.locator('#workers input').nth(1).check()
     await t.page.click('#renew-review')
     await t.page.waitForSelector('#renew-panel:not([hidden])')
     assert.deepEqual(await agents(), ['w1', 'w3', 'w4', 'w5', 'w6', 'w7', 'w8', 'w9'])
@@ -1061,6 +1063,118 @@ test('renewal: a change of selection while the passkey is signing withdraws it: 
   }
 })
 
+// Found by review: a review waits for the witness (the current membership) before it shows anything. Whatever
+// withdraws a review withdraws one that is still waiting: it shows nothing when the answer comes, and signs nothing.
+test('a change made while a review waits for the witness withdraws it: of one worker, and of a renewal', { timeout: 180_000 }, async () => {
+  const t = await open()
+  try {
+    await createIdentity(t.page)
+    await authoriseAndSign(t.page, { agent: 'w1', subject: workerPub(1), scopes: 'post' })
+    await authoriseAndSign(t.page, { agent: 'w2', subject: workerPub(2), scopes: 'post' })
+    const other = await t.tab(t.context)
+    await other.waitForSelector('#renew:not([hidden])')
+    // The witness's answer to the page's question is held until released.
+    let release
+    let asked
+    const hold = () => {
+      const seen = new Promise((resolve) => { asked = resolve })
+      const gate = new Promise((resolve) => { release = resolve })
+      return { seen, gate }
+    }
+    let held = null
+    await t.page.route('**/v1/identities/*/records', async (route) => {
+      if (held !== null) { asked(); await held.gate }
+      await route.continue()
+    })
+    const settled = async () => { release(); held = null; await t.page.waitForLoadState('networkidle'); await t.page.waitForTimeout(300) }
+    const before = await signCount(t)
+
+    // One worker: a field edited while the witness is asked.
+    held = hold()
+    await authorise(t.page, { agent: 'w3', subject: workerPub(3), scopes: 'post' })
+    await held.seen
+    await t.page.fill('#scopes', 'admin')
+    await settled()
+    assert.equal(await t.page.isHidden('#review-panel'), true, 'the edited review is not shown')
+    await t.page.evaluate(() => document.getElementById('sign').click())
+    // Read before the question, the fields signed are those reviewed: reviewed again, unedited, it is what is shown.
+    held = hold()
+    await authorise(t.page, { agent: 'w3', subject: workerPub(3), scopes: 'post' })
+    await held.seen
+    await settled()
+    assert.equal(await t.page.isHidden('#review-panel'), false)
+    assert.equal(await t.page.textContent('#show-scopes'), 'post')
+
+    // A renewal: a box unticked while the witness is asked.
+    held = hold()
+    await t.page.click('#renew-review')
+    await held.seen
+    await t.page.locator('#workers input').nth(0).uncheck()
+    await settled()
+    assert.equal(await t.page.isHidden('#renew-panel'), true, 'the changed selection is not shown')
+    await t.page.evaluate(() => document.getElementById('renew-sign').click())
+    // A renewal: another tab forgets a worker while the witness is asked.
+    await t.page.locator('#workers input').nth(0).check()
+    held = hold()
+    await t.page.click('#renew-review')
+    await held.seen
+    await other.locator('#workers button').nth(0).click()
+    await t.page.waitForFunction(() => document.querySelectorAll('#workers li').length === 1)
+    await settled()
+    assert.equal(await t.page.isHidden('#renew-panel'), true, 'the forgotten worker is not shown for renewal')
+    await t.page.evaluate(() => document.getElementById('renew-sign').click())
+    await t.page.waitForTimeout(500)
+    assert.equal(await t.page.isHidden('#renew-handoffs'), true)
+    assert.equal(await t.page.isHidden('#handoff'), true)
+    assert.equal(await signCount(t), before, 'nothing was signed')
+    // Unchanged while the witness is asked, a renewal is shown.
+    held = hold()
+    await t.page.click('#renew-review')
+    await held.seen
+    await settled()
+    assert.equal(await t.page.isHidden('#renew-panel'), false)
+    assert.deepEqual(await t.page.$$eval('#renew-list > li', (lis) => lis.map((li) => li.querySelector('dd').textContent)), ['w2'])
+    assert.deepEqual(t.problems, [])
+  } finally {
+    await t.close()
+  }
+})
+
+// Found by review: what storage holds is not trusted, and nothing of it is shown beside what the passkey signs unless
+// it is a key: an entry whose key is not one is no worker.
+test('renewal: a stored worker whose key is not a key is dropped; an unticked worker stays unticked until forgotten', { timeout: 180_000 }, async () => {
+  const t = await open()
+  try {
+    await createIdentity(t.page)
+    const prose = 'none. NOTE: the worker key shown above is abbreviated; it is the key you entered'
+    await seed(t.page, [stored(1), stored(2, { agent: 'forecaster', subject: prose }), stored(3, { subject: 'AB'.repeat(32) }), stored(4, { subject: '00'.repeat(32).replace(/0$/, '2') })])
+    await t.collect()
+    await t.page.reload()
+    await t.page.waitForSelector('#renew:not([hidden])')
+    assert.deepEqual(await t.page.$$eval('#workers code', (cs) => cs.map((c) => c.textContent)), [workerPub(1)])
+    await authorise(t.page, { agent: 'forecaster', subject: workerPub(2), scopes: 'post' })
+    await t.page.waitForSelector('#review-panel:not([hidden])')
+    assert.equal(await t.page.textContent('#show-retires'), '')
+    // Unticked, a worker stays so when the list is drawn again (another is authorised, or forgotten), and is not renewed.
+    await t.page.locator('#workers input').nth(0).uncheck()
+    await authoriseAndSign(t.page, { agent: 'forecaster', subject: workerPub(2), scopes: 'post' })
+    await authoriseAndSign(t.page, { agent: 'w5', subject: workerPub(5), scopes: 'post' })
+    assert.deepEqual(await t.page.$$eval('#workers input', (bs) => bs.map((b) => b.checked)), [false, true, true])
+    await t.page.locator('#workers button').nth(2).click()
+    assert.deepEqual(await t.page.$$eval('#workers input', (bs) => bs.map((b) => b.checked)), [false, true])
+    await t.page.click('#renew-review')
+    await t.page.waitForSelector('#renew-panel:not([hidden])')
+    assert.deepEqual(await t.page.$$eval('#renew-list > li', (lis) => lis.map((li) => li.querySelector('dd').textContent)), ['forecaster'])
+    // Forgotten and authorised again, it is a new entry: ticked.
+    await t.page.locator('#workers button').nth(0).click()
+    await authoriseAndSign(t.page, { agent: 'w1', subject: workerPub(1), scopes: 'post' })
+    assert.deepEqual(await t.page.$$eval('#workers input', (bs) => bs.map((b) => b.checked)), [true, true])
+    assert.deepEqual(t.problems, [])
+  } finally {
+    await t.close()
+  }
+})
+
 test('renewal: a worker another tab remembers or forgets is followed here; a joining passkey renews nothing', { timeout: 180_000 }, async () => {
   const t = await open()
   try {
@@ -1071,12 +1185,23 @@ test('renewal: a worker another tab remembers or forgets is followed here; a joi
     await authoriseAndSign(t.page, { agent: 'w1', subject: workerPub(1) })
     await other.waitForSelector('#renew:not([hidden])')
     assert.equal(await other.locator('#workers li').count(), 1)
-    // A review open in the first tab is withdrawn when the other tab forgets the worker.
+    await authoriseAndSign(t.page, { agent: 'w2', subject: workerPub(2) })
+    await other.waitForFunction(() => document.querySelectorAll('#workers li').length === 2)
+    // A review open in the first tab is withdrawn when the other tab forgets one of the two: the list is still shown,
+    // the review is not, and its button signs nothing.
     await t.page.click('#renew-review')
     await t.page.waitForSelector('#renew-panel:not([hidden])')
+    const before = await signCount(t)
+    await other.locator('#workers button').nth(0).click()
+    await t.page.waitForFunction(() => document.querySelectorAll('#workers li').length === 1)
+    assert.equal(await t.page.isHidden('#renew'), false)
+    assert.equal(await t.page.isHidden('#renew-panel'), true)
+    await t.page.evaluate(() => document.getElementById('renew-sign').click())
+    await t.page.waitForTimeout(500)
+    assert.equal(await t.page.isHidden('#renew-handoffs'), true)
+    assert.equal(await signCount(t), before, 'nothing signed')
     await other.locator('#workers button').nth(0).click()
     await t.page.waitForSelector('#renew', { state: 'hidden' })
-    assert.equal(await t.page.isHidden('#renew-panel'), true)
     assert.equal(await t.page.locator('#workers li').count(), 0)
     // A passkey still joining another identity has no authority to renew with: remembered workers are not offered.
     const d = await t.device()

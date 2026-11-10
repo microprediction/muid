@@ -242,7 +242,7 @@ test('a kept co-signature: the identity of a change this root signed and that ad
 const W = (i, over = {}) => ({ agent: `w${i}`, subject: hex(ed25519.getPublicKey(Uint8Array.from({ length: 32 }, (_, j) => i + j))),
   aud: 'https://app.example', scopes: ['post'], lifetime: 3600, ...over })
 
-test('stored workers: only entries of their form are kept, the latest of each agent and key, at most MAX_WORKERS', () => {
+test('stored workers: only entries of their form are kept, the latest of each agent and audience, at most MAX_WORKERS', () => {
   assert.deepEqual(storedWorkers(null), [])
   assert.deepEqual(storedWorkers('x'), [])
   assert.deepEqual(storedWorkers({ length: 2 }), [])
@@ -253,6 +253,10 @@ test('stored workers: only entries of their form are kept, the latest of each ag
     assert.deepEqual(storedWorkers([W(1), bad]), [W(1)], JSON.stringify(bad))
   }
   assert.deepEqual(storedWorkers([W(1), W(1, { scopes: ['read'] })]), [W(1, { scopes: ['read'] })], 'the latest of one agent and key')
+  // Found by review: a stored key is shown beside what the passkey signs, so an entry whose key is not one is dropped.
+  for (const subject of ['', 'a key, honest', W(1).subject.toUpperCase(), W(1).subject + '00', W(1).subject.slice(2), '00'.repeat(31) + '02']) {
+    assert.deepEqual(storedWorkers([W(1), W(2, { subject })]), [W(1)], subject)
+  }
   assert.equal(storedWorkers(Array.from({ length: MAX_WORKERS + 5 }, (_, i) => W(i))).length, MAX_WORKERS)
   assert.deepEqual(storedWorkers(Array.from({ length: MAX_WORKERS + 5 }, (_, i) => W(i)))[0], W(5), 'the oldest dropped')
 })
