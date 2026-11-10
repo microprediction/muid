@@ -900,7 +900,8 @@ weighted by attestation.
    identity whose id is derived from the identity id and the name, and which a revocation retires for good (as SPIFFE
    names a workload over rotating keys). Proposed (Part B): a renewal delegation, scoped only to `muid:renew` and lasting at most 90 days, whose key
    signs day-long task delegations within its audience and `grants` (OAuth's refresh token, with UCAN's attenuation),
-   depth two by type as D3 is depth one. Light identities stay linkable to their identity (§10). Details, and why
+   depth two by type as D3 is depth one. Each task delegation names, in what is signed, the id of the one renewal
+   delegation it is made under, so its limits and the revocations that reach it are never inferred from a key. Light identities stay linkable to their identity (§10). Details, and why
    other designs do not cover it, in [`research/light-identities.md`](research/light-identities.md).
 
 ## 10. What the reputation layer consumes (not core)
