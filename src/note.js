@@ -90,7 +90,9 @@ function parse (note) {
     if (lines.length === MAX_SIGNATURES) return undefined
     const m = apply(exec, LINE, [apply(slice, note, [at, end])])
     const bytes = m === null ? undefined : fromBase64(m[2])
-    if (bytes === undefined || bytes.length < 5 || !isName(m[1])) return undefined
+    // A line's name follows signed-note's grammar; the length limit is a cosigner's own (vkey), and a line under any
+    // other name is an unknown key's, ignored.
+    if (bytes === undefined || bytes.length < 5 || !matches(NAME, m[1])) return undefined
     lines[lines.length] = { name: m[1], id: toHex(bytes.subarray(0, 4)), sig: bytes.subarray(4) }
     at = end + 1
   }

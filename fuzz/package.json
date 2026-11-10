@@ -1,0 +1,8 @@
+{
+  "name": "muid-fuzz",
+  "private": true,
+  "description": "Coverage-guided fuzzing of the core (SPEC §12), nightly only. Kept apart from the main install: its own lockfile, held to the same pinning rules.",
+  "devDependencies": {
+    "@jazzer.js/core": "4.0.0"
+  }
+}

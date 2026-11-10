@@ -3,37 +3,12 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import fc from 'fast-check'
-import { membership } from '../impl.mjs'
 import { evaluate, reach, history, tick } from '../../model/settled.mjs'
-import { translate, identityFor, letterOf, CTX_BASE } from './translate.mjs'
+import { agree } from './agree.mjs'
 import { runs } from '../runs.mjs'
 
-const { membershipState } = membership
 const SEED = Number(process.env.FC_SEED ?? 20261103)
 const RUNS = runs(100)
-
-// The model's answer, in the form membershipState gives.
-function modelAnswer (genesis, items, real) {
-  const e = evaluate(genesis, items)
-  if (e.dead) return { dead: true }
-  return { dead: false, membership: real(e.record.id), settled: real(e.base.id), roots: [...e.record.roots].map((l) => l).sort(), pending: e.pending,
-    authority: [...e.authority].sort(), frozen: e.frozen }
-}
-
-function implAnswer (genesis, items) {
-  const { records, real } = translate(genesis, items)
-  const r = membershipState(records, { ...CTX_BASE, identity: identityFor(genesis) })
-  assert.equal(r.ok, true, JSON.stringify(r))
-  if (r.dead) return { answer: { dead: true }, real }
-  const letters = (ids) => ids.map(letterOf).sort()
-  return { answer: { dead: false, membership: r.membership, settled: r.settled, roots: letters(r.roots), pending: r.pending,
-    authority: letters(r.authority), frozen: r.frozen }, real }
-}
-
-function agree (genesis, items, label) {
-  const { answer, real } = implAnswer(genesis, items)
-  assert.deepEqual(answer, modelAnswer(genesis, items, real), label)
-}
 
 const SCENARIOS = [
   ['one root, stolen', [], ['a'], ['a']],

@@ -93,8 +93,8 @@ function list (records, key) {
   const x = records[key]
   // Stryker disable next-line ArrayDeclaration: equivalent; a stray element is not a record and is ignored
   if (!isArray(x)) return []
-  const n = x.length
-  if (n > MAX_RECORDS) throw new RangeError()
+  const n = x.length // read once: a Proxy may report any value, or another each time
+  if (!(isSafeInteger(n) && n >= 0 && n <= MAX_RECORDS)) throw new RangeError()
   return copy(x, n)
 }
 

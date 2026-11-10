@@ -3,7 +3,8 @@
 // packages. A change to any of these is a deliberate edit here, never a side effect of an install. The one redirect
 // allowed is an override that pins a development package to one exact release, as npm's `overrides` is used to take a
 // security fix that a dependency has not yet released: never a runtime package, never a range, an alias or a nested
-// rule, and every locked copy of the package is that release.
+// rule, and every locked copy of the package is that release. The nightly fuzzer's own directory (fuzz/) is held to
+// the same rules, with nothing at runtime.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
@@ -19,8 +20,8 @@ const REDIRECTS = ['resolutions', 'optionalDependencies', 'peerDependencies', 'b
 const INSTALL_HOOKS = ['preinstall', 'install', 'postinstall', 'prepare', 'prepublish', 'prepublishOnly', 'prepack', 'postpack']
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b)
 
-// Every fault in the three files, as short strings; none means pinned.
-function faults (pkg, lock, npmrc) {
+// Every fault in the three files, as short strings; none means pinned. `runtime` is what may run outside development.
+function faults (pkg, lock, npmrc, runtime = RUNTIME) {
   const out = []
   for (const field of ['dependencies', 'devDependencies']) {
     for (const [name, spec] of Object.entries(pkg[field] ?? {})) if (!EXACT.test(spec)) out.push(`range ${name}`)
@@ -33,7 +34,7 @@ function faults (pkg, lock, npmrc) {
     if (copies.length === 0 || copies.some(([, p]) => p.version !== spec)) out.push(`overridden ${name}`)
   }
   for (const hook of INSTALL_HOOKS) if (pkg.scripts?.[hook] !== undefined) out.push(`hook ${hook}`)
-  if (!same(Object.keys(pkg.dependencies ?? {}).sort(), RUNTIME)) out.push('runtime dependencies')
+  if (!same(Object.keys(pkg.dependencies ?? {}).sort(), runtime)) out.push('runtime dependencies')
   const lines = npmrc.split('\n').map((l) => l.trim())
   for (const line of ['ignore-scripts=true', 'save-exact=true']) if (!lines.includes(line)) out.push(`npmrc ${line}`)
 
@@ -55,8 +56,9 @@ function faults (pkg, lock, npmrc) {
     if (p.link !== undefined) out.push(`link ${path}`)
     if (!LOCKED.test(p.version ?? '')) out.push(`version ${path}`)
   }
-  const runtime = Object.entries(packages).filter(([path, p]) => path !== '' && p.dev !== true).map(([path]) => path).sort()
-  if (!same(runtime, RUNTIME.map((n) => `node_modules/${n}`))) out.push('runtime closure')
+  const closure = Object.entries(packages).filter(([path, p]) => path !== '' && p.dev !== true).map(([path]) => path).sort()
+  if (!same(closure, runtime.map((n) => `node_modules/${n}`))) out.push('runtime closure')
+  if (runtime.length === 0) return out
   if (!same(packages['node_modules/@noble/curves']?.dependencies, { '@noble/hashes': pkg.dependencies?.['@noble/hashes'] })) {
     out.push('curves dependencies')
   }
@@ -71,6 +73,25 @@ const NPMRC = read('.npmrc')
 test('the repository is pinned', () => {
   assert.ok(Object.keys(LOCK.packages).length > 3)
   assert.deepEqual(faults(PKG, LOCK, NPMRC), [])
+})
+
+const FUZZ = { pkg: JSON.parse(read('fuzz/package.json')), lock: JSON.parse(read('fuzz/package-lock.json')), npmrc: read('fuzz/.npmrc') }
+
+test('the fuzzer\'s directory is pinned, with nothing at runtime', () => {
+  assert.ok(Object.keys(FUZZ.lock.packages).length > 3)
+  assert.deepEqual(faults(FUZZ.pkg, FUZZ.lock, FUZZ.npmrc, []), [])
+  assert.equal(FUZZ.npmrc, NPMRC, 'the same npm configuration as the repository\'s')
+})
+
+test('the guard catches a fuzzer dependency at runtime, a range, or an install script', () => {
+  const f = JSON.parse(JSON.stringify(FUZZ))
+  const any = Object.keys(f.lock.packages).find((p) => p !== '')
+  f.pkg.dependencies = { x: '1.0.0' }
+  f.pkg.devDependencies['@jazzer.js/core'] = '^4.0.0'
+  f.lock.packages[any].hasInstallScript = true
+  delete f.lock.packages[any].dev
+  const found = faults(f.pkg, f.lock, f.npmrc, [])
+  for (const fault of ['runtime dependencies', 'range @jazzer.js/core', `install script ${any}`, 'runtime closure']) assert.ok(found.includes(fault), fault)
 })
 
 // The guard's own broken twins: each edit to a copy of the real files must produce the fault named.

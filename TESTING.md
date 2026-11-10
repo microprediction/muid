@@ -331,6 +331,18 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   `membershipState` must give the model's answer. The scenarios together must reach dead, frozen, pending and settled
   states. Sampled partial views (subsets a network attacker could show) must agree too. Under a small `FC_RUNS` a
   deterministic sample is used, keeping every dead and frozen state.
+- **Random walks past the explorer's bound (`R8-walks`):** from the same scenarios, walks of up to eight moves by the
+  thief, the owner, the witness clock or a lying witness (a stolen witness key: anchors and settlements of its
+  choosing, shown only to verifiers, the witness service keeping its own log). After every move, and on a partial view
+  of the last state, `membershipState` must give the model's answer; the service's own items must have no forked
+  view. 200 walks per run (about 10 seconds), 5,000 in the nightly fuzz job. The walk generator, sampled from the
+  pinned seed through the model alone, must reach dead, frozen, pending and settled states, two epochs past the history, eight moves, and states after a lie,
+  so that this holds at any `FC_RUNS`. Against the twins: 200 walks catch the four the
+  explorer catches (added roots unsigned, new roots' authority while pending, a freeze lifted at anchoring, settlements
+  ignored) in a sixth of its time; 5,000 also catch half counted as a majority, a contest without one, and one of two
+  anchored rivals chosen, which the explorer cannot reach because its witness is honest.
+  A record that skips an epoch, signed by a majority and anchored, is ignored by the model and `membershipState` alike
+  (the model lacked the check; found by review).
 - **Hand cases:** memberships of every wrong shape (extra key, empty, six roots, unsorted, duplicate, non-id roots,
   wrong epoch, another identity, bad `prev`) ignored even when anchored; witness records with a bad signature shape,
   a negative `at` or a bad outcome ignored; contests and freezes of non-ids ignored; a witness that anchors two
@@ -342,6 +354,9 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   (two replacements and a deletion) to any one record gives the state with that record or without it, never another,
   and each kind holds a record whose loss changes the state. Positions are sampled with a fixed seed;
   `MUID_SWEEP=full` sweeps every position.
+- **List lengths:** a list whose length is not an array length (an object whose `valueOf` says 0 to the cap and
+  5,000 afterwards, `NaN`, a fraction, a negative, `Infinity`, a string, 2⁵³) is refused as `records` with no element
+  read (found by review).
 - **Twins:** half counted as a majority; added roots not required to sign; the witness window ignored; a contest
   without a majority; new roots with authority while pending; a freeze lifted at anchoring; settlements ignored; one
   of two anchored rivals chosen; root assertions not verified; the revocation cap applied only after the whole list is
@@ -379,6 +394,19 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   some honest pairs, so the check has teeth. Heads from diverging histories are refused in part. Through the real
   verifier, every distinct honest pair is accepted in order and is `stale` reversed (including pairs of one second),
   and 300 diverging pairs, some of one second, are `equivocation`.
+- **The time model (`F-time-model.test.mjs`, `model/timing.mjs`):** a model of F5's time and revocation rules
+  written from this spec, not the code: D1 and D2, the head's key window and freshness (R9, `minHeadAt`,
+  `lastHead`), heads of one second (decision 10), revocation in the head, the call or the last head, and R10's
+  windows. A verifier with small windows (skew 2 s, lifetime 12 s, staleness 8 s, two overlapping witness keys) puts
+  every boundary within reach: 600 generated calls, each refused with the model's reason or accepted as it is, and
+  `verifyHead` giving its head checks; then 150 traces in which an honest witness revokes and lets an id's revocation
+  lapse after expiry plus `skew`, an attacker replays any head signed so far, and the relying party remembers the
+  newest head that verifies alone (§7). At every presentation the verifier agrees with the model; once the memory
+  holds a head revoking the delegation nothing is accepted; an honest witness's head is never refused as
+  `equivocation`. The generators, sampled from a pinned seed through the model alone, reach acceptance and every
+  reason. It catches each of the 22 twins within its scope; the rest (epochs, authority, claims, shapes) are other
+  sections' (writing it from the spec found that F5 did not say the last head's revocations count, which the code and
+  `F7-logged` already required).
 - **Logged (R10, `F7-logged.test.mjs`):** accepted with the witness's logged record naming the delegation; a logged record before its delegation's `nbf` less `skew`, or at its `exp`, refused, and the key window's edges tested under a delegation whose window holds them; a revocation (by id or subject key) in the last head refuses the delegation under a later head without it, another revoked does not (found by review); a signed logged record of the wrong form (an `at` that is an array, an object, a string, a boolean or negative; an identity or delegation that is not an id) refused as `logged`, never thrown on (found by the fuzz test); `logged`
   for none, a non-text, a non-envelope, a head, another delegation's or identity's record, an extra key, no time or a
   time that is not a number, an unpinned key, a forged signature, a time before or after the key's window (its first
@@ -392,7 +420,10 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   fragment, over http, with a non-canonical origin, a space, a bare or lower-case escape, a nonce outside NQCHAR, a
   digest not canonical base64 of 32 bytes, negative or string time, signature not exactly 128 hex or not alone) is
   `claim-shape`; a claim for another scope, method or URL (another origin's URL refused even where that origin is
-  passed; the received URL's query and fragment dropped; a received URL outside the grammar refused, not thrown); a
+  passed; the received URL's query and fragment dropped; a received URL outside the grammar refused, not thrown; so
+  is a received method outside it — lower-case, empty, with a space, of 17 letters as a registered method may be, or
+  of 1,000 — and an `htm` of 17 letters is `claim-shape`, of 16 accepted (found by review); a nonce over 256
+  characters in the call is a programming error); a
   nonce or digest missing, unexpected or different; the request checked in order before the delegation; the delegation verified in
   full; another delegation named; time at and one past `maxClaimAge` and `skew`, and outside the delegation's window;
   a signature by another key or over the payload without its prefix; subject keys in the call's revoked list; the
@@ -449,7 +480,10 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
 - Cosignatures built from the specifications' wording: the quorum, times from the future not counted, times sorted
   as numbers, unknown keys ignored, every known signature checked, origin pinned, checkpoint and note form.
 - Configuration: one key under two names, the log's key as a cosigner, two keys with colliding 32-bit IDs (found by
-  search) are all programming errors; key names follow Unicode White_Space, as Go.
+  search) are all programming errors; key names follow Unicode White_Space, as Go. A signature line under an unknown name of any
+  length is ignored (signed-note: "Verifiers MUST ignore signatures from unknown keys"; the 255-byte limit is
+  tlog-cosignature's, on a cosigner's own name, so it holds for configured keys): one under a 256- or 5,000-byte name
+  leaves a valid checkpoint valid (found by review).
 - Totality, and any one-character change to a cosigned checkpoint is refused.
 - Twins (16).
 
@@ -675,6 +709,20 @@ ones run nightly (and on demand, from the Actions tab), and a nightly failure is
    followed transitively; the package files and the workflow are inputs of every config. A core module is reached
    by every suite through `tests/impl.mjs`, so a change to one runs every quick config; documentation runs none.
    A path built at run time is not seen, and the nightly run catches what a pull request's run missed.
+4. **Fuzzing** (`fuzz.yml`, nightly, not gating): every property test at 25 times its count with a new seed, and
+   coverage-guided fuzzing with Jazzer.js (libFuzzer), 15 minutes for each target in `fuzz/targets/`, from its seeds
+   in `fuzz/seeds/`, with only `src/` instrumented. The targets: `decode` (refuses only with an EncodingError, and
+   what it accepts `JSON.parse` reads the same); `client-data` (any `clientDataJSON`, signed by the passkey, so W1's
+   hand-written prefix check is reached: never a throw, and an assertion it accepts is read by `JSON.parse` as W1
+   requires, with no `topOrigin` and every other member a string); `verify` (a valid claim, delegation, root, head and
+   logged record, one spliced: `verifyDelegation` and `verifyClaim` never throw, and accept nothing changed).
+   Jazzer is installed apart from the repository, in `fuzz/` with its own lockfile (105 packages, none with an install
+   script, SLSA provenance, prebuilt N-API binaries), held by the pin guard and the release-age check to the
+   repository's rules; its registry signatures are checked before it runs. On every pull request
+   `tests/fuzz/F-seeds.test.mjs` runs each target on each seed without the fuzzer, so a target that breaks fails then,
+   not at night, and the job's list of targets must be the targets there are. Shown planted faults, the fuzzer found
+   each within a minute or two: head signatures unchecked, a duplicate `type` read by `JSON.parse` differently,
+   `topOrigin` accepted, and text after the closing brace accepted.
 
 Stryker's incremental mode was not used for this: it "will not detect any changes you've made in files other than
 mutated files and test files", and the tap runner reports results per file, not per test.

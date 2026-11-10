@@ -80,4 +80,14 @@ test('cost is bounded: duplicates are verified once, and each list is capped', (
   const t1 = performance.now()
   assert.deepEqual({ ...membershipState({ ...records, contests: huge }, ctx) }, { ok: false, reason: 'records' })
   assert.ok(performance.now() - t1 < 100, 'refused without walking it')
+  // A length that is not an array length is refused before any element is read, however it compares: an object whose
+  // valueOf says 0 to the cap and 5,000 afterwards, NaN, a fraction, a negative, Infinity, a string (found by review).
+  let calls = 0
+  const shifty = { valueOf: () => (++calls === 1 ? 0 : 5000) }
+  for (const length of [shifty, NaN, 1.5, -1, Infinity, '3', 2 ** 53]) {
+    let read = 0
+    const lying = new Proxy([], { get: (t, k) => (k === 'length' ? length : (read++, Reflect.get(t, k))) })
+    assert.deepEqual({ ...membershipState({ ...records, roots: lying }, ctx) }, { ok: false, reason: 'records' }, String(length))
+    assert.equal(read, 0, `no element read under a length of ${String(length)}`)
+  }
 })

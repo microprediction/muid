@@ -543,7 +543,7 @@ is the text of the newest head the relying party has accepted for the identity, 
   reasons for `delegation`, given
   the root record's key; `identity` (the head's identity is not the delegation's); `membership` (the delegation's
   membership is not among the head's `memberships`); `authority` (its root is not among the head's `authority`);
-  `revoked` (its id or its subject key is in the head's `revoked` or the call's); `logged` (`logged` does not open
+  `revoked` (its id or its subject key is in the head's `revoked`, the call's, or `lastHead`'s, so that a later head that drops it cannot restore the delegation); `logged` (`logged` does not open
   as a `logged` record of this identity naming this delegation's id, signed as A4 requires by a pinned key whose
   window holds its `at`; R10); `audience` (its `aud` is
   not `audience`); `scope` (`scope` is not among its
@@ -563,9 +563,9 @@ is the text of the newest head the relying party has accepted for the identity, 
   content_digest, at, data }` is a record signed by the delegation's subject key: its `sig` is `{ signature }`, an
   Ed25519 signature over the claim's signed bytes (K7). `delegation` is the id of the delegation it is made under;
   `scope` the scope it is for; `htm` and `htu` the request it is for, as DPoP binds a proof to one (RFC 9449 §4.2):
-  the HTTP method (upper-case letters) and the target URI without query or fragment, whose origin is the audience
+  the HTTP method (1–16 upper-case letters) and the target URI without query or fragment, whose origin is the audience
   (a canonical origin, O1, then a path of RFC 3986 characters, any escape in upper-case hex); `nonce` (optional) a
-  nonce the relying party issued, as DPoP's (§8, `1*NQCHAR`); `content_digest` (optional) the body's RFC 9530
+  nonce the relying party issued, as DPoP's (§8, `1*NQCHAR`, here at most 256); `content_digest` (optional) the body's RFC 9530
   `sha-256`, canonical base64, since DPoP does not cover the body; `at` is the signer's time (DPoP's `iat`); `data`
   any object. A claim seen in transit therefore cannot be used for another method, origin or path. As in DPoP the
   query is not bound: a relying party that acts on query parameters takes them in the body and requires
@@ -582,11 +582,11 @@ is the text of the newest head the relying party has accepted for the identity, 
   issued, including present when none was or absent when one was); `claim-digest` (likewise); then F5's reasons for
   the delegation; `claim-delegation` (the claim names another delegation); `claim-time` (`at` more than
   `maxClaimAge` before `now`, more than `skew` after it, or outside the delegation's window); then K5's signature
-  reasons under the subject key. A received URL outside the grammar matches no claim and is refused as `claim-url`,
-  not thrown: it comes from the client. A claim is verifiable only while its delegation and head are. Replay within
+  reasons under the subject key. A received method outside the grammar matches no claim and is refused as `claim-method`, and a received URL outside it as `claim-url`,
+  not thrown: both come from the client. A claim is verifiable only while its delegation and head are. Replay within
   the window is the relying party's to refuse (DPoP §11.1's `jti` store): the result carries the claim id and `until`
   (`at + maxClaimAge + 1`, the first time the claim is refused), so a store shared by every instance serving the
-  audience keeps the id while `now < until`. A call whose `method` is not upper-case letters, whose `url` is not a
+  audience keeps the id while `now < until`. A call whose `method` or `url` is not a
   string, or whose `nonce` or `contentDigest` is present but not of its form, is a programming error. Every claim
   costs the full F5 check before its own signature; a relying party under load can rate-limit by delegation id.
   `data` is decoded data: frozen, with null prototypes. Deviations from DPoP, named: the proof is a muid record, not
@@ -599,12 +599,15 @@ is the text of the newest head the relying party has accepted for the identity, 
   `identity`, at the service's time `at`. The service appends the receipt's envelope text to a transparency log; the
   log's entry is its UTF-8 bytes. `verifyReceipt({ receipt, checkpoint, proof, index, claim? }, ctx)` checks, in
   order: V4's reasons; `receipt-shape` (keys other than the five, an id not 64 lowercase hex, `service` not a
-  canonical origin (O1), `at` not a non-negative integer, or `sig` not as above); `service` (the key is not one the
-  caller pins for that origin); K5's signature reasons; `checkpoint` (the checkpoint does not verify under the
+  canonical origin (O1), `at` not a non-negative integer, or `sig` not as above); `service` (no window the
+  caller pins for that origin and key holds `at`; refused before the signature is tried, keys being named, never
+  found by trying, as A4's); K5's signature reasons; `checkpoint` (the checkpoint does not verify under the
   caller's log configuration, with at least one cosigner); `inclusion` (the entry is not at `index` in the
   checkpoint's tree); `receipt-time` (`at` is later than the quorum's time, or than `now`, plus `skew`: a receipt
-  cannot be accepted after it was logged, nor in the future); `service` (no pinned window for that key holds both `at` and the quorum's time, less
-  `skew`, each window `[nbf, exp)` as A1's and D1's are: a retired key cannot mint receipts by backdating); `claim` (a claim is given and its record id is not
+  cannot be accepted after it was logged, nor in the future); `service` (the quorum's time is at or
+  after the end, plus `skew`, of every pinned window for that key that holds `at` — it cannot fall before such a
+  window's `nbf` less `skew`, since `receipt-time` bounds `at` by it — each window `[nbf, exp)` as A1's and D1's are:
+  a retired key cannot mint receipts by backdating); `claim` (a claim is given and its record id is not
   `claim`, or it was made under another delegation). Within a key's window `at` is the service's word, bounded
   above by the quorum's time. A receipt is therefore kept with the checkpoint and proof obtained when it was logged,
   as a Sigstore bundle keeps its own: a checkpoint cosigned after the service key retired cannot vouch for it. It returns `{ service, identity, delegation, claim, at, existedBy }`, where `existedBy` is the
@@ -842,9 +845,12 @@ weighted by attestation.
    cosigner, the contest window starting at the cosigned time of the first checkpoint that includes the anchor.
 11. **Freezes by incoming roots — decided: kept.** R2 lets any root of a pending record, new ones included, freeze it.
    None of the established systems ([`prior-art.md`](research/prior-art.md)) lets an incoming key lock anything. It is
-   kept because a freeze only removes trust: it stops a change, never makes one, so the worst an incoming root can do
-   is hold up the change that added it, and the owner who added it can supersede that change. In return an owner whose
-   new device sees an unexpected change can stop it. The alternative, limiting a pending record's freeze to the roots
+   kept because a freeze only removes trust: it never makes a change. It does not stop one either: the record it
+   freezes still settles, and the freeze then holds on it as the settled membership (R2), and on a successor while that
+   is pending. So the worst an incoming root can do is freeze the identity for the rest of the window of the change
+   that added it and the whole window of the owner's successor that drops it; the alternative to waiting, a contest,
+   ends the identity. In return an owner whose new device sees an unexpected change can freeze it at once, so that it
+   gives no one authority while the owner answers it. The alternative, limiting a pending record's freeze to the roots
    of its `prev`, stays available if a case against this appears.
 12. **Retaining subject-key revocations — decided: (c), with (b) and a per-root quota until it lands.** `exp − nbf`
    is bounded, but `nbf` is not, so a delegation signed today may become valid long after it was signed. A witness
@@ -942,11 +948,15 @@ never afterwards. Details and thresholds: `TESTING.md`; sources: [`assurance.md`
   verifier's fuzz test among them (records edited, re-encoded under their old signatures, swapped, or replaced by any
   JavaScript value: each refused with a reason, never thrown on). A failure prints the seed and the counterexample's
   path, to replay with `FC_SEED` and `FC_RUNS`, and its counterexample becomes a pinned test.
+  Among them, the membership model past its explorer's bound: random walks of owner, thief, clock and lying-witness
+  moves, `membershipState` checked against the model after each. And the model of F5's time and revocation rules
+  (`model/timing.mjs`): generated calls at every boundary, and traces of heads signed, replayed and remembered.
+- Nightly (`fuzz.yml`): coverage-guided fuzzing (Jazzer.js, installed apart in `fuzz/` under the same pinning rules)
+  of `decode`, W1's `clientDataJSON` check and `verifyDelegation`/`verifyClaim` on spliced records, each from its
+  committed seeds; every seed is also run on every pull request. A finding fails the job with its input, and becomes
+  a pinned test.
 
 Not yet scheduled:
-- Coverage-guided fuzzing of `decode`, `verifyDelegation` and `verifyClaim` (Jazzer.js).
-- The membership model (`model/settled.mjs`) at greater depth than the pinned tests, and models of the delegation,
-  revocation and time-window rules, with their traces replayed against the verifier.
 - An adversarial review agent against the core. Its findings go to a **private** security advisory, never a public
   issue.
 - After every fix, a variant-analysis sweep for siblings of the bug.
