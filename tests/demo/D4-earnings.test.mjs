@@ -5,6 +5,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { setup, worker, IDENTITY, NOW, CLOSES } from './fixtures.mjs'
+import { score } from './impl.mjs'
 
 const q = (question, forecast) => ({ question, forecast })
 
@@ -21,9 +22,9 @@ test('an agent contributes, retires, and its earnings arrive later under the ide
   now = NOW + 7200
   assert.deepEqual(s.f.resolve('rain-tomorrow', 1), 1)
   assert.deepEqual(s.f.resolve('snow-tomorrow', 0), 1)
-  // Brier, in basis points: 10000 - (f - 10000 o)^2 / 10000.
-  const rain = 10000 - (7000 - 10000) ** 2 / 10000
-  const snow = 10000 - (2000 - 0) ** 2 / 10000
+  // The Brier score's exact numerator, in units of which a perfect forecast earns 100,000,000: 10^8 - (f - 10000 o)^2.
+  const rain = 91_000_000
+  const snow = 96_000_000
   assert.deepEqual((await s.get(`/earnings?identity=${IDENTITY}`)).body, { identity: IDENTITY, earned: rain + snow, collected: 0, balance: rain + snow,
     agents: [{ agent: agent.agent, name: 'worker', contributions: 2, earned: rain + snow }] })
   // A question resolves once: again with its outcome credits nothing more; with the other, it is an error.
@@ -44,7 +45,7 @@ test('an agent\'s share survives its key being replaced; another name is another
     assert.equal((await s.post(w.records(q(question, 5000)))).status, 200, question)
   }
   for (const question of ['rain', 'snow', 'hail']) s.f.resolve(question, 1)
-  const each = 10000 - (5000 - 10000) ** 2 / 10000
+  const each = 75_000_000
   assert.deepEqual((await s.get(`/earnings?identity=${IDENTITY}`)).body.agents, [
     { agent: first.agent, name: 'worker', contributions: 2, earned: 2 * each },
     { agent: other.agent, name: 'scorer', contributions: 1, earned: each },
@@ -60,7 +61,7 @@ test('earnings are collected by a live delegation of the identity, with the coll
   // The agent cannot collect: its delegation does not hold the scope.
   assert.deepEqual((await s.collect(agent)).body, { ok: false, reason: 'scope' })
   const r = await s.collect(owner)
-  assert.deepEqual(r.body, { ok: true, collected: 10000 })
+  assert.deepEqual(r.body, { ok: true, collected: 100_000_000 })
   assert.deepEqual((await s.get(`/earnings?identity=${IDENTITY}`)).body.balance, 0)
   assert.deepEqual((await s.collect(owner, NOW - 3)).body, { ok: true, collected: 0 }, 'nothing left')
 })
@@ -77,8 +78,8 @@ test("one standing forecast per identity and question, its latest, whichever age
   assert.equal(s.f.resolve('x', 1), 1, 'one identity, one score')
   assert.equal(s.f.resolve('y', 1), 1)
   const e = (await s.get(`/earnings?identity=${IDENTITY}`)).body
-  assert.equal(e.earned, 7500 + 10000)
-  assert.deepEqual(e.agents.map((a) => [a.agent, a.contributions, a.earned]), [[a1.agent, 2, 10000], [a2.agent, 1, 7500]])
+  assert.equal(e.earned, 75_000_000 + 100_000_000)
+  assert.deepEqual(e.agents.map((a) => [a.agent, a.contributions, a.earned]), [[a1.agent, 2, 100_000_000], [a2.agent, 1, 75_000_000]])
   assert.deepEqual((await s.get(`/earnings?identity=${'f'.repeat(64)}`)).body, { identity: 'f'.repeat(64), earned: 0, collected: 0, balance: 0, agents: [] })
 })
 
@@ -92,8 +93,8 @@ test('the standing forecast is the one signed last, whatever order they arrive i
   await s.post(a1.records(q('q', 0), NOW - 5)) // signed earlier, held back
   s.f.resolve('q', 1)
   const e = (await s.get(`/earnings?identity=${IDENTITY}`)).body
-  assert.equal(e.earned, 10000)
-  assert.deepEqual(e.agents.map((a) => [a.agent, a.earned]), [[a2.agent, 10000], [a1.agent, 0]])
+  assert.equal(e.earned, 100_000_000)
+  assert.deepEqual(e.agents.map((a) => [a.agent, a.earned]), [[a2.agent, 100_000_000], [a1.agent, 0]])
 })
 
 test('the same forecast under a new claim, or again by the same agent, does not earn twice', async () => {
@@ -102,7 +103,7 @@ test('the same forecast under a new claim, or again by the same agent, does not 
   assert.equal((await s.post(a.records(q('q', 5000)))).status, 200)
   assert.equal((await s.post(a.records(q('q', 5000), NOW - 6))).status, 200, 'a new claim id, the same forecast')
   assert.equal(s.f.resolve('q', 1), 1)
-  assert.equal((await s.get(`/earnings?identity=${IDENTITY}`)).body.earned, 7500)
+  assert.equal((await s.get(`/earnings?identity=${IDENTITY}`)).body.earned, 75_000_000)
 })
 
 test('a question closes at its time and when resolved: later forecasts are refused, and resolution is final', async () => {
@@ -116,7 +117,7 @@ test('a question closes at its time and when resolved: later forecasts are refus
   assert.deepEqual({ status: after.status, body: after.body }, { status: 422, body: { ok: false, reason: 'question' } })
   assert.equal(s.f.resolve('q', 1), 0)
   assert.throws(() => s.f.resolve('q', 0), { message: 'already resolved with the other outcome' })
-  assert.equal((await s.get(`/earnings?identity=${IDENTITY}`)).body.earned, 10_000 - 1000 ** 2 / 10_000)
+  assert.equal((await s.get(`/earnings?identity=${IDENTITY}`)).body.earned, 99_000_000)
   // A question not asked, or past its closing time, is refused.
   assert.equal((await s.post(a.records(q('unasked', 1), NOW - 7))).body.reason, 'question')
   now = CLOSES - 1
@@ -124,7 +125,22 @@ test('a question closes at its time and when resolved: later forecasts are refus
   now = CLOSES
   assert.equal((await s.post(a.records(q('late', 2), CLOSES - 9))).body.reason, 'question', 'closed at it')
   assert.equal(s.f.resolve('late', 0), 1)
-  assert.equal((await s.get(`/earnings?identity=${IDENTITY}`)).body.agents[0].earned, 10_000 - 1000 ** 2 / 10_000 + 10_000 - Math.floor(1 / 10_000))
+  assert.equal((await s.get(`/earnings?identity=${IDENTITY}`)).body.agents[0].earned, 99_000_000 + 99_999_999, 'a forecast one basis point off loses one unit: nothing is rounded away')
+})
+
+// Issue #64: the score was rounded to whole basis points, and a rounded Brier score is no longer proper: believing
+// 0.5%, a forecast of 0.99% earned as much if the outcome was 0 and more if it was 1. The exact numerator is kept.
+test('the score is the exact Brier numerator: the truthful forecast alone earns the most in expectation', () => {
+  assert.deepEqual([score(0, 0), score(0, 1), score(10_000, 1), score(10_000, 0), score(5000, 0), score(5000, 1)], [100_000_000, 0, 100_000_000, 0, 75_000_000, 75_000_000])
+  assert.deepEqual([score(50, 0), score(50, 1), score(99, 0), score(99, 1)], [99_997_500, 997_500, 99_990_199, 1_970_199])
+  // The expected score, times 10,000, of forecast f under a belief of p basis points; every value is a safe integer.
+  const expected = (p, f) => p * score(f, 1) + (10_000 - p) * score(f, 0)
+  assert.ok(expected(50, 50) > expected(50, 99), 'the counterexample')
+  for (const p of [0, 1, 50, 99, 3333, 5000, 9950, 9999, 10_000]) {
+    const best = expected(p, p)
+    assert.ok(Number.isSafeInteger(best))
+    for (let f = 0; f <= 10_000; f++) if (f !== p) assert.ok(expected(p, f) < best, `believing ${p}, forecasting ${f}`)
+  }
 })
 
 test('asking: a question once, by a well-formed name and a closing time', () => {

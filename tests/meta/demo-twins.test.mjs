@@ -39,6 +39,7 @@ const TWINS = [
   ['resolved-twice', 'a question resolved again scores its forecasts again', [['      return 0\n    }\n    q.outcome = outcome', '    }\n    q.outcome = outcome']], 'forecasts.js'],
   ['forecast-unchecked', 'any data is kept as a forecast', [['    if (f === undefined) return { refused: \'forecast\' }\n', '']], 'forecasts.js'],
   ['earnings-everyone', "every identity's contributions count toward one's earnings", [['const mine = kept.filter((k) => k.identity === identity)', 'const mine = kept']], 'forecasts.js'],
+  ['score-rounded', 'the score is rounded to whole basis points, so it is no longer proper (issue #64)', [['  return 100_000_000 - d * d\n', '  return 10_000 * (10_000 - Math.floor(d * d / 10_000))\n']], 'forecasts.js'],
   ['collect-twice', 'what was collected is not taken off the balance', [['collected.set(identity, (collected.get(identity) ?? 0) + amount)', 'collected.get(identity)']], 'forecasts.js'],
   ['identity-unchecked', "another identity's receipt is counted as this one's", [["if (r.ok && r.identity !== identity) refused.push({ index: i, reason: 'identity' })\n      else if (r.ok && seen", 'if (r.ok && seen']], 'history.js'],
   ['claim-dropped', 'the claim a bundle carries is not checked against its receipt', [['index: b.index, claim: b.claim }', 'index: b.index }']], 'history.js'],
@@ -101,7 +102,7 @@ test('demo broken twins', { timeout: 1_800_000 }, async (t) => {
       assert.ok(r.pass >= 8, `control: only ${r.pass} tests ran`)
     })
     const jobs = TWINS.map(([name, why, edits, file]) => [name, why, generate(name, edits, file)])
-    assert.equal(jobs.length, 28, 'twin count')
+    assert.equal(jobs.length, 29, 'twin count')
     const results = []
     const queue = [...jobs]
     const workers = Math.max(1, Math.floor(availableParallelism() / 4))

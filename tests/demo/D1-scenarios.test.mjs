@@ -145,7 +145,7 @@ test('the demo: limited authority, continuity, lasting attribution, revocation, 
     // The questions resolve after the agent is gone; its earnings arrive under the identity.
     assert.equal(f.resolve('rain', 1), 1)
     assert.equal(f.resolve('snow', 0), 1)
-    const earned = (10_000 - 2000 ** 2 / 10_000) + (10_000 - 1000 ** 2 / 10_000)
+    const earned = 96_000_000 + 99_000_000
     const e = await (await f.handle(new Request(`${FORECASTS}/earnings?identity=${IDENTITY}`))).json()
     assert.deepEqual(e.agents.find((a) => a.agent === agent.agent), { agent: agent.agent, name: agent.body.agent, contributions: 2, earned })
     // The owner's own device collects; the retired agent cannot.

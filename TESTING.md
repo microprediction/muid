@@ -701,7 +701,9 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   the bundle verified by `verifyReceipt`; replay; each refusal with its reason; the body limit at and one past it;
   a failing log (503, nothing kept, the claim consumed); a checkpoint waited for, and one cosigned in the future
   never counted; each broken bundle refused with its reason, by index.
-- Earnings (`D4`, and scenario 5 of `D1`): nothing earned before resolution; the Brier score per forecast, credited
+- Earnings (`D4`, and scenario 5 of `D1`): nothing earned before resolution; the Brier score's exact numerator per
+  forecast (for nine beliefs on the grid, the edges among them, the truthful forecast alone earns the most in
+  expectation over all 10,001 forecasts; the case a rounded score got wrong is pinned), credited
   to the identity with each agent's share; a question resolved once; several agents adding up, another identity's
   apart; collection by a delegation with the collect scope, not by the agent; a contribution that is not a
   forecast refused and its claim spent. End to end, the agent retires itself through the witness and is then

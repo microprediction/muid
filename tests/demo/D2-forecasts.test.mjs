@@ -157,7 +157,7 @@ test('a question resolving while a receipt is pending scores the contribution: a
   const s = setup({ log })
   assert.equal((await s.post(worker(10).records({ question: 'q', forecast: 10_000 }))).status, 202)
   assert.equal(s.f.resolve('q', 1), 1)
-  assert.equal((await s.get(`/earnings?identity=${IDENTITY}`)).body.earned, 10_000)
+  assert.equal((await s.get(`/earnings?identity=${IDENTITY}`)).body.earned, 100_000_000)
 })
 
 test('the receipt waits for a checkpoint that holds it and verifies; none in time is 503', async () => {
