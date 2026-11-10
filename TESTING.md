@@ -622,7 +622,9 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   from the pinned module): 300 entries appended, the checkpoint verified by the core under the log's key, an
   inclusion proof from Tessera's tiles verified for every entry, and again after 21 more; another entry's hash
   refused. With a witness policy naming the omniwitness, every published checkpoint carries its cosignature, which
-  the core counts toward a quorum of one, with the witness's clock as the time.
+  the core counts toward a quorum of one, with the witness's clock as the time. A body of 65,536 bytes, and one
+  streamed without a length, are refused with 413 and add no entry; one of 65,535 bytes (the most a C2SP tlog-tiles
+  entry bundle holds) is appended and proved.
 - Twins (`tests/meta/witness-twins.test.mjs`, 42): each admission rule dropped in turn; the anchor kept unchecked;
   settlement inside the window; contests never anchored, anchored unchecked, or ignored at
   settlement; the witness's view counting contest anchors; a settlement ending the step; `sign` unchecked; heads

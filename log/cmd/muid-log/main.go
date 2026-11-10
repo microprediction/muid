@@ -14,14 +14,17 @@
 
 // muid-log is Tessera's cmd/conformance/posix server (v1.0.4) with one addition, taken from Tessera's
 // cmd/examples/posix-oneshot: a witness policy, so that a checkpoint is published only once the witnesses it names
-// have cosigned it. Entries are POSTed to /add; checkpoints and tiles are served as files (C2SP tlog-tiles).
+// have cosigned it, and a limit on the body of /add. Entries are POSTed to /add; checkpoints and tiles are served as
+// files (C2SP tlog-tiles).
 package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"os"
 	"time"
@@ -40,6 +43,9 @@ var (
 	witnessPolicyFile = flag.String("witness_policy_file", "", "(Optional) Path to the file containing the witness policy in the format described at https://git.glasklar.is/sigsum/core/sigsum-go/-/blob/main/doc/policy.md")
 	witnessTimeout    = flag.Duration("witness_timeout", tessera.DefaultWitnessTimeout, "Maximum time to wait for witness responses.")
 )
+
+// maxEntry is the longest entry a C2SP tlog-tiles entry bundle can hold: each is written after a 16-bit length.
+const maxEntry = math.MaxUint16
 
 func addCacheHeaders(value string, fs http.Handler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -80,8 +86,14 @@ func main() {
 	}
 
 	http.HandleFunc("POST /add", func(w http.ResponseWriter, r *http.Request) {
-		b, err := io.ReadAll(r.Body)
+		// No more than maxEntry bytes of a body are read, so a longer one is never held or passed to the appender.
+		b, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxEntry))
 		if err != nil {
+			var tooLong *http.MaxBytesError
+			if errors.As(err, &tooLong) {
+				w.WriteHeader(http.StatusRequestEntityTooLarge)
+				return
+			}
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
