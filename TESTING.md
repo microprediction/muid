@@ -603,7 +603,8 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   interval, re-signed after it or after a change, every one logged, none for a frozen identity; revocations;
   delegations logged through their endpoint, the logged record appended once, refusals as 422;
   concurrent submissions for one identity both kept; a failing log (503, nothing kept, the tick rejected and
-  retried) and a failing store; configuration.
+  retried) and a failing store; records read while an append is in flight show only what is logged, without
+  waiting; configuration.
 - Signing (`W10-sign.test.mjs`), found by review: a change without a majority advanced five times, a contest by a
   minority, and a holding outside the witness key's window (closed, not yet open, or only another pinned key's open)
   never call `sign`; an honest change calls it once for each record signed; a configuration pinning the trial key is
