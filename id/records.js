@@ -97,6 +97,47 @@ export function delegation ({ agent, identity, membership, root, subject, aud, s
   return { body, ...seal('delegation', body) }
 }
 
+// Decision 3's batched renewal. The page remembers each worker it authorised (what the user entered, never a secret),
+// and builds the delegations of up to MAX_BATCH of them again for one assertion (W0 covers at most eight records).
+export const MAX_BATCH = 8
+export const MAX_WORKERS = 32
+const sameWorker = (a, b) => a.agent === b.agent && a.subject === b.subject
+
+function workerOf (x) {
+  if (x === null || typeof x !== 'object' || Array.isArray(x) || Object.keys(x).length !== 5 ||
+    typeof x.agent !== 'string' || typeof x.subject !== 'string' || typeof x.aud !== 'string' || !Array.isArray(x.scopes) ||
+    !x.scopes.every((s) => typeof s === 'string') || !Number.isSafeInteger(x.lifetime)) return undefined
+  return { agent: x.agent, subject: x.subject, aud: x.aud, scopes: [...x.scopes], lifetime: x.lifetime }
+}
+
+// The list with `worker` last, in place of an older entry of the same agent and key; the oldest dropped past
+// MAX_WORKERS.
+export function remember (list, worker) {
+  return [...list.filter((w) => !sameWorker(w, worker)), worker].slice(-MAX_WORKERS)
+}
+
+// The workers the page kept in storage, read back as untrusted: only entries of a worker's form, the latest of each
+// agent and key. Their values are checked when a delegation is built from them, as a new one's are.
+export function storedWorkers (x) {
+  if (!Array.isArray(x)) return []
+  let out = []
+  for (const e of x) {
+    const w = workerOf(e)
+    if (w !== undefined) out = remember(out, w)
+  }
+  return out
+}
+
+// Each worker's delegation built again from `now` under the current membership, and their ids, sorted, for the one
+// assertion that signs them all: { delegations, covers }.
+export function renewals (workers, { identity, membership, root, now }) {
+  if (workers.length < 1 || workers.length > MAX_BATCH) throw new Error(`renew 1 to ${MAX_BATCH} workers at once`)
+  const delegations = workers.map((w) => delegation({ ...w, identity, membership, root, now }))
+  const covers = delegations.map((d) => d.id).sort()
+  if (new Set(covers).size !== covers.length) throw new Error('a worker is listed twice')
+  return { delegations, covers }
+}
+
 // What the page hands the worker: the payload and the root's assertion. The worker adds its own consent (D6).
 export const handOff = (payload, root) => JSON.stringify({ payload, root })
 

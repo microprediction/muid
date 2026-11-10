@@ -2,8 +2,9 @@
 // another device (a membership change, R1: signed here, co-signed there); and authorise a worker's key by one
 // assertion, under the identity's current membership. Every record the passkey signs is shown first from its exact
 // payload (I4); changing any input withdraws it, and a signature that returns after an edit is discarded. The root
-// record and the credential id are kept in this browser only.
-import { rootRecord, challenge, assertion, delegation, handOff, b64u, fromB64u, currentMembership, addRoot, rootSigned, changeToSign, fingerprint, storedRoot, cosignedIdentity } from './records.js'
+// record and the credential id are kept in this browser only. The workers it authorised are remembered here too, so
+// that one assertion renews up to eight of them at once (decision 3).
+import { rootRecord, challenge, assertion, delegation, handOff, b64u, fromB64u, currentMembership, addRoot, rootSigned, changeToSign, fingerprint, storedRoot, cosignedIdentity, storedWorkers, remember, renewals } from './records.js'
 
 const $ = (id) => document.getElementById(id)
 const meta = (name) => document.querySelector(`meta[name="${name}"]`).content
@@ -12,6 +13,7 @@ const meta = (name) => document.querySelector(`meta[name="${name}"]`).content
 const rpId = meta('muid-rp-id')
 const ORIGIN = meta('muid-origin')
 const KEY = 'muid.root'
+const WORKERS = 'muid.workers'
 const WITNESS = meta('muid-witness')
 const WITNESS_KEYS = JSON.parse(meta('muid-witness-keys'))
 
@@ -20,10 +22,44 @@ function load () {
   try { return storedRoot(JSON.parse(localStorage.getItem(KEY)), rpId) } catch { return null }
 }
 let root = load()
-const pending = { delegation: null, change: null, cosign: null }
+// The remembered workers, as storage holds them now: read as untrusted, as the root is.
+function loadWorkers () {
+  try { return storedWorkers(JSON.parse(localStorage.getItem(WORKERS))) } catch { return [] }
+}
+let workers = loadWorkers()
+const pending = { delegation: null, change: null, cosign: null, renewal: null }
 
 function save () {
   try { localStorage.setItem(KEY, JSON.stringify(root)) } catch { /* kept for this visit only */ }
+}
+function keepWorkers (change) {
+  workers = change(workers)
+  try { localStorage.setItem(WORKERS, JSON.stringify(workers)) } catch { /* kept for this visit only */ }
+  show()
+}
+
+const element = (tag, ...children) => {
+  const e = document.createElement(tag)
+  e.append(...children)
+  return e
+}
+// A delegation's fields, from the body of the exact payload to be signed (I4).
+const fields = (b) => [['Agent', b.agent], ['Audience', b.aud], ['Scopes', b.scopes.join(' ')], ['Expires', new Date(b.exp * 1000).toISOString()],
+  ['Worker key', b.subject]]
+
+// The remembered workers, each selected for renewal until unticked, with a button to forget it. Stored text is shown
+// as text only.
+function listWorkers () {
+  $('workers').replaceChildren(...workers.map((w) => {
+    const box = element('input')
+    box.type = 'checkbox'
+    box.checked = true
+    box.addEventListener('change', withdraw)
+    const forget = element('button', 'Forget')
+    forget.type = 'button'
+    forget.addEventListener('click', () => { withdraw(); keepWorkers((list) => list.filter((x) => x.agent !== w.agent || x.subject !== w.subject)) })
+    return element('li', element('label', box, ` ${w.agent} at ${w.aud}: ${w.scopes.join(' ')} `, element('code', w.subject)), forget)
+  }))
 }
 
 // SPEC §8: root registration and every root-signed action happen in a top-level window. The deployment's headers
@@ -43,6 +79,8 @@ function show () {
   $('identity').hidden = root === null || joining
   $('add-root').hidden = root === null || joining
   $('authorise').hidden = root === null || joining
+  $('renew').hidden = root === null || joining || workers.length === 0
+  listWorkers()
   $('pending').hidden = !unregistered()
   $('cosign-pending').hidden = root?.cosigned === undefined
   if (root !== null) {
@@ -67,6 +105,12 @@ async function state () {
   const records = res.ok ? await res.json() : {}
   return currentMembership(records, { identity: root.identity, rpId, origin: ORIGIN, witnessKeys: WITNESS_KEYS })
 }
+// The current membership's id, for a delegation: only a root with authority (R6) signs one.
+async function membership () {
+  const s = await state()
+  if (!s.authority.includes(root.id)) throw new Error('this passkey has no authority yet: wait for the change to settle')
+  return s.membership
+}
 
 // One user-verified assertion by this identity's own passkey over the records in `covers` (W1).
 async function sign (covers) {
@@ -81,7 +125,8 @@ function withdraw () {
   pending.delegation = null
   pending.change = null
   pending.cosign = null
-  for (const id of ['review-panel', 'handoff', 'add-panel', 'add-handoff', 'cosign-panel']) $(id).hidden = true
+  pending.renewal = null
+  for (const id of ['review-panel', 'handoff', 'add-panel', 'add-handoff', 'cosign-panel', 'renew-panel', 'renew-handoffs']) $(id).hidden = true
   $('error').textContent = ''
 }
 
@@ -134,10 +179,8 @@ for (const id of ['agent', 'subject', 'aud', 'scopes', 'days', 'new-root', 'cosi
 $('review').addEventListener('click', async () => {
   withdraw()
   try {
-    const s = await state()
-    if (!s.authority.includes(root.id)) throw new Error('this passkey has no authority yet: wait for the change to settle')
     const d = delegation({
-      agent: $('agent').value.trim(), identity: root.identity, membership: s.membership, root: root.id, subject: $('subject').value.trim(),
+      agent: $('agent').value.trim(), identity: root.identity, membership: await membership(), root: root.id, subject: $('subject').value.trim(),
       aud: $('aud').value.trim(), scopes: $('scopes').value.trim().split(/\s+/),
       now: Math.floor(Date.now() / 1000), lifetime: Math.round(Number($('days').value) * 86_400),
     })
@@ -160,6 +203,42 @@ $('sign').addEventListener('click', async () => {
     if (pending.delegation !== d) return // withdrawn while the passkey was asked
     $('handoff').value = handOff(d.payload, a)
     $('handoff').hidden = false
+    // Remembered for renewal: what was signed, with its lifetime, never the signature.
+    const { agent, subject, aud, scopes, nbf, exp } = d.body
+    keepWorkers((list) => remember(list, { agent, subject, aud, scopes, lifetime: exp - nbf }))
+  } catch (e) { fail(e) }
+})
+
+// Decision 3: the ticked workers' delegations, built again from now under the current membership, shown (I4), and
+// signed by one assertion over them all (W0).
+$('renew-review').addEventListener('click', async () => {
+  withdraw()
+  try {
+    const boxes = $('workers').querySelectorAll('input')
+    const chosen = workers.filter((_, i) => boxes[i].checked)
+    const r = renewals(chosen, { identity: root.identity, membership: await membership(), root: root.id, now: Math.floor(Date.now() / 1000) })
+    pending.renewal = r
+    $('renew-list').replaceChildren(...r.delegations.map((d) =>
+      element('li', element('dl', ...fields(d.body).flatMap(([name, value]) => [element('dt', name), element('dd', value)])))))
+    $('renew-panel').hidden = false
+  } catch (e) { fail(e) }
+})
+
+$('renew-sign').addEventListener('click', async () => {
+  const r = pending.renewal
+  if (r === null) return
+  $('error').textContent = ''
+  try {
+    const a = await sign(r.covers)
+    if (pending.renewal !== r) return // withdrawn while the passkey was asked
+    $('renew-handoffs').replaceChildren(...r.delegations.map((d) => {
+      const t = element('textarea')
+      t.readOnly = true
+      t.setAttribute('aria-label', `Give this to ${d.body.agent}`)
+      t.value = handOff(d.payload, a)
+      return t
+    }))
+    $('renew-handoffs').hidden = false
   } catch (e) { fail(e) }
 })
 
@@ -233,7 +312,9 @@ async function cosign () {
 $('cosign-retry').addEventListener('click', () => { $('error').textContent = ''; cosign() })
 
 // What another tab of this origin stores is followed here, so a page open since before cannot act on a stale root.
-window.addEventListener('storage', (e) => { if (e.key === KEY || e.key === null) { root = load(); withdraw(); show() } })
+window.addEventListener('storage', (e) => {
+  if (e.key === KEY || e.key === WORKERS || e.key === null) { root = load(); workers = loadWorkers(); withdraw(); show() }
+})
 show()
 // What is kept to be sent (an outbox) is sent again on load, never where the page refuses to act.
 if (REFUSAL === undefined) {
