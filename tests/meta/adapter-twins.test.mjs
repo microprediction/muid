@@ -19,8 +19,12 @@ const IMPORTS = [["from '../" + "src/envelope.js'", "from '" + new URL('../../sr
 
 // [name, bug class, file, [find, replace] pairs]
 const TWINS = [
-  ['until-at-request-start', 'the claim is consumed whatever the clock says when the transaction runs (model/tla/Adapter.tla)', 'relying-party.js',
-    [["        if (method === 'verifyClaim' && !(clock() < r.until)) return refusal('claim-time')\n", '']]],
+  ['verified-at-request-start', 'the transaction verifies at the time the request arrived, whatever the clock says then (model/tla/Adapter.tla)', 'relying-party.js',
+    [['          const current = { ...call, now }\n', '          const current = call\n']]],
+  ['call-time-ignored', "a request the call's time refuses is accepted when the clock, behind it, does not", 'relying-party.js',
+    [["        if (!pre.ok) return refusal(pre.reason) // refused at the call's time, whatever the clock says\n", '']]],
+  ['clock-unchecked', 'a clock that gives no time is passed on as a time', 'relying-party.js',
+    [["          if (!Number.isSafeInteger(now) || now < 0) throw new TypeError('clock() must give a time in seconds')\n", '']]],
   ['memory-not-read-in-transaction', 'the transaction verifies without the memory as it stands there', 'relying-party.js',
     [['const stored = tx.lastHead(seen.identity)', 'const stored = undefined']]],
   ['consume-ignored', 'a claim already consumed is accepted again', 'relying-party.js',

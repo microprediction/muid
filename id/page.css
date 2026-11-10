@@ -4,6 +4,7 @@ body { margin: 0; padding: 16px; }
 main { max-width: 40rem; margin: 0 auto; }
 label { display: block; margin: 0.5rem 0; }
 input, textarea { display: block; width: 100%; box-sizing: border-box; font: inherit; }
+input[type=checkbox] { display: inline; width: auto; }
 textarea { min-height: 8rem; font-family: ui-monospace, monospace; font-size: 0.8rem; }
 code, dd { overflow-wrap: anywhere; font-family: ui-monospace, monospace; }
 #error { color: #b00020; }

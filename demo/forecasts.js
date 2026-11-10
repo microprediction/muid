@@ -47,6 +47,17 @@ async function bounded (request, max) {
   return new TextDecoder().decode(all)
 }
 
+// A forecast's score once its question resolves: the Brier score's exact numerator, 10^8 - (f - 10,000 o)^2, for a
+// forecast f in basis points and an outcome o of 0 or 1, so a perfect forecast earns 100,000,000 units. Nothing is
+// rounded: a rounded Brier score is not proper (believing 0.5%, a forecast of 0.99% would earn as much or more
+// whatever happened), while under the exact one the truthful forecast alone earns the most in expectation. Earnings
+// are sums of these units and stay exact up to some 90 million scored forecasts per identity; it is for whatever
+// shows them to format them.
+export function score (forecast, outcome) {
+  const d = forecast - 10_000 * outcome
+  return 100_000_000 - d * d
+}
+
 export function forecasts ({ origin, adapter, log, checkpoints, key, sign, clock, wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) }) {
   // Stryker disable next-line ArrayDeclaration: equivalent; a stray element has no identity, so is never listed
   const kept = [] // { identity, agent, name, delegation, claim, question, forecast, receipt, index, bundle, credits }
@@ -177,9 +188,8 @@ export function forecasts ({ origin, adapter, log, checkpoints, key, sign, clock
     questions.set(question, { closes, outcome: undefined })
   }
 
-  // The operator resolves a question, once: each identity's standing forecast, its last kept, earns its Brier score in
-  // basis points (10,000 - (f - 10,000 o)^2 / 10,000, rounded down). Returns how many were scored: none when the same
-  // outcome is given again; another outcome is an error.
+  // The operator resolves a question, once: each identity's standing forecast, its last kept, earns its score.
+  // Returns how many were scored: none when the same outcome is given again; another outcome is an error.
   function resolve (question, outcome) {
     if (typeof question !== 'string' || (outcome !== 0 && outcome !== 1)) throw new TypeError('a question and an outcome of 0 or 1')
     const q = questions.get(question)
@@ -197,10 +207,7 @@ export function forecasts ({ origin, adapter, log, checkpoints, key, sign, clock
       const s = standing.get(k.identity)
       if (s === undefined || k.signedAt >= s.signedAt) standing.set(k.identity, k)
     }
-    for (const k of standing.values()) {
-      const d = k.forecast - 10_000 * outcome
-      k.credits = 10_000 - Math.floor(d * d / 10_000)
-    }
+    for (const k of standing.values()) k.credits = score(k.forecast, outcome)
     return standing.size
   }
 

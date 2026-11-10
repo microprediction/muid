@@ -80,13 +80,46 @@ which can be revoked centrally (RFC 6749 §1.5, https://www.rfc-editor.org/rfc/r
   subject's consent as in D6. This is attenuation as UCAN ("equal or narrower capabilities"), ZCAP-LD (a child no
   less restrictive than its parent, and not outliving it) and macaroons require ([delegation.md](delegation.md),
   findings 1 and 4).
+- **A task delegation names its parent.** It carries a required field `parent`: the record id (64 lowercase hex) of
+  the one renewal delegation it is made under, inside the payload its signer signs. A key may be the subject of
+  several renewal delegations (overlapping renewals, or a key reused in error), with different `grants`, audiences
+  and windows; without `parent`, a verifier could only search for a renewal delegation that fits, and which one it
+  found would decide what the task may do and which revocation reaches it. As a UCAN carries its proofs by content
+  id, a ZCAP-LD capability its `parentCapability`, and an X.509 certificate its authority key identifier, the
+  child states the parent and the verifier never infers it.
+- **Checks, in order.** The relying party is given the task delegation, the renewal delegation it names and the
+  witness's logged record of each. The verifier opens the renewal delegation first, and requires that its record id
+  is the task's `parent`; that it is a renewal delegation (scopes exactly `["muid:renew"]`), valid now under D1–D7
+  and R6; and that its subject key verifies the task delegation's signature. Then, for the task delegation: `identity`,
+  `agent` and `aud` equal the parent's; every scope is in the parent's `grants`; `nbf` and `exp` lie within the
+  parent's; `exp − nbf` is at most one day; and the task's own subject consents (D6). A task delegation given with any
+  other renewal delegation is refused, whatever that one grants.
+- **Revocation by lineage.** A head's `revoked` refuses a task delegation if it names the task's own id or subject
+  key, its `parent` id, the parent's subject key, or the agent's light identity id. Naming one parent id reaches
+  that parent's task delegations and no other parent's, even one with the same subject key; naming the subject key
+  or the agent reaches them all.
+- **What the witness logs.** The logged record of a task delegation carries its `parent`, and the witness logs a
+  task delegation only under a logged, live renewal delegation, so the set a revocation of a parent can reach is
+  the set logged under it, bounded as R10 bounds every list.
 - **Depth two by type:** only a root signs a renewal delegation, only a renewal delegation's subject signs a task
   delegation, and a task delegation's subject signs only claims. As in D3, there is no counter to get wrong.
 - Both kinds are logged (R10), so the witness knows every key that can verify. Retiring the renewal delegation, its
-  key, or the agent's name refuses every task delegation under it.
+  key, or the agent's name refuses every task delegation under it (revocation by lineage, above).
 - The owner then approves an agent's renewal key once per 90 days instead of once a week. The renewal key can be kept
   where keys are hardest to steal (an OS keystore or a hardware token), and the task keys, which work at services,
   live a day.
+
+Cases the tests of Part B must include, each a refusal unless stated:
+
+1. Two renewal delegations with one subject key and disjoint `grants`: a task made under one, presented with the
+   other.
+2. A task whose named parent has another audience, another agent, or a window that does not contain the task's.
+3. One parent id revoked: its tasks are refused and the other parent's are accepted; the subject key or the agent
+   revoked: all are refused.
+4. A parent replaced by a later renewal delegation (a rotation, or an answer lost and the request repeated): a task
+   made under the first does not verify under the second.
+5. A `parent` that names a task delegation, a delegation that is not a renewal delegation, or a record of another
+   identity.
 
 ## 5. Why other designs do not cover this
 

@@ -71,3 +71,33 @@ test('with a witness policy, every checkpoint the log publishes is cosigned by t
     await l.stop()
   }
 })
+
+// An entry is at most 65,535 bytes: C2SP tlog-tiles writes each entry in a bundle after a 16-bit length. The server
+// refuses a longer body at the HTTP boundary with 413, whether or not its length was declared, and stays usable.
+test('an entry longer than a bundle can hold is refused with 413 before it is read; the largest entry is appended', { timeout: 300_000 }, async () => {
+  const l = await startLog()
+  try {
+    const log = tesseraLog({ url: l.url })
+    const MAX = 65535
+    const post = (body, init = {}) => fetch(l.url + 'add', { method: 'POST', body, ...init })
+    const over = await post(new Uint8Array(MAX + 1).fill(0x61))
+    assert.equal(over.status, 413)
+    // No declared length: the body is streamed in chunks, far past the limit; the server answers without the rest.
+    let sent = 0
+    const endless = new ReadableStream({ pull (c) { sent += 16384; if (sent > 64 * 1024 * 1024) c.close(); else c.enqueue(new Uint8Array(16384).fill(0x62)) } })
+    const streamed = await post(endless, { duplex: 'half' }).then((r) => r.status, () => 413)
+    assert.equal(streamed, 413)
+    assert.ok(sent < 64 * 1024 * 1024, 'the server stopped reading')
+    const largest = 'c'.repeat(MAX)
+    const index = await log.append(largest)
+    const after = await log.append('after')
+    assert.notEqual(index, after)
+    const ctx = { origin: l.origin, log: l.vkey, cosigners: [], quorum: 0, now: Math.floor(Date.now() / 1000), skew: 60 }
+    const c = await checkpointAt(log, ctx, 2)
+    assert.equal(c.size, 2, 'neither refused body became an entry')
+    const proof = await log.inclusionProof(index, c.size)
+    assert.equal(merkle.verifyInclusion({ leafHash: merkle.leafHash(enc.encode(largest)), index, size: c.size, root: Buffer.from(c.root, 'hex'), proof }), true)
+  } finally {
+    await l.stop()
+  }
+})

@@ -480,7 +480,14 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
 - **Replay after cleanup (found by model checking):** a replay whose transaction waits, while another instance's
   cleanup drops the claim's id, is refused as `claim-time` once the waiting instance's clock passes the claim's
   `until` (memory and SQLite stores; the trace TLC found, replayed against the adapter). An adapter without a
-  `clock` is a programming error. Twin: the claim consumed whatever the clock says at the transaction.
+  `clock` is a programming error.
+- **Authorised at the transaction's time (found by review):** with signed fixtures and both stores, for `acceptClaim`
+  and `acceptDelegation`: a request verified on arrival and then held, while the delegation expires, the head
+  becomes too old or the witness key's window ends, is refused with the reason the verifier gives at that time, its
+  action not run and its claim not consumed; the same request held until one second before the deadline, or not
+  held, is accepted. A request the call's time refuses is not accepted because the clock, behind it, would. A clock
+  that gives no time is a programming error, and nothing is remembered. Twins: the transaction verifying at the
+  time the request arrived; the call's time ignored; the clock unchecked.
 
 ## 4h2. Model checking (`model/tla/`, TLC)
 
@@ -489,11 +496,16 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   instances whose clocks differ by 2 s, sharing one durable store; each request verified alone, then in a transaction,
   with the other instance's requests, cleanup of expired ids, restarts and time passing in between. Explored
   exhaustively: each claim is dispatched at most once; nothing is dispatched once the store remembers a revoking head;
-  a request is verified at most `maxStaleness` plus the clock difference after the revocation, a bound TLC showed is
-  reached. About 10 million states, a minute or so. Negative controls, each of which TLC must report: with the grace
-  below the clock difference, or without the claim's `until` checked at the transaction, a claim is dispatched twice;
-  with the freshness limit one second tighter, it is exceeded, so the limit cannot be improved. TLC first found the
-  adapter's own double dispatch (a request that waited outlived its id's stay in the store), fixed in §4h.
+  a request is authorised, at its transaction, only while its claim's age, its delegation's window, its head's
+  freshness and the witness key's window all still hold by its instance's clock (`NoExpiredAuthorizationAtCommit`);
+  and it is authorised at most `maxStaleness` plus the clock difference after the revocation, a bound TLC showed is
+  reached. About 24 million states, a minute or so. Negative controls, each of which TLC must report: with the grace
+  below the clock difference, or without the claim's age checked at the transaction, a claim is dispatched twice;
+  without the delegation's window, the head's freshness or the witness key's window checked there (three
+  configurations), a request is authorised past that deadline; with the freshness limit one second tighter, it is
+  exceeded, so the limit cannot be improved. TLC first found the adapter's own double dispatch (a request that waited
+  outlived its id's stay in the store), fixed in §4h; the other deadlines were found by review, and the model had
+  not stated the property they break.
 - Run by `.github/scripts/tlc.sh`, the tools at a pinned release checked against their recorded SHA-256; a passing
   configuration must find no error, and each negative control must report the violation it names.
 
@@ -606,7 +618,8 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   interval, re-signed after it or after a change, every one logged, none for a frozen identity; revocations;
   delegations logged through their endpoint, the logged record appended once, refusals as 422;
   concurrent submissions for one identity both kept; a failing log (503, nothing kept, the tick rejected and
-  retried) and a failing store; configuration.
+  retried) and a failing store; records read while an append is in flight show only what is logged, without
+  waiting; configuration.
 - Signing (`W10-sign.test.mjs`), found by review: a change without a majority advanced five times, a contest by a
   minority, and a holding outside the witness key's window (closed, not yet open, or only another pinned key's open)
   never call `sign`; an honest change calls it once for each record signed; a configuration pinning the trial key is
@@ -625,7 +638,9 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   from the pinned module): 300 entries appended, the checkpoint verified by the core under the log's key, an
   inclusion proof from Tessera's tiles verified for every entry, and again after 21 more; another entry's hash
   refused. With a witness policy naming the omniwitness, every published checkpoint carries its cosignature, which
-  the core counts toward a quorum of one, with the witness's clock as the time.
+  the core counts toward a quorum of one, with the witness's clock as the time. A body of 65,536 bytes, and one
+  streamed without a length, are refused with 413 and add no entry; one of 65,535 bytes (the most a C2SP tlog-tiles
+  entry bundle holds) is appended and proved.
 - Twins (`tests/meta/witness-twins.test.mjs`, 42): each admission rule dropped in turn; the anchor kept unchecked;
   settlement inside the window; contests never anchored, anchored unchecked, or ignored at
   settlement; the witness's view counting contest anchors; a settlement ending the step; `sign` unchecked; heads
@@ -681,7 +696,7 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   wait is cut to 15 s and every test to 60 s, and once one test fails or times out, the rest fail at once. Without
   this, a broken page made each test wait out its limits in turn, and the mutant was counted only when Stryker's
   own timeout ran out.
-- Twins (`tests/meta/id-twins.test.mjs`, 21): the challenge's domain, any algorithm, unsorted scopes, an unbounded
+- Twins (`tests/meta/id-twins.test.mjs`, 51 in all): the challenge's domain, any algorithm, unsorted scopes, an unbounded
   lifetime, an unchecked audience, an edit that keeps the review, a late signature kept, verification preferred,
   any passkey, a credential that is not resident, inline scripts allowed, hidden parts shown; attest granted; a change co-signed that does not add
   this passkey, an edit of the new root kept, authority unchecked, delegations under the first membership, the root
@@ -690,6 +705,21 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
 - **The agent's name (D8):** the worker form takes the agent's name, shown in the review with the rest of what is
   signed (spaces around it are not signed); renaming it withdraws the review; a name outside the grammar is refused
   with a reason before anything is signed.
+- **Batched renewal (decision 3):** `records.js` in Node (`P1`): stored workers read back only if of a worker's form
+  (each wrong type, a missing or extra field, a non-list), the latest of each agent and key, at most `MAX_WORKERS`
+  with the oldest dropped; a worker remembered in place of its older entry; 1 to 8 delegations built again under the
+  current membership, their ids sorted for one assertion, which the core accepts for each; an untrusted entry given
+  every check a new delegation gets; the same worker twice refused. The page (`P2`): three workers authorised are
+  remembered with their lifetimes (never a signature), listed ticked, each with a button to forget it; a review
+  shows every delegation field by field (I4); one assertion (the authenticator's counter moves by one) signs them
+  all, and each hand-off, once its worker consents, is accepted by the core and, logged, by the verifier at its own
+  audience; nine refused and none refused; a change of selection, a forgotten worker and another tab's change each
+  withdraw a review; a signature returning after a change of selection is not handed over; a refused passkey is
+  reported; stored text is shown as text; unreadable storage offers nothing; a passkey with no identity yet, or
+  still joining, is offered nothing to renew. Twins (11 of the 51): the batch unbounded, covers unsorted, storage
+  trusted, the selection or a late signature not withdrawing, an unticked worker renewed, a delegation signed but
+  not shown, the assertion not covering each, renewal offered while joining, a worker not remembered or not
+  forgotten.
 
 ## 4l. The two-application demo (`demo/`, not core)
 
@@ -704,7 +734,9 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   the bundle verified by `verifyReceipt`; replay; each refusal with its reason; the body limit at and one past it;
   a failing log (503, nothing kept, the claim consumed); a checkpoint waited for, and one cosigned in the future
   never counted; each broken bundle refused with its reason, by index.
-- Earnings (`D4`, and scenario 5 of `D1`): nothing earned before resolution; the Brier score per forecast, credited
+- Earnings (`D4`, and scenario 5 of `D1`): nothing earned before resolution; the Brier score's exact numerator per
+  forecast (for nine beliefs on the grid, the edges among them, the truthful forecast alone earns the most in
+  expectation over all 10,001 forecasts; the case a rounded score got wrong is pinned), credited
   to the identity with each agent's share; a question resolved once; several agents adding up, another identity's
   apart; collection by a delegation with the collect scope, not by the agent; a contribution that is not a
   forecast refused and its claim spent. End to end, the agent retires itself through the witness and is then

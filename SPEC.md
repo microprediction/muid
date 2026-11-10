@@ -701,14 +701,21 @@ verifier can no longer read (corrupt, or signed by a witness key since removed f
 bounds rollback: its stored time becomes `minHeadAt`. Storage that fails is refused as `storage`, and the action does
 not run; an action that fails leaves its claim consumed, and the delegate makes a new claim. A claim id is kept a
 grace period past its `until` (60 s by default; set it to the largest clock difference between instances), so an
-instance whose clock is behind the one that expired it still refuses the replay; and the transaction consumes a
-claim only while its `until` is ahead of the instance's clock read there (`clock()`, given to the adapter), not
-the call's `now`, so a request that waited between its verification and its transaction cannot outlive its id's stay
-in the store (refused as `claim-time`). Checked by TLC (`model/tla/Adapter.tla`): over two instances whose clocks
+instance whose clock is behind the one that expired it still refuses the replay. A request is authorised at its
+transaction: there the head and the request are verified at the instance's clock read in the transaction (`clock()`,
+given to the adapter; a value that is not a time is a programming error), not at the call's `now`, so a request that
+waited between its first verification and its transaction is refused with the verifier's reason once any deadline
+has passed — the claim's age (`claim-time`: it could otherwise outlive its id's stay in the store), the
+delegation's window (`expired`), the head's freshness (`stale`) or the witness key's window (`head`). A request the
+call's `now` refuses is refused whatever the clock says. The action runs after the transaction: what is bounded is
+when a request is authorised, not when its action finishes, and an action runs at most once, not exactly once.
+Checked by TLC (`model/tla/Adapter.tla`): over two instances whose clocks
 differ, sharing one store, with requests interleaved with cleanup and restarts, each claim is dispatched at most
-once, nothing is dispatched once the store remembers a revoking head, and a request is verified at most
+once, nothing is dispatched once the store remembers a revoking head, a request is authorised only while all it
+presents still verifies by its instance's clock, and at most
 `maxStaleness` plus the clock difference after a revocation, the limit no offline verifier can beat (R9); without
-the check at the transaction, or with a grace shorter than the clock difference, a claim is dispatched twice. `memoryStore` serves one
+the claim's age checked at the transaction, or with a grace shorter than the clock difference, a claim is dispatched
+twice, and without any one of the other deadlines checked there, a request is authorised past it. `memoryStore` serves one
 process; `sqliteStore` serves processes sharing one database file. Tests: a race of eight instances on one file,
 a file opened while another instance is creating it,
 a transaction held behind one that revokes, restart, rollback, storage failure, corrupt storage, a witness key
@@ -729,9 +736,14 @@ creates its passkey and shows its root record; a device of the identity reads th
 witness's records by the core's `membershipState`, shows the root it adds and the new epoch (I4), signs the change
 (R1) and submits it with the new root record; the new device shows the change, co-signs it and submits it. The
 witness anchors it, and it settles once its contest window has passed; until then the new root has no authority
-(R6), and the page says so. Delegations name the current membership. `id/records.js` builds every record with the
-core's functions and refuses first what the core would. Not yet: removing a root, freezes and contests, and the
-I1–I3 window protocol for apps.
+(R6), and the page says so. Delegations name the current membership. The page renews workers in batches (decision
+3): it remembers, in this browser, what it signed for each worker it authorised — the agent's name, key, audience,
+scopes and lifetime, never a signature — lists them, each ticked until the user unticks or forgets it, builds the
+ticked ones' delegations again from now under the current membership, shows every one (I4), and signs 1 to 8 of them
+with one assertion (W0), handing each worker its payload with that assertion. What it remembered is read back as
+untrusted, as the root is, and every check a new delegation gets is made again. `id/records.js` builds every record
+with the core's functions and refuses first what the core would. Not yet: removing a root, freezes and contests, and
+the I1–I3 window protocol for apps.
 
 - The id origin is a dedicated host serving nothing else, with no subdomains. `rp_id` and the exact origin are
   deployment configuration (meta tags, as the witness's URL and keys are), compared exactly; no suffix or wildcard
@@ -791,7 +803,8 @@ forecast kept and a receipt (C2) signed, appended to the log and kept with the c
 the inclusion proof, as a bundle. **History** verifies an identity's bundles under its own pinned services and log.
 A contribution's data is `{ question, forecast }` (basis points); the identity of the delegation it was made under
 is bound as its beneficiary when it is accepted, never decided later from whoever holds the agent's key. Once the
-operator resolves a question, each forecast of it earns its Brier score in basis points, credited to the identity
+operator resolves a question, each forecast of it earns the Brier score's exact numerator (10^8 − (f − 10,000·o)²
+units; nothing is rounded, since a rounded Brier score is not proper), credited to the identity
 with each agent's share shown by its light identity (D8), so a replaced key keeps its share (`GET /earnings`); the identity collects with a claim under any live delegation of it
 holding the `collect` scope (`POST /collect`). Five scenarios run end to end in CI: limited authority, continuity
 across a replaced worker key, attribution that lasts past the delegations' expiry, revocation that takes effect at
@@ -901,7 +914,8 @@ weighted by attestation.
    identity whose id is derived from the identity id and the name, and which a revocation retires for good (as SPIFFE
    names a workload over rotating keys). Proposed (Part B): a renewal delegation, scoped only to `muid:renew` and lasting at most 90 days, whose key
    signs day-long task delegations within its audience and `grants` (OAuth's refresh token, with UCAN's attenuation),
-   depth two by type as D3 is depth one. Light identities stay linkable to their identity (§10). Details, and why
+   depth two by type as D3 is depth one. Each task delegation names, in what is signed, the id of the one renewal
+   delegation it is made under, so its limits and the revocations that reach it are never inferred from a key. Light identities stay linkable to their identity (§10). Details, and why
    other designs do not cover it, in [`research/light-identities.md`](research/light-identities.md).
 
 ## 10. What the reputation layer consumes (not core)
