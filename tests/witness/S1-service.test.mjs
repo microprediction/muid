@@ -237,6 +237,43 @@ test('the outbox is appended before a head is served and before a tick advances'
   assert.equal((await s.call('GET', `/v1/identities/${IDENTITY}/records`)).body.settlements.length, 1)
 })
 
+// While an append is in flight the signed records wait in the outbox, beside the holding the log already has. A
+// records read is served from that holding: it shows nothing the log has not taken, and does not wait for the log.
+test('records read while an append is in flight show only what is logged', async () => {
+  const inner = memoryLog()
+  let entered
+  const blocked = new Promise((resolve) => { entered = resolve })
+  let release
+  let gate = false
+  const s = setup({ log: {
+    append: async (t) => {
+      if (gate) {
+        entered()
+        await new Promise((resolve) => { release = resolve })
+        gate = false
+      }
+      return inner.append(t)
+    },
+    entries: inner.entries,
+  } })
+  await s.submit('root', rootText('a'))
+  const before = (await s.call('GET', `/v1/identities/${IDENTITY}/records`)).body
+  const logged = inner.entries().length
+  gate = true
+  const writing = s.submit('membership', signed('membership', mBody(2, ['a'], IDENTITY), 'a'))
+  await blocked
+  const during = await s.call('GET', `/v1/identities/${IDENTITY}/records`)
+  assert.equal(during.status, 200)
+  assert.deepEqual(during.body, before, 'the staged membership and its anchor are not served')
+  assert.equal(inner.entries().length, logged, 'and nothing more is logged yet')
+  release()
+  assert.equal((await writing).status, 200)
+  const after = (await s.call('GET', `/v1/identities/${IDENTITY}/records`)).body
+  assert.equal(after.memberships.length, before.memberships.length + 1)
+  assert.equal(after.anchors.length, 1)
+  for (const text of after.anchors) assert.ok(inner.entries().includes(text), 'what is served is logged')
+})
+
 test('a store that fails: 503', async () => {
   const s = setup({ holdings: { get: async () => { throw new Error('disk') }, update: async () => { throw new Error('disk') }, identities: async () => [] } })
   assert.deepEqual((await s.submit('root', rootText('a'))).body, { ok: false, reason: 'storage' })
