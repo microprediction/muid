@@ -6,10 +6,13 @@
 //   TUF client's stored metadata).
 // The records are verified inside one store transaction, against the memory as it stands there, which then advances
 // the head and consumes the claim: a database store holds its write lock for one verification. Storage that fails is
-// refused as `storage`, and the protected action does not run. The claim is consumed only while its `until` is still
-// ahead of `clock()` read in that transaction, not the call's `now`: a request that waited could otherwise outlive
-// its id's stay in the store and run again once another instance had dropped the id (model/tla/Adapter.tla).
-// `clock()` gives this instance's time in seconds, the clock the call's `now` is read from.
+// refused as `storage`, and the protected action does not run.
+// A request is authorised at the time of its transaction: there every check is made at `clock()` read in the
+// transaction, not at the call's `now`, so a request that waited is refused once its claim's age, its delegation's
+// window, its head's freshness or the witness key's window has passed (model/tla/Adapter.tla). It is also refused if
+// the call's `now` refuses it. The protected action runs after the transaction: this bounds when a request is
+// authorised, not when its action finishes. `clock()` gives this instance's time in seconds, the clock the call's
+// `now` is read from.
 const refusal = (reason) => Object.freeze({ ok: false, reason })
 
 // The call's fields, each read once (inherited ones too, as the verifier reads them), into a plain object to which
@@ -73,8 +76,11 @@ export function relyingParty ({ verifier, store, clock }) {
         const stored = tx.lastHead(seen.identity) // the store's: a failure here is refused as storage
         let head, r
         try {
-          head = withMemory((c) => verifier.verifyHead(given.head, c), call, stored)
-          r = withMemory((c) => verifier[method](given, c), call, stored)
+          const now = clock()
+          if (!Number.isSafeInteger(now) || now < 0) throw new TypeError('clock() must give a time in seconds')
+          const current = { ...call, now }
+          head = withMemory((c) => verifier.verifyHead(given.head, c), current, stored)
+          r = withMemory((c) => verifier[method](given, c), current, stored)
         } catch (e) {
           return { thrown: e } // the verifier's, not the store's: rethrown below
         }
@@ -88,7 +94,7 @@ export function relyingParty ({ verifier, store, clock }) {
           }
         }
         if (!r.ok) return refusal(r.reason)
-        if (method === 'verifyClaim' && !(clock() < r.until)) return refusal('claim-time')
+        if (!pre.ok) return refusal(pre.reason) // refused at the call's time, whatever the clock says
         if (method === 'verifyClaim' && !tx.consume(r.id, r.until)) return refusal('replay')
         return r
       })

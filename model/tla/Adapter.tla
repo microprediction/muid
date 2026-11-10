@@ -7,17 +7,22 @@
    head the witness has signed, to either worker, at any moment. Each worker has its own clock, within MaxOffset of
    real time, and they share one durable store: the claim ids consumed, each kept until `until` plus Grace, and the
    newest head remembered (decision 10). A request is verified without memory first, outside any lock, then in one
-   transaction against the store as it stands then, where its head is remembered if newer and its claim consumed if
-   absent; only then is it dispatched. Between the two steps anything may happen: the other worker's requests, a
-   cleanup of expired ids, a restart that abandons the request, or time passing.
+   transaction against the store as it stands then and the worker's clock as it reads then, where its head is
+   remembered if newer and its claim consumed if absent; only then is it dispatched. Between the two steps anything
+   may happen: the other worker's requests, a cleanup of expired ids, a restart that abandons the request, or time
+   passing. The transaction is where a request is authorised; its action runs afterwards, and is not modelled.
 
    Checked: each claim is dispatched at most once (AtMostOnce); nothing is dispatched once the store remembers a
-   revoking head (NoRevival); and a request is verified at most MaxStaleness + MaxOffset after the revocation, the
+   revoking head (NoRevival); a request is authorised only while everything it presents still verifies by its
+   worker's clock: the claim's age, the delegation's window, the head's freshness and the witness key's window
+   (NoExpiredAuthorizationAtCommit); and it is authorised at most MaxStaleness + MaxOffset after the revocation, the
    limit no offline verifier can beat, since a withheld newer head leaves it with inputs identical to a world in
    which nothing was revoked (FreshnessBound). Negative controls, each of which TLC must report: with Grace below the
-   largest difference between the workers' clocks, or without the claim's until checked at the transaction (the
-   adapter's own bug, which this model found), AtMostOnce fails; with FreshnessBound's limit one second tighter, it
-   fails, so the limit is reached. *)
+   largest difference between the workers' clocks, or without the claim's age checked at the transaction (the
+   adapter's own bug, which this model found), AtMostOnce fails; without the delegation's window, the head's
+   freshness or the witness key's window checked there (the adapter as it then was, found by review),
+   NoExpiredAuthorizationAtCommit fails; with FreshnessBound's limit one second tighter, it fails, so the limit is
+   reached. *)
 EXTENDS Integers, FiniteSets
 
 CONSTANTS
@@ -25,31 +30,34 @@ CONSTANTS
   Names,          \* claims the attacker may sign, before their times are chosen
   MaxTime,        \* the last real second explored
   DelegExp,       \* the delegation is valid from 0 to DelegExp - 1 (D1, with nbf = 0)
+  KeyExp,         \* the witness key's window is 0 to KeyExp - 1 (A1's window, as F5 applies it to a head)
   MaxStaleness,   \* R9
   MaxClaimAge,    \* C1
   Skew,           \* how far after a verifier's now a signer's time may be (F5, C1)
   MaxOffset,      \* each worker's clock is within this of real time
   Grace,          \* a consumed id is kept until `until` plus this (SPEC §7)
   Offset,         \* the workers' clock offsets: a function Workers -> -MaxOffset..MaxOffset
-  CheckAtCommit,  \* TRUE in the adapter: the claim's until checked by the clock at the transaction (negative control: FALSE)
+  \* TRUE in the adapter: each deadline checked by the clock at the transaction (each FALSE in a negative control)
+  CheckClaimAtCommit, CheckDelegAtCommit, CheckHeadAtCommit, CheckKeyAtCommit,
   Tighten         \* 0; 1 in the negative control that shows FreshnessBound's limit is reached
 
 NONE == -1
 Times == 0..MaxTime
 NoHead == [at |-> -1, rev |-> FALSE]                                \* an empty memory: older than any head
-Idle == [claim |-> [name |-> 0, at |-> -1], head |-> NoHead, t |-> -1] \* a worker between requests
+Idle == [claim |-> [name |-> 0, at |-> -1], head |-> NoHead] \* a worker between requests
 
 VARIABLES
   now,          \* real time
   revokedAt,    \* when the witness revoked the delegation, or NONE
   consumed,     \* the store's consumed ids: a function from claims to their kept-until time, or NONE
   last,         \* the store's remembered head, or NoHead
-  pc,           \* each worker's request between its two steps: [claim, head, t], or Idle
+  pc,           \* each worker's request between its two steps: [claim, head], or Idle
   count,        \* how many times each claim has been dispatched, counted to 2
-  late,         \* TRUE once a dispatch was verified past FreshnessBound's limit
+  late,         \* TRUE once a request was authorised past FreshnessBound's limit
+  expired,      \* TRUE once a request was authorised that no longer verified by its worker's clock
   revSeen       \* TRUE once the store has remembered a revoking head
 
-vars == <<now, revokedAt, consumed, last, pc, count, late, revSeen>>
+vars == <<now, revokedAt, consumed, last, pc, count, late, expired, revSeen>>
 
 Local(w) == now + Offset[w] \* a worker's clock
 
@@ -68,8 +76,8 @@ TypeOK ==
   /\ DOMAIN consumed = AllClaims /\ \A c \in AllClaims : consumed[c] = NONE \/ consumed[c] \in Int
   /\ last \in {NoHead} \cup AllHeads
   /\ DOMAIN pc = Workers
-  /\ \A w \in Workers : pc[w] = Idle \/ (pc[w].claim \in AllClaims /\ pc[w].head \in AllHeads /\ pc[w].t \in Int)
-  /\ count \in [AllClaims -> 0..2] /\ late \in BOOLEAN
+  /\ \A w \in Workers : pc[w] = Idle \/ (pc[w].claim \in AllClaims /\ pc[w].head \in AllHeads)
+  /\ count \in [AllClaims -> 0..2] /\ late \in BOOLEAN /\ expired \in BOOLEAN
   /\ revSeen \in BOOLEAN
 
 Init ==
@@ -80,36 +88,45 @@ Init ==
   /\ pc = [w \in Workers |-> Idle]
   /\ count = [c \in AllClaims |-> 0]
   /\ late = FALSE
+  /\ expired = FALSE
   /\ revSeen = FALSE
 
 \* Real time passes.
-Tick == /\ now < MaxTime /\ now' = now + 1 /\ UNCHANGED <<revokedAt, consumed, last, pc, count, late, revSeen>>
+Tick == /\ now < MaxTime /\ now' = now + 1 /\ UNCHANGED <<revokedAt, consumed, last, pc, count, late, expired, revSeen>>
 
 \* The witness revokes the delegation, once.
-Revoke == /\ revokedAt = NONE /\ revokedAt' = now /\ UNCHANGED <<now, consumed, last, pc, count, late, revSeen>>
+Revoke == /\ revokedAt = NONE /\ revokedAt' = now /\ UNCHANGED <<now, consumed, last, pc, count, late, expired, revSeen>>
 
-\* F5 and C1 without memory, at the worker's time t: the head fresh and not revoking, the claim's time within its age
-\* and the skew, both inside the delegation's window.
+\* F5 and C1 without memory, at the worker's time t: the head fresh and not revoking, signed under a witness key
+\* whose window holds it and t; the claim's time within its age and the skew; both inside the delegation's window.
 VerifiesAlone(c, h, t) ==
   /\ h.at >= t - MaxStaleness /\ h.at <= t + Skew /\ ~h.rev
+  /\ h.at < KeyExp /\ t < KeyExp
   /\ t < DelegExp
   /\ c.at >= t - MaxClaimAge /\ c.at <= t + Skew /\ c.at < DelegExp
+
+\* The deadlines that may pass while a request waits, each checked again at the transaction's time t.
+VerifiesStill(c, h, t) ==
+  /\ CheckClaimAtCommit => c.at >= t - MaxClaimAge
+  /\ CheckDelegAtCommit => t < DelegExp
+  /\ CheckHeadAtCommit => h.at >= t - MaxStaleness
+  /\ CheckKeyAtCommit => t < KeyExp
 
 \* Step one: any claim with any head reaches a worker, which verifies it without memory.
 Begin(w, c, h) ==
   /\ pc[w] = Idle /\ h \in Heads
   /\ VerifiesAlone(c, h, Local(w))
-  /\ pc' = [pc EXCEPT ![w] = [claim |-> c, head |-> h, t |-> Local(w)]]
-  /\ UNCHANGED <<now, revokedAt, consumed, last, count, late, revSeen>>
+  /\ pc' = [pc EXCEPT ![w] = [claim |-> c, head |-> h]]
+  /\ UNCHANGED <<now, revokedAt, consumed, last, count, late, expired, revSeen>>
 
 \* Decision 10's order for heads of one identity and membership: a later at, or of one at, one holding every
 \* revocation of the other.
 Newer(h, l) == h.at > l.at \/ (h.at = l.at /\ (h.rev \/ ~l.rev))
 
 \* Step two, one transaction: remember the head if newer; refuse a head older than memory, or any request once memory
-\* holds a revocation (R10), or a claim whose until has passed by the worker's clock now (not at step one: a request
-\* that waited may otherwise outlive its id's stay in the store, which TLC found); consume the claim if absent;
-\* dispatch.
+\* holds a revocation (R10), or one that no longer verifies by the worker's clock now (not at step one: a request
+\* that waited may otherwise outlive its id's stay in the store, which TLC found, or its delegation, its head's
+\* freshness or the witness key); consume the claim if absent; dispatch.
 Commit(w) ==
   /\ pc[w] # Idle
   /\ LET r == pc[w]
@@ -117,20 +134,21 @@ Commit(w) ==
      IN /\ last' = mem
         /\ revSeen' = (revSeen \/ mem.rev)
         /\ pc' = [pc EXCEPT ![w] = Idle]
-        /\ IF r.head.at >= mem.at /\ ~mem.rev /\ (CheckAtCommit => Local(w) < r.claim.at + MaxClaimAge + 1) /\ consumed[r.claim] = NONE
+        /\ IF r.head.at >= mem.at /\ ~mem.rev /\ VerifiesStill(r.claim, r.head, Local(w)) /\ consumed[r.claim] = NONE
            THEN /\ consumed' = [consumed EXCEPT ![r.claim] = r.claim.at + MaxClaimAge + 1 + Grace]
                 /\ count' = [count EXCEPT ![r.claim] = IF @ < 2 THEN @ + 1 ELSE 2]
-                /\ late' = (late \/ (revokedAt # NONE /\ r.t - Offset[w] > revokedAt + MaxStaleness + MaxOffset - Tighten))
-           ELSE UNCHANGED <<consumed, count, late>>
+                /\ late' = (late \/ (revokedAt # NONE /\ now > revokedAt + MaxStaleness + MaxOffset - Tighten))
+                /\ expired' = (expired \/ ~VerifiesAlone(r.claim, r.head, Local(w)))
+           ELSE UNCHANGED <<consumed, count, late, expired>>
   /\ UNCHANGED <<now, revokedAt>>
 
 \* A worker drops the ids whose kept-until time has passed by its own clock.
 Cleanup(w) ==
   /\ consumed' = [c \in AllClaims |-> IF consumed[c] # NONE /\ consumed[c] <= Local(w) THEN NONE ELSE consumed[c]]
-  /\ UNCHANGED <<now, revokedAt, last, pc, count, late, revSeen>>
+  /\ UNCHANGED <<now, revokedAt, last, pc, count, late, expired, revSeen>>
 
 \* A worker restarts: the request between its steps is abandoned; the store is durable.
-Restart(w) == /\ pc[w] # Idle /\ pc' = [pc EXCEPT ![w] = Idle] /\ UNCHANGED <<now, revokedAt, consumed, last, count, late, revSeen>>
+Restart(w) == /\ pc[w] # Idle /\ pc' = [pc EXCEPT ![w] = Idle] /\ UNCHANGED <<now, revokedAt, consumed, last, count, late, expired, revSeen>>
 
 Next ==
   \/ Tick \/ Revoke
@@ -145,7 +163,10 @@ AtMostOnce == \A c \in AllClaims : count[c] <= 1
 \* Nothing is dispatched once the store remembers a revoking head: an action property.
 NoRevival == [][revSeen => count' = count]_vars
 
-\* The limit an offline verifier cannot beat: a request is verified at most MaxStaleness + MaxOffset after the
+\* A request is authorised, at its transaction, only while all it presents still verifies by its worker's clock.
+NoExpiredAuthorizationAtCommit == ~expired
+
+\* The limit an offline verifier cannot beat: a request is authorised at most MaxStaleness + MaxOffset after the
 \* revocation, in real time. A head without it was signed no later than its second (in that second, before it), and
 \* a worker whose clock is behind accepts that head until its own time passes its at + MaxStaleness; TLC showed the
 \* bound is reached, so it is inclusive.

@@ -27,6 +27,9 @@ done <<'MODELS'
 MCAdapter Adapter pass
 MCAdapter AdapterGraceTooShort AtMostOnce
 MCAdapter AdapterNoCommitCheck AtMostOnce
+MCAdapter AdapterNoDelegationCheck NoExpiredAuthorizationAtCommit
+MCAdapter AdapterNoHeadCheck NoExpiredAuthorizationAtCommit
+MCAdapter AdapterNoKeyCheck NoExpiredAuthorizationAtCommit
 MCAdapter AdapterBoundTighter FreshnessBound
 MODELS
 exit $status
