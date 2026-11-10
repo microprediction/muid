@@ -701,14 +701,21 @@ verifier can no longer read (corrupt, or signed by a witness key since removed f
 bounds rollback: its stored time becomes `minHeadAt`. Storage that fails is refused as `storage`, and the action does
 not run; an action that fails leaves its claim consumed, and the delegate makes a new claim. A claim id is kept a
 grace period past its `until` (60 s by default; set it to the largest clock difference between instances), so an
-instance whose clock is behind the one that expired it still refuses the replay; and the transaction consumes a
-claim only while its `until` is ahead of the instance's clock read there (`clock()`, given to the adapter), not
-the call's `now`, so a request that waited between its verification and its transaction cannot outlive its id's stay
-in the store (refused as `claim-time`). Checked by TLC (`model/tla/Adapter.tla`): over two instances whose clocks
+instance whose clock is behind the one that expired it still refuses the replay. A request is authorised at its
+transaction: there the head and the request are verified at the instance's clock read in the transaction (`clock()`,
+given to the adapter; a value that is not a time is a programming error), not at the call's `now`, so a request that
+waited between its first verification and its transaction is refused with the verifier's reason once any deadline
+has passed — the claim's age (`claim-time`: it could otherwise outlive its id's stay in the store), the
+delegation's window (`expired`), the head's freshness (`stale`) or the witness key's window (`head`). A request the
+call's `now` refuses is refused whatever the clock says. The action runs after the transaction: what is bounded is
+when a request is authorised, not when its action finishes, and an action runs at most once, not exactly once.
+Checked by TLC (`model/tla/Adapter.tla`): over two instances whose clocks
 differ, sharing one store, with requests interleaved with cleanup and restarts, each claim is dispatched at most
-once, nothing is dispatched once the store remembers a revoking head, and a request is verified at most
+once, nothing is dispatched once the store remembers a revoking head, a request is authorised only while all it
+presents still verifies by its instance's clock, and at most
 `maxStaleness` plus the clock difference after a revocation, the limit no offline verifier can beat (R9); without
-the check at the transaction, or with a grace shorter than the clock difference, a claim is dispatched twice. `memoryStore` serves one
+the claim's age checked at the transaction, or with a grace shorter than the clock difference, a claim is dispatched
+twice, and without any one of the other deadlines checked there, a request is authorised past it. `memoryStore` serves one
 process; `sqliteStore` serves processes sharing one database file. Tests: a race of eight instances on one file,
 a transaction held behind one that revokes, restart, rollback, storage failure, corrupt storage, a witness key
 rotation and the expiry boundary.

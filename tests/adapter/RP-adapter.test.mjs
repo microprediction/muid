@@ -7,7 +7,8 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { relyingParty, memoryStore, sqliteStore } from './impl.mjs'
-import { verifier, verifierWithKey, records, claim, head, CALL, NOW, IDENTITY, DELEGATION_ID, W2, delegation2, logged2 } from './fixtures.mjs'
+import { verifier, verifierWithKey, records, claim, head, CALL, CONFIG, NOW, IDENTITY, DELEGATION_ID, W2, delegation2, logged2 } from './fixtures.mjs'
+import { verifier as verifierModule } from '../impl.mjs'
 
 const refused = (reason) => ({ ok: false, reason })
 const tmp = () => mkdtempSync(join(tmpdir(), 'muid-rp-'))
@@ -38,6 +39,77 @@ for (const [name, open] of [['memory', () => memoryStore()], ['sqlite', () => sq
     release()
     assert.deepEqual(await replay, refused('claim-time'))
     assert.equal(runs, 1, 'dispatched once')
+  })
+
+  // Found by review: only the claim's age was checked against the clock in the transaction; the delegation's window,
+  // the head's freshness and the witness key's window were still checked at the time the request arrived. Everything
+  // is now verified again at the transaction's own time, which is where a request is authorised.
+  const waiting = (store) => {
+    let enter, release
+    const entered = new Promise((resolve) => { enter = resolve })
+    const gate = new Promise((resolve) => { release = resolve })
+    return { entered, release: () => release(), held: { ...store, lastHead: (i) => store.lastHead(i), transaction: async (fn) => { enter(); await gate; return store.transaction(fn) } } }
+  }
+  const SHORT_KEY = verifierModule.verifier({ ...CONFIG, witnessKeys: [{ ...CONFIG.witnessKeys[0], exp: NOW + 10 }] })
+  const DEADLINES = [
+    // [what passes while the request waits, the verifier, the records, the call's time, the time in the transaction, the reason]
+    ['the delegation expires', verifier(), () => records(claim(NOW + 85_990), head(NOW + 85_900)), NOW + 85_995, NOW + 86_000, 'expired'],
+    ['the head becomes too old', verifier(), () => records(claim(NOW - 5), head(NOW - 86_390)), NOW, NOW + 11, 'stale'],
+    ["the witness key's window ends", SHORT_KEY, () => records(claim(NOW - 5), head(NOW - 100)), NOW, NOW + 10, 'head'],
+  ]
+  for (const [what, v, given, at, later, reason] of DEADLINES) {
+    for (const method of ['acceptClaim', 'acceptDelegation']) {
+      test(`${name}: ${what} while a request waits for its transaction: ${method} refuses it as ${reason}`, async () => {
+        const store = open()
+        let clock = at
+        let runs = 0
+        const call = { ...CALL, now: at }
+        // The control: the same request, not kept waiting, is accepted; so is one that waits while nothing passes.
+        assert.equal((await relyingParty({ verifier: v, store: open(), clock: () => clock })[method](given(), call, () => 1)).ok, true)
+        const prompt = waiting(open())
+        const unhurried = relyingParty({ verifier: v, store: prompt.held, clock: () => clock })[method](given(), call, () => 1)
+        await prompt.entered
+        clock = later - 1
+        prompt.release()
+        assert.equal((await unhurried).ok, true, 'a second before')
+        // Verified on arrival, then held; the deadline passes; the transaction refuses, as the verifier does then.
+        clock = at
+        const w = waiting(store)
+        const late = relyingParty({ verifier: v, store: w.held, clock: () => clock })[method](given(), call, () => runs++)
+        await w.entered
+        clock = later
+        w.release()
+        assert.deepEqual(await late, refused(reason))
+        assert.equal(v[method === 'acceptClaim' ? 'verifyClaim' : 'verifyDelegation'](given(), { ...call, now: later }).reason, reason, 'the verifier, at that time')
+        assert.equal(runs, 0)
+        // Nothing was consumed: the claim is refused for its time, not as a replay, by an instance that did not wait.
+        if (method === 'acceptClaim') assert.deepEqual(await relyingParty({ verifier: v, store, clock: () => later }).acceptClaim(given(), { ...call, now: later }, () => runs++), refused(reason))
+      })
+    }
+  }
+
+  test(`${name}: a request is authorised at both times: one refused at the call's time is not accepted at the transaction's`, async () => {
+    // The call's time is past the claim's age; the instance's clock, behind it, is not. Nothing is remembered, so the
+    // request reaches the transaction to remember its head.
+    const store = open()
+    let runs = 0
+    const rp = relyingParty({ verifier: verifier(), store, clock: () => NOW })
+    assert.deepEqual(await rp.acceptClaim(records(claim(NOW - 5)), { ...CALL, now: NOW + 400 }, () => runs++), refused('claim-time'))
+    assert.equal(runs, 0)
+    assert.equal((await store.lastHead(IDENTITY)).at, NOW - 100, 'its head is remembered')
+    assert.equal((await rp.acceptClaim(records(claim(NOW - 5)), CALL, () => runs++)).ok, true, 'and its claim was not consumed')
+  })
+
+  test(`${name}: a clock that gives no time is a programming error, and nothing runs`, async () => {
+    for (const bad of [undefined, -1, 1.5, '1800000100', NaN]) {
+      let runs = 0
+      const store = open()
+      await assert.rejects(relyingParty({ verifier: verifier(), store, clock: () => bad }).acceptClaim(records(), CALL, () => runs++), { name: 'TypeError', message: 'clock() must give a time in seconds' })
+      assert.equal(runs, 0)
+      assert.equal(await store.lastHead(IDENTITY), undefined)
+    }
+    // Time 0 is a time: the request is refused for what that time makes of it, not thrown on.
+    assert.equal((await relyingParty({ verifier: verifier(), store: open(), clock: () => 0 }).acceptClaim(records(), CALL, () => 1)).ok, false)
   })
 
   test(`${name}: a claim runs the action once; a replay is refused and the action does not run again`, async () => {
@@ -222,33 +294,6 @@ test('a presented head that cannot be read is not looked up; the verifier refuse
 })
 
 for (const [name, open] of [['memory', () => memoryStore()], ['sqlite', () => sqliteStore(join(tmp(), 'rp.db'))]]) {
-  // Found by model checking (model/tla/Adapter.tla): the transaction checked the claim against the time its request
-  // began, so a request that waited between its verification and its transaction could outlive its id's stay in the
-  // store, and be dispatched again once another instance, whose clock is ahead, had dropped the id. The claim's until
-  // is now checked against the clock when the transaction consumes it.
-  test(`${name}: a replay that waits past its claim's until is refused, even once another instance has dropped its id`, async () => {
-    const store = open()
-    let clock = NOW
-    const rp = relyingParty({ verifier: verifier(), store, clock: () => clock })
-    let runs = 0
-    const c = claim(NOW - 5)
-    const first = await rp.acceptClaim(records(c), CALL, () => runs++)
-    assert.equal(first.ok, true)
-    // The replay is verified while the claim is still fresh; its transaction is then held.
-    let enter, release
-    const entered = new Promise((resolve) => { enter = resolve })
-    const gate = new Promise((resolve) => { release = resolve })
-    const held = { ...store, lastHead: (i) => store.lastHead(i), transaction: async (fn) => { enter(); await gate; return store.transaction(fn) } }
-    const late = relyingParty({ verifier: verifier(), store: held, clock: () => clock })
-    const replay = late.acceptClaim(records(c), { ...CALL, now: first.until - 1 }, () => runs++)
-    await entered
-    await store.expire(first.until + 60) // another instance's cleanup: its clock past until and the grace
-    clock = first.until // by the waiting instance's own clock, the claim has now expired
-    release()
-    assert.deepEqual(await replay, refused('claim-time'))
-    assert.equal(runs, 1, 'dispatched once')
-  })
-
   test(`${name} store: consume once; expire removes exactly the ids whose until has come; equal times keep the first head`, async () => {
     const s = open()
     const consume = (id, until) => s.transaction((tx) => tx.consume(id, until))
@@ -533,5 +578,7 @@ for (const [name, open] of [['memory', () => memoryStore()], ['sqlite', () => sq
 }
 
 test('an adapter without a clock is a programming error', () => {
-  for (const clock of [undefined, 1800000000, 'now']) assert.throws(() => relyingParty({ verifier: verifier(), store: memoryStore(), clock }), TypeError, String(clock))
+  for (const clock of [undefined, 1800000000, 'now']) {
+    assert.throws(() => relyingParty({ verifier: verifier(), store: memoryStore(), clock }), { name: 'TypeError', message: "the adapter needs clock(): this instance's time in seconds" }, String(clock))
+  }
 })
