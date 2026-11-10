@@ -717,6 +717,7 @@ presents still verifies by its instance's clock, and at most
 the claim's age checked at the transaction, or with a grace shorter than the clock difference, a claim is dispatched
 twice, and without any one of the other deadlines checked there, a request is authorised past it. `memoryStore` serves one
 process; `sqliteStore` serves processes sharing one database file. Tests: a race of eight instances on one file,
+a file opened while another instance is creating it,
 a transaction held behind one that revokes, restart, rollback, storage failure, corrupt storage, a witness key
 rotation and the expiry boundary.
 

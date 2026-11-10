@@ -462,7 +462,10 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
 
 - Atomicity: twenty concurrent requests in one process, and eight worker threads on one SQLite file released by a
   barrier, present one claim: exactly one runs the action. A request whose transaction waits behind one that stores
-  a head revoking its delegation is refused as stale.
+  a head revoking its delegation is refused as stale. A SQLite store opened while another connection is writing a
+  new file waits for it and then opens (SQLite itself refuses at once there, which failed about one start in
+  twenty of eight instances together); it waits `busy` milliseconds and no longer, and not at all for a file that is
+  not a database.
 - Memory: the head only moves forward, in both stores and under a late writer; an older head is then refused; a
   stored head the verifier cannot read (corrupt, or signed by a removed witness key) bounds rollback by its time.
 - Failure: a failing transaction or any of its operations is refused as `storage`, and the action does not run; a
@@ -473,7 +476,7 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
 - Broken twins (`tests/meta/adapter-twins.test.mjs`): the memory not read in the transaction; a memory read failure
   taken for a verifier error; a consumed claim accepted again; a failed transaction taken as success; the stored
   head not passed; an unreadable stored head locking its identity out, or its time ignored; the records read twice;
-  heads regressing in either store.
+  heads regressing in either store; a store that gives up at once on a locked new file, or waits on any error.
 - **Replay after cleanup (found by model checking):** a replay whose transaction waits, while another instance's
   cleanup drops the claim's id, is refused as `claim-time` once the waiting instance's clock passes the claim's
   `until` (memory and SQLite stores; the trace TLC found, replayed against the adapter). An adapter without a

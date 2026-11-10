@@ -38,12 +38,25 @@ export function memoryStore ({ grace = 60 } = {}) {
 }
 
 // Several processes or threads sharing one SQLite file: BEGIN IMMEDIATE takes the write lock, so transactions run
-// one at a time across them; WAL and a busy timeout let each wait for the others.
-export function sqliteStore (file, { grace = 60 } = {}) {
+// one at a time across them; WAL and a busy timeout of `busy` milliseconds let each wait for the others.
+export function sqliteStore (file, { grace = 60, busy = 10000 } = {}) {
+  if (!Number.isSafeInteger(busy) || busy < 0) throw new TypeError('busy must be a number of milliseconds')
   const db = new DatabaseSync(file)
-  db.exec(`PRAGMA busy_timeout = 10000; PRAGMA journal_mode = WAL;
-    CREATE TABLE IF NOT EXISTS consumed (id TEXT PRIMARY KEY, until INTEGER NOT NULL);
-    CREATE TABLE IF NOT EXISTS heads (identity TEXT PRIMARY KEY, head TEXT NOT NULL, at INTEGER NOT NULL);`)
+  // SQLite does not wait to switch a file to WAL while another connection writes to it (others opening a new file at
+  // the same moment): it answers SQLITE_BUSY (5) at once. So this is asked again, for as long as `busy`.
+  const until = Date.now() + busy
+  for (let made = false; !made;) {
+    try {
+      db.exec(`PRAGMA busy_timeout = ${busy}; PRAGMA journal_mode = WAL;
+        CREATE TABLE IF NOT EXISTS consumed (id TEXT PRIMARY KEY, until INTEGER NOT NULL);
+        CREATE TABLE IF NOT EXISTS heads (identity TEXT PRIMARY KEY, head TEXT NOT NULL, at INTEGER NOT NULL);`)
+      made = true
+    } catch (e) {
+      // Stryker disable next-line EqualityOperator: equivalent; at the very millisecond, one more try or none
+      if (e.errcode !== 5 || Date.now() >= until) throw e
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1) // a millisecond's sleep
+    }
+  }
   const get = db.prepare('SELECT head, at FROM heads WHERE identity = ?')
   const advance = db.prepare(`INSERT INTO heads (identity, head, at) VALUES (?, ?, ?)
     ON CONFLICT (identity) DO UPDATE SET head = excluded.head, at = excluded.at WHERE excluded.at > heads.at`)
