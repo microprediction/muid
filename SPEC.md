@@ -710,6 +710,7 @@ once, nothing is dispatched once the store remembers a revoking head, and a requ
 `maxStaleness` plus the clock difference after a revocation, the limit no offline verifier can beat (R9); without
 the check at the transaction, or with a grace shorter than the clock difference, a claim is dispatched twice. `memoryStore` serves one
 process; `sqliteStore` serves processes sharing one database file. Tests: a race of eight instances on one file,
+a file opened while another instance is creating it,
 a transaction held behind one that revokes, restart, rollback, storage failure, corrupt storage, a witness key
 rotation and the expiry boundary.
 

@@ -3,10 +3,11 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { Worker } from 'node:worker_threads'
-import { mkdtempSync } from 'node:fs'
+import { mkdtempSync, writeFileSync } from 'node:fs'
+import { DatabaseSync } from 'node:sqlite'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { urls } from './impl.mjs'
+import { urls, sqliteStore } from './impl.mjs'
 
 const WORKER = `
 import { workerData, parentPort } from 'node:worker_threads'
@@ -37,4 +38,61 @@ test('eight instances sharing one database: one runs the action, seven are refus
   assert.equal(results.filter((r) => r.ok).length, 1, JSON.stringify(results))
   assert.equal(results.reduce((n, r) => n + r.ran, 0), 1)
   assert.deepEqual(results.filter((r) => !r.ok).map((r) => r.reason), Array(7).fill('replay'))
+})
+
+// Found in CI: instances that open a new database file at the same moment. SQLite does not wait, whatever the busy
+// timeout, to switch a file to WAL while another connection writes to it: it answers "database is locked" at once.
+// The store asks again until the lock is gone, for no longer than `busy` milliseconds.
+const newFile = () => join(mkdtempSync(join(tmpdir(), 'muid-rp-open-')), 'rp.db')
+
+const HOLDER = `
+import { workerData, parentPort } from 'node:worker_threads'
+import { DatabaseSync } from 'node:sqlite'
+const db = new DatabaseSync(workerData.file)
+db.exec('BEGIN IMMEDIATE')
+parentPort.postMessage('held')
+Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, workerData.hold)
+db.exec('COMMIT')
+db.close()
+`
+
+test('a store opened while another connection is writing a new file waits for it, then opens', async () => {
+  const file = newFile()
+  const w = new Worker(HOLDER, { eval: true, type: 'module', workerData: { file, hold: 300 } })
+  await new Promise((resolve, reject) => { w.once('message', resolve); w.once('error', reject) })
+  const began = Date.now()
+  const store = sqliteStore(file)
+  assert.ok(Date.now() - began >= 200, 'it waited for the writer')
+  assert.equal(await store.transaction((tx) => tx.consume('a', 1)), true)
+  store.close()
+})
+
+test('a store waits `busy` milliseconds for a locked new file, and no longer', () => {
+  const file = newFile()
+  const holder = new DatabaseSync(file)
+  holder.exec('BEGIN IMMEDIATE')
+  const began = Date.now()
+  assert.throws(() => sqliteStore(file, { busy: 300 }), { message: 'database is locked' })
+  const waited = Date.now() - began
+  assert.ok(waited >= 300 && waited < 5000, `waited ${waited} ms`)
+  const none = Date.now()
+  assert.throws(() => sqliteStore(file, { busy: 0 }), { message: 'database is locked' })
+  assert.ok(Date.now() - none < 250, 'no wait at all')
+  holder.exec('COMMIT')
+  sqliteStore(file, { busy: 300 }).close()
+  holder.close()
+})
+
+test('a file that is not a database is refused at once, not waited for', () => {
+  const file = newFile()
+  writeFileSync(file, 'not a database, not at all. '.repeat(40))
+  const began = Date.now()
+  assert.throws(() => sqliteStore(file, { busy: 5000 }), { message: 'file is not a database' })
+  assert.ok(Date.now() - began < 2500)
+})
+
+test('busy must be a whole number of milliseconds, zero or more', () => {
+  for (const busy of [-1, 1.5, NaN, Infinity, '300', null, 2 ** 53, '0; DROP TABLE heads']) {
+    assert.throws(() => sqliteStore(newFile(), { busy }), { name: 'TypeError', message: 'busy must be a number of milliseconds' })
+  }
 })
