@@ -735,9 +735,14 @@ creates its passkey and shows its root record; a device of the identity reads th
 witness's records by the core's `membershipState`, shows the root it adds and the new epoch (I4), signs the change
 (R1) and submits it with the new root record; the new device shows the change, co-signs it and submits it. The
 witness anchors it, and it settles once its contest window has passed; until then the new root has no authority
-(R6), and the page says so. Delegations name the current membership. `id/records.js` builds every record with the
-core's functions and refuses first what the core would. Not yet: removing a root, freezes and contests, and the
-I1–I3 window protocol for apps.
+(R6), and the page says so. Delegations name the current membership. The page renews workers in batches (decision
+3): it remembers, in this browser, what it signed for each worker it authorised — the agent's name, key, audience,
+scopes and lifetime, never a signature — lists them, each ticked until the user unticks or forgets it, builds the
+ticked ones' delegations again from now under the current membership, shows every one (I4), and signs 1 to 8 of them
+with one assertion (W0), handing each worker its payload with that assertion. What it remembered is read back as
+untrusted, as the root is, and every check a new delegation gets is made again. `id/records.js` builds every record
+with the core's functions and refuses first what the core would. Not yet: removing a root, freezes and contests, and
+the I1–I3 window protocol for apps.
 
 - The id origin is a dedicated host serving nothing else, with no subdomains. `rp_id` and the exact origin are
   deployment configuration (meta tags, as the witness's URL and keys are), compared exactly; no suffix or wildcard

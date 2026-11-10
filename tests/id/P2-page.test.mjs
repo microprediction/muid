@@ -768,3 +768,268 @@ test('a co-signature whose answer is lost is pending: sent again on reload and b
     await t.close()
   }
 })
+
+// Decision 3's batched renewal: the workers the page authorised are remembered, and one assertion renews up to eight.
+const workerKey = (i) => Uint8Array.from({ length: 32 }, (_, j) => i + j)
+const workerPub = (i) => hex(ed25519.getPublicKey(workerKey(i)))
+const stored = (i, over = {}) => ({ agent: `w${i}`, subject: workerPub(i), aud: 'https://app.example', scopes: ['post'], lifetime: 3600, ...over })
+const seed = (page, value) => page.evaluate((v) => localStorage.setItem('muid.workers', v), typeof value === 'string' ? value : JSON.stringify(value))
+const kept = async (page) => JSON.parse(await page.evaluate(() => localStorage.getItem('muid.workers')))
+const signCount = async (t) => (await t.cdp.send('WebAuthn.getCredentials', { authenticatorId: t.authenticatorId })).credentials[0].signCount
+
+async function authoriseAndSign (page, fields) {
+  await authorise(page, fields)
+  await page.waitForSelector('#review-panel:not([hidden])')
+  await page.click('#sign')
+  await page.waitForSelector('#handoff:not([hidden])')
+}
+
+test('renewal: the workers authorised here are remembered, and one assertion renews them all, each accepted by the verifier', { timeout: 180_000 }, async () => {
+  const t = await open()
+  try {
+    const rpId = 'localhost'
+    const r = await createIdentity(t.page)
+    const c = rootModule.checkRoot(r.text, { rpId })
+    assert.equal(await t.page.isHidden('#renew'), true, 'nothing to renew yet')
+    await authoriseAndSign(t.page, { agent: 'w1', subject: workerPub(1), scopes: 'read post', days: '1' })
+    await authoriseAndSign(t.page, { agent: 'w2', subject: workerPub(2), scopes: 'post', days: '2' })
+    await authoriseAndSign(t.page, { agent: 'w3', subject: workerPub(3), aud: 'https://other.example', scopes: 'score', days: '1' })
+    // What was signed is remembered, with its lifetime; never a signature.
+    const expected = [
+      { agent: 'w1', subject: workerPub(1), aud: 'https://app.example', scopes: ['post', 'read'], lifetime: 86_400 },
+      { agent: 'w2', subject: workerPub(2), aud: 'https://app.example', scopes: ['post'], lifetime: 172_800 },
+      { agent: 'w3', subject: workerPub(3), aud: 'https://other.example', scopes: ['score'], lifetime: 86_400 },
+    ]
+    assert.deepEqual(await kept(t.page), expected)
+    // Authorised again with other scopes, a worker replaces its older entry, last.
+    await authoriseAndSign(t.page, { agent: 'w1', subject: workerPub(1), scopes: 'score post', days: '1' })
+    expected.push({ ...expected.shift(), scopes: ['post', 'score'] })
+    assert.deepEqual(await kept(t.page), expected)
+
+    assert.equal(await t.page.isHidden('#renew'), false)
+    const rows = await t.page.$$eval('#workers li', (lis) => lis.map((li) => ({ label: li.querySelector('label').textContent, key: li.querySelector('code').textContent,
+      type: li.querySelector('input').getAttribute('type'), checked: li.querySelector('input').checked,
+      button: li.querySelector('button').textContent, buttonType: li.querySelector('button').getAttribute('type') })))
+    assert.deepEqual(rows, expected.map((w) => ({ label: ` ${w.agent} at ${w.aud}: ${w.scopes.join(' ')} ${w.subject}`, key: w.subject, type: 'checkbox', checked: true,
+      button: 'Forget', buttonType: 'button' })))
+
+    const before = await signCount(t)
+    await t.page.click('#renew-review')
+    await t.page.waitForSelector('#renew-panel:not([hidden])')
+    assert.equal(await t.page.isHidden('#handoff'), true, 'a review withdraws what was handed over before')
+    // I4: every delegation to be signed is shown, field by field.
+    const shown = await t.page.$$eval('#renew-list > li', (lis) => lis.map((li) => [...li.querySelectorAll('dl > *')].map((e) => `${e.tagName}:${e.textContent}`)))
+    assert.equal(shown.length, 3)
+    for (const [i, w] of expected.entries()) {
+      assert.deepEqual(shown[i].slice(0, 6), ['DT:Agent', `DD:${w.agent}`, 'DT:Audience', `DD:${w.aud}`, 'DT:Scopes', `DD:${w.scopes.join(' ')}`])
+      assert.equal(shown[i][6], 'DT:Expires')
+      assert.ok(Math.abs(Date.parse(shown[i][7].slice(3)) / 1000 - (Date.now() / 1000 + w.lifetime)) < 120, shown[i][7])
+      assert.deepEqual(shown[i].slice(8), ['DT:Worker key', `DD:${w.subject}`])
+    }
+    assert.equal(await t.page.isHidden('#renew-handoffs'), true)
+    await t.page.click('#renew-sign')
+    await t.page.waitForSelector('#renew-handoffs:not([hidden])')
+    assert.equal(await signCount(t) - before, 1, 'one assertion')
+    const areas = await t.page.$$eval('#renew-handoffs textarea', (ts) => ts.map((x) => ({ value: x.value, readOnly: x.readOnly, label: x.getAttribute('aria-label') })))
+    assert.deepEqual(areas.map((a) => [a.readOnly, a.label]), expected.map((w) => [true, `Give this to ${w.agent}`]))
+    const now = Math.floor(Date.now() / 1000)
+    const { head } = await t.witnessGet(`/v1/identities/${r.identity}/head`)
+    const ids = []
+    for (const [i, w] of expected.entries()) {
+      const h = JSON.parse(areas[i].value)
+      const opened = envelope.open(envelope.wrap(h.payload, { root: h.root, subject: '0'.repeat(128) }), 'delegation')
+      ids.push(opened.id)
+      assert.deepEqual(JSON.parse(JSON.stringify(opened.body)), { agent: w.agent, identity: r.identity, membership: r.identity, root: c.id, subject: w.subject, aud: w.aud,
+        scopes: w.scopes, nbf: opened.body.nbf, exp: opened.body.nbf + w.lifetime })
+      assert.ok(Math.abs(opened.body.nbf - now) < 120)
+      const secret = workerKey(Number(w.agent.slice(1)))
+      const subject = hex(ed25519.sign(Buffer.concat([Buffer.from('muid/v1/accept\n'), Buffer.from(opened.id, 'hex')]), secret))
+      const text = envelope.wrap(h.payload, { root: h.root, subject })
+      const d = delegationModule.checkDelegation(text, { rootKey: c.key, rpId, origin: t.site.origin, now, skew: 60, maxLifetime: 2_592_000 })
+      assert.equal(d.ok, true, JSON.stringify(d))
+      const { logged } = await t.witnessPost('/v1/delegations', { identity: r.identity, text })
+      const v = verifierModule.verifier({ rpId, origin: t.site.origin, audience: w.aud, witnessKeys: t.keys, skew: 60,
+        maxLifetime: 2_592_000, maxStaleness: 86_400, maxClaimAge: 300 })
+      const accepted = v.verifyDelegation({ delegation: text, root: r.text, head, logged }, { now, scope: w.scopes[0], revoked: [] })
+      assert.equal(accepted.ok, true, JSON.stringify(accepted))
+      assert.deepEqual(h.root.covers, JSON.parse(areas[0].value).root.covers, 'the one assertion, in every hand-off')
+    }
+    assert.deepEqual(JSON.parse(areas[0].value).root.covers, [...ids].sort(), 'it covers each delegation, sorted (W0)')
+    assert.deepEqual(await kept(t.page), expected, 'a renewal changes nothing remembered')
+    assert.deepEqual(t.problems, [])
+
+    // Remembered on this browser: after a reload the workers are listed again.
+    await t.collect()
+    await t.page.reload()
+    await t.page.waitForSelector('#renew:not([hidden])')
+    assert.equal(await t.page.locator('#workers li').count(), 3)
+  } finally {
+    await t.close()
+  }
+})
+
+test('renewal, I4: 1 to 8 at once; a change of selection withdraws; a forgotten worker is gone; stored workers are untrusted', { timeout: 180_000 }, async () => {
+  const t = await open()
+  try {
+    // Before there is an identity, remembered workers are not offered.
+    await seed(t.page, Array.from({ length: 9 }, (_, i) => stored(i + 1)))
+    await t.page.reload()
+    await t.page.waitForSelector('#create:not([hidden])')
+    assert.equal(await t.page.isHidden('#renew'), true)
+    await createIdentity(t.page)
+    assert.equal(await t.page.isHidden('#renew'), false)
+    assert.equal(await t.page.locator('#workers li').count(), 9)
+    await t.page.evaluate(() => document.getElementById('renew-sign').click())
+    assert.equal(await t.page.isHidden('#renew-handoffs'), true, 'nothing is signed without a review')
+    await t.page.click('#renew-review')
+    await errorShown(t.page)
+    assert.equal(await t.page.textContent('#error'), 'renew 1 to 8 workers at once')
+    assert.equal(await t.page.isHidden('#renew-panel'), true)
+    // Without the third, eight are reviewed: the others, in order.
+    await t.page.locator('#workers input').nth(2).uncheck()
+    assert.equal(await t.page.textContent('#error'), '', 'a change of selection clears the refusal')
+    await t.page.click('#renew-review')
+    await t.page.waitForSelector('#renew-panel:not([hidden])')
+    const agents = () => t.page.$$eval('#renew-list > li', (lis) => lis.map((li) => li.querySelector('dd').textContent))
+    assert.deepEqual(await agents(), ['w1', 'w2', 'w4', 'w5', 'w6', 'w7', 'w8', 'w9'])
+    await t.page.locator('#workers input').nth(0).uncheck()
+    assert.equal(await t.page.isHidden('#renew-panel'), true, 'a change of selection withdraws the review')
+    await t.page.evaluate(() => document.getElementById('renew-sign').click())
+    assert.equal(await t.page.isHidden('#renew-handoffs'), true)
+    assert.equal(await t.page.textContent('#error'), '')
+    await t.page.click('#renew-review')
+    await t.page.waitForSelector('#renew-panel:not([hidden])')
+    assert.deepEqual(await agents(), ['w2', 'w4', 'w5', 'w6', 'w7', 'w8', 'w9'])
+    // Signed and handed over; any later change of selection withdraws the hand-offs too.
+    await t.page.click('#renew-sign')
+    await t.page.waitForSelector('#renew-handoffs:not([hidden])')
+    assert.equal(await t.page.locator('#renew-handoffs textarea').count(), 7)
+    await t.page.locator('#workers input').nth(0).check()
+    assert.equal(await t.page.isHidden('#renew-handoffs'), true)
+    // Forgetting a worker withdraws a review, removes it from the list and from what is kept; the rest stay.
+    await t.page.click('#renew-review')
+    await t.page.waitForSelector('#renew-panel:not([hidden])')
+    await t.page.locator('#workers button').nth(1).click()
+    assert.equal(await t.page.isHidden('#renew-panel'), true)
+    assert.deepEqual((await kept(t.page)).map((w) => w.agent), ['w1', 'w3', 'w4', 'w5', 'w6', 'w7', 'w8', 'w9'])
+    assert.equal(await t.page.locator('#workers li').count(), 8)
+    assert.equal(await t.page.locator('#workers input:checked').count(), 8)
+    await t.page.click('#renew-review')
+    await t.page.waitForSelector('#renew-panel:not([hidden])')
+    assert.deepEqual(await agents(), ['w1', 'w3', 'w4', 'w5', 'w6', 'w7', 'w8', 'w9'])
+    // None ticked: refused.
+    for (let i = 0; i < 8; i++) await t.page.locator('#workers input').nth(i).uncheck()
+    await t.page.click('#renew-review')
+    await errorShown(t.page)
+    assert.equal(await t.page.textContent('#error'), 'renew 1 to 8 workers at once')
+    // Two workers of one agent name, with different keys, are two entries: forgetting one keeps the other. So are two
+    // agents with one key.
+    await seed(t.page, [stored(1), stored(2, { agent: 'w1' }), stored(1, { agent: 'w5' })])
+    await t.collect()
+    await t.page.reload()
+    await t.page.waitForSelector('#renew:not([hidden])')
+    assert.equal(await t.page.locator('#workers li').count(), 3)
+    await t.page.locator('#workers button').nth(0).click()
+    assert.deepEqual(await kept(t.page), [stored(2, { agent: 'w1' }), stored(1, { agent: 'w5' })])
+    // The last one forgotten, there is nothing to renew.
+    await t.page.locator('#workers button').nth(0).click()
+    await t.page.locator('#workers button').nth(0).click()
+    assert.deepEqual(await kept(t.page), [])
+    assert.equal(await t.page.isHidden('#renew'), true)
+
+    // Stored state is untrusted: entries not of a worker's form are dropped, and one of the form gets every check a
+    // new delegation gets, shown as text.
+    await seed(t.page, [stored(1), { agent: 'x' }, 7, stored(2, { aud: 'https://App.example', agent: '<b>bold</b>' })])
+    await t.collect()
+    await t.page.reload()
+    await t.page.waitForSelector('#renew:not([hidden])')
+    assert.equal(await t.page.locator('#workers li').count(), 2)
+    assert.equal(await t.page.locator('#workers b').count(), 0)
+    assert.match(await t.page.locator('#workers label').nth(1).textContent(), /^ <b>bold<\/b> at /)
+    await t.page.click('#renew-review')
+    await errorShown(t.page)
+    assert.equal(await t.page.textContent('#error'), "the agent's name must be a lower-case name, such as forecaster")
+    assert.equal(await t.page.isHidden('#renew-panel'), true)
+    // Unreadable, or not a list: nothing to renew.
+    for (const junk of ['{', '{"length":1}', 'null']) {
+      await seed(t.page, junk)
+      await t.collect()
+      await t.page.reload()
+      await t.page.waitForSelector('#identity:not([hidden])')
+      assert.equal(await t.page.isHidden('#renew'), true, junk)
+    }
+    assert.deepEqual(t.problems, [])
+  } finally {
+    await t.close()
+  }
+})
+
+test('renewal: a change of selection while the passkey is signing withdraws it: the late signature is not handed over', { timeout: 120_000 }, async () => {
+  const t = await open({ init: () => {
+    const get = navigator.credentials.get.bind(navigator.credentials)
+    navigator.credentials.get = async (o) => {
+      await new Promise((resolve) => setTimeout(resolve, 500))
+      if (globalThis.refusing) throw new DOMException('refused', 'NotAllowedError')
+      return get(o)
+    }
+  } })
+  try {
+    await seed(t.page, [stored(1), stored(2)])
+    await t.page.reload()
+    await createIdentity(t.page)
+    await t.page.click('#renew-review')
+    await t.page.waitForSelector('#renew-panel:not([hidden])')
+    await t.page.click('#renew-sign')
+    await t.page.locator('#workers input').nth(1).uncheck()
+    await t.page.waitForTimeout(1500)
+    assert.equal(await t.page.isHidden('#renew-handoffs'), true)
+    assert.equal(await t.page.locator('#renew-handoffs textarea').count(), 0)
+    // A passkey that refuses is reported, and nothing is handed over; signing again clears it.
+    await t.page.click('#renew-review')
+    await t.page.waitForSelector('#renew-panel:not([hidden])')
+    await t.page.evaluate(() => { globalThis.refusing = true })
+    await t.page.click('#renew-sign')
+    await errorShown(t.page)
+    assert.equal(await t.page.textContent('#error'), 'The passkey request was cancelled.')
+    assert.equal(await t.page.isHidden('#renew-handoffs'), true)
+    await t.page.evaluate(() => { globalThis.refusing = false })
+    await t.page.click('#renew-sign')
+    await t.page.waitForSelector('#renew-handoffs:not([hidden])')
+    assert.equal(await t.page.textContent('#error'), '')
+    assert.equal(await t.page.locator('#renew-handoffs textarea').count(), 1)
+  } finally {
+    await t.close()
+  }
+})
+
+test('renewal: a worker another tab remembers or forgets is followed here; a joining passkey renews nothing', { timeout: 180_000 }, async () => {
+  const t = await open()
+  try {
+    await createIdentity(t.page)
+    const other = await t.tab(t.context)
+    await other.waitForSelector('#identity:not([hidden])')
+    assert.equal(await other.isHidden('#renew'), true)
+    await authoriseAndSign(t.page, { agent: 'w1', subject: workerPub(1) })
+    await other.waitForSelector('#renew:not([hidden])')
+    assert.equal(await other.locator('#workers li').count(), 1)
+    // A review open in the first tab is withdrawn when the other tab forgets the worker.
+    await t.page.click('#renew-review')
+    await t.page.waitForSelector('#renew-panel:not([hidden])')
+    await other.locator('#workers button').nth(0).click()
+    await t.page.waitForSelector('#renew', { state: 'hidden' })
+    assert.equal(await t.page.isHidden('#renew-panel'), true)
+    assert.equal(await t.page.locator('#workers li').count(), 0)
+    // A passkey still joining another identity has no authority to renew with: remembered workers are not offered.
+    const d = await t.device()
+    await seed(d.page, [stored(1)])
+    await d.page.click('#join-button')
+    await d.page.waitForSelector('#joining:not([hidden])')
+    assert.equal(await d.page.isHidden('#renew'), true)
+    await d.page.reload()
+    await d.page.waitForSelector('#joining:not([hidden])')
+    assert.equal(await d.page.isHidden('#renew'), true)
+    assert.deepEqual(t.problems, [])
+  } finally {
+    await t.close()
+  }
+})

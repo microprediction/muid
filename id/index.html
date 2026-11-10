@@ -82,6 +82,18 @@
     </div>
     <textarea id="handoff" readonly hidden aria-label="Give this to the worker"></textarea>
   </section>
+  <section id="renew" hidden>
+    <h2>Renew workers</h2>
+    <p>One passkey prompt renews up to eight workers, each for the lifetime it was given.</p>
+    <ul id="workers"></ul>
+    <button id="renew-review" type="button">Review</button>
+    <div id="renew-panel" hidden>
+      <p>Your passkey will sign exactly these:</p>
+      <ol id="renew-list"></ol>
+      <button id="renew-sign" type="button">Sign with your passkey</button>
+    </div>
+    <div id="renew-handoffs" hidden></div>
+  </section>
   <p id="status" role="status"></p>
   <p id="error" role="alert"></p>
 </main>

@@ -34,8 +34,8 @@ const TWINS = [
   ['not-discoverable', 'the passkey is not a resident credential', [["residentKey: 'required', userVerification: 'required'", "userVerification: 'required'"]], 'page.js'],
   ['cosign-anything', 'a change that does not add this passkey is co-signed', [["    if (!c.body.roots.includes(root.id)) throw new Error('that change does not add this passkey')\n", '']], 'page.js'],
   ['add-edit-keeps-review', 'an edit of the new root leaves the change signable', [["for (const id of ['agent', 'subject', 'aud', 'scopes', 'days', 'new-root', 'cosign-payload'])", "for (const id of ['agent', 'subject', 'aud', 'scopes', 'days', 'cosign-payload'])"]], 'page.js'],
-  ['authority-unchecked', 'a passkey without authority yet signs delegations', [["    if (!s.authority.includes(root.id)) throw new Error('this passkey has no authority yet: wait for the change to settle')\n", '']], 'page.js'],
-  ['membership-of-epoch-1', 'delegations name the first membership whatever the current one', [['membership: s.membership, root: root.id', 'membership: root.identity, root: root.id']], 'page.js'],
+  ['authority-unchecked', 'a passkey without authority yet signs delegations', [["  if (!s.authority.includes(root.id)) throw new Error('this passkey has no authority yet: wait for the change to settle')\n", '']], 'page.js'],
+  ['membership-of-epoch-1', 'delegations name the first membership whatever the current one', [['  return s.membership\n', '  return root.identity\n']], 'page.js'],
   ['root-unregistered', 'a new identity is not registered with the witness', [["    await submit(root.identity, 'root', root.text)\n", '']], 'page.js'],
   ['added-root-unsubmitted', "the added root's record is not given to the witness", [["    await submit(root.identity, 'root', c.rootText)\n", '']], 'page.js'],
   ['change-while-pending', 'a change is proposed while another is pending', [["  if (state.pending) throw new Error('a change is already pending: wait for it to settle')\n", '']], 'records.js'],
@@ -49,15 +49,26 @@ const TWINS = [
   ['stored-any-form', 'whatever storage holds is taken as the root', [['  const r = checkRoot(x.text, { rpId })\n  if (!r.ok) return null\n', '  return x\n']], 'records.js'],
   ['stored-id-trusted', "a stored root's id is taken from storage, not its record", [['  return { ...x, id: r.id }\n', '  return x\n']], 'records.js'],
   ['create-over-stored', 'a create in a stale tab overwrites the stored identity', [['  if (now !== null) { root = now; show(); return }\n', '']], 'page.js'],
-  ['tabs-not-followed', 'what another tab stores is not followed', [["window.addEventListener('storage', (e) => { if (e.key === KEY || e.key === null) { root = load(); withdraw(); show() } })\n", '']], 'page.js'],
+  ['tabs-not-followed', 'what another tab stores is not followed', [["  if (e.key === KEY || e.key === WORKERS || e.key === null) { root = load(); workers = loadWorkers(); withdraw(); show() }\n", '']], 'page.js'],
   ['framed-acts', 'framed, the page still offers its actions', [['const FRAMED = window.top !== window.self', 'const FRAMED = false']], 'page.js'],
   ['origin-unchecked', 'served under another origin, the page still acts', [['  : location.origin !== ORIGIN ?', '  : false ?']], 'page.js'],
   ['cosign-not-kept', 'a co-signature is sent without being kept, so a lost answer loses it', [["    root = { ...root, cosigned: rootSigned(c.payload, root.id, a) }\n    save()\n", "    root = { ...root, cosigned: rootSigned(c.payload, root.id, a) }\n"]], 'page.js'],
   ['cosign-no-retry-on-load', 'a kept co-signature is not sent again when the page loads', [['  if (root?.cosigned !== undefined) cosign()\n', '\n']], 'page.js'],
   ['outbox-sent-framed', 'framed, the page still sends what it kept', [['if (REFUSAL === undefined) {\n', 'if (true) {\n']], 'page.js'],
-  ['storage-any-key', 'a change to any key of the origin withdraws what is open', [['if (e.key === KEY || e.key === null) {', 'if (true) {']], 'page.js'],
+  ['storage-any-key', 'a change to any key of the origin withdraws what is open', [['if (e.key === KEY || e.key === WORKERS || e.key === null) {', 'if (true) {']], 'page.js'],
   ['cosign-kept-after', 'a co-signature the witness took stays in the outbox', [['    const { cosigned, ...rest } = root\n', '    const rest = root\n']], 'page.js'],
   ['cosigned-trusted', 'a stored co-signature is sent whatever it is', [["  if (x.cosigned !== undefined && (x.joining !== true || cosignedIdentity(x.cosigned, r.id) === undefined)) return null\n", '']], 'records.js'],
+  ['renew-unbounded', 'more than eight workers are put under one assertion', [['  if (workers.length < 1 || workers.length > MAX_BATCH) throw', '  if (workers.length < 1) throw']], 'records.js'],
+  ['renew-covers-unsorted', "a renewal's covers are in the order listed", [['  const covers = delegations.map((d) => d.id).sort()\n', '  const covers = delegations.map((d) => d.id)\n']], 'records.js'],
+  ['workers-any-form', 'whatever storage holds is taken as a worker', [['    const w = workerOf(e)\n', '    const w = e ?? undefined\n']], 'records.js'],
+  ['renew-selection-keeps-review', 'a change of selection leaves the reviewed renewal signable', [["    box.addEventListener('change', withdraw)\n", '']], 'page.js'],
+  ['renew-late-signature-kept', 'a renewal signed after a change of selection is handed over', [['    if (pending.renewal !== r) return // withdrawn while the passkey was asked\n', '']], 'page.js'],
+  ['renew-unticked', 'a worker that was unticked is renewed', [['    const chosen = workers.filter((_, i) => boxes[i].checked)\n', '    const chosen = workers\n']], 'page.js'],
+  ['renew-partly-shown', 'a renewal signs delegations it does not show (I4)', [["    $('renew-list').replaceChildren(...r.delegations.map((d) =>", "    $('renew-list').replaceChildren(...r.delegations.slice(0, 1).map((d) =>"]], 'page.js'],
+  ['renew-partly-signed', 'the assertion does not cover every renewed delegation', [['    const a = await sign(r.covers)\n', '    const a = await sign([r.covers[0]])\n']], 'page.js'],
+  ['renew-unauthorised', 'a passkey still joining is offered workers to renew', [["  $('renew').hidden = root === null || joining || workers.length === 0\n", "  $('renew').hidden = root === null || workers.length === 0\n"]], 'page.js'],
+  ['worker-not-remembered', 'an authorised worker is not kept for renewal', [["  try { localStorage.setItem(WORKERS, JSON.stringify(workers)) } catch { /* kept for this visit only */ }\n", '']], 'page.js'],
+  ['forget-keeps', 'a forgotten worker stays listed', [['keepWorkers((list) => list.filter((x) => x.agent !== w.agent || x.subject !== w.subject))', 'keepWorkers((list) => list)']], 'page.js'],
   ['registered-not-saved', 'a registration that succeeded is not saved, so it is sent again', [['    root = { ...root, registered: true }\n    save()\n', '    root = { ...root, registered: true }\n']], 'page.js'],
 ]
 
@@ -107,7 +118,7 @@ test('id page broken twins', { timeout: 3_600_000 }, async (t) => {
       assert.ok(r.pass >= 14, `control: only ${r.pass} tests ran`)
     })
     const jobs = TWINS.map(([name, why, edits, file]) => [name, why, generate(name, edits, file)])
-    assert.equal(jobs.length, 40, 'twin count')
+    assert.equal(jobs.length, 51, 'twin count')
     const results = []
     const queue = [...jobs]
     const workers = Math.max(1, Math.floor(availableParallelism() / 4))

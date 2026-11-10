@@ -9,7 +9,7 @@ import * as wf from '../witness/fixtures.mjs'
 import { root as rootModule, assertion as assertionModule, delegation as delegationModule, envelope } from '../impl.mjs'
 import { challengeFor, authData, clientData, signOver, sha256 } from '../assertion/helpers.mjs'
 
-const { rootRecord, challenge, assertion, delegation, handOff, b64u, fromB64u, MAX_LIFETIME, currentMembership, addRoot, rootSigned, changeToSign } = records
+const { rootRecord, challenge, assertion, delegation, handOff, b64u, fromB64u, MAX_LIFETIME, currentMembership, addRoot, rootSigned, changeToSign, storedWorkers, remember, renewals, MAX_WORKERS, MAX_BATCH } = records
 const hex = (b) => Buffer.from(b).toString('hex')
 const RP_ID = 'localhost'
 const ORIGIN = 'http://localhost:8080'
@@ -235,4 +235,66 @@ test('a kept co-signature: the identity of a change this root signed and that ad
     { ...kept, cosigned: wf.signed('membership', wf.M2, 'a') }, { ...kept, cosigned: 'x' }, { ...kept, cosigned: null }]) {
     assert.equal(records.storedRoot(x, rpId), null, JSON.stringify(x).slice(0, 80))
   }
+})
+
+// Decision 3's batched renewal: the page remembers each worker it authorised, reads them back as untrusted (anything
+// on the origin may have written them), and renews any up to eight with one assertion (W0).
+const W = (i, over = {}) => ({ agent: `w${i}`, subject: hex(ed25519.getPublicKey(Uint8Array.from({ length: 32 }, (_, j) => i + j))),
+  aud: 'https://app.example', scopes: ['post'], lifetime: 3600, ...over })
+
+test('stored workers: only entries of their form are kept, the latest of each agent and key, at most MAX_WORKERS', () => {
+  assert.deepEqual(storedWorkers(null), [])
+  assert.deepEqual(storedWorkers('x'), [])
+  assert.deepEqual(storedWorkers({ length: 2 }), [])
+  const good = [W(1), W(2)]
+  assert.deepEqual(storedWorkers(good), good)
+  for (const bad of [null, undefined, 1, 'w', [], { ...W(3), agent: 1 }, { ...W(3), subject: null }, { ...W(3), aud: 7 }, { ...W(3), scopes: 'post' },
+    { ...W(3), scopes: [1] }, { ...W(3), scopes: ['post', 1] }, { ...W(3), lifetime: 1.5 }, { ...W(3), lifetime: '3600' }, { ...W(3), extra: 1 }]) {
+    assert.deepEqual(storedWorkers([W(1), bad]), [W(1)], JSON.stringify(bad))
+  }
+  assert.deepEqual(storedWorkers([W(1), W(1, { scopes: ['read'] })]), [W(1, { scopes: ['read'] })], 'the latest of one agent and key')
+  assert.equal(storedWorkers(Array.from({ length: MAX_WORKERS + 5 }, (_, i) => W(i))).length, MAX_WORKERS)
+  assert.deepEqual(storedWorkers(Array.from({ length: MAX_WORKERS + 5 }, (_, i) => W(i)))[0], W(5), 'the oldest dropped')
+})
+
+test('remember: a worker added, or replaced in place of its older entry, the oldest dropped past MAX_WORKERS', () => {
+  assert.deepEqual(remember([W(1)], W(2)), [W(1), W(2)])
+  assert.deepEqual(remember([W(1), W(2)], W(1, { lifetime: 60 })), [W(2), W(1, { lifetime: 60 })])
+  const full = Array.from({ length: MAX_WORKERS }, (_, i) => W(i))
+  assert.deepEqual(remember(full, W(99)), [...full.slice(1), W(99)])
+})
+
+test('renewals: each worker\'s delegation built again under the current membership, its ids sorted for one assertion', () => {
+  const r = rootRecord(SPKI, -7, RP_ID)
+  const ctx = { identity: r.identity, membership: r.identity, root: r.id, now: NOW }
+  const ws = [W(1), W(2, { lifetime: MAX_LIFETIME }), W(3)]
+  const b = renewals(ws, ctx)
+  assert.equal(b.delegations.length, 3)
+  for (const [i, d] of b.delegations.entries()) {
+    const w = ws[i]
+    assert.deepEqual(d.body, { agent: w.agent, identity: r.identity, membership: r.identity, root: r.id, subject: w.subject, aud: w.aud,
+      scopes: w.scopes, nbf: NOW, exp: NOW + w.lifetime })
+  }
+  assert.deepEqual(b.covers, b.delegations.map((d) => d.id).sort())
+  // One assertion over the batch signs each: the core accepts every one.
+  const ad = authData({ rpId: RP_ID, flags: 0x05 })
+  const cdj = Buffer.from(clientData({ challenge: challengeFor(b.covers), origin: ORIGIN }))
+  const rootSig = assertion(b.covers, { authenticatorData: ad, clientDataJSON: cdj, signature: signOver(ad, cdj, SECRET) })
+  for (const [i, d] of b.delegations.entries()) {
+    const secret = Uint8Array.from({ length: 32 }, (_, j) => [1, 2, 3][i] + j)
+    const subject = hex(ed25519.sign(Buffer.concat([Buffer.from('muid/v1/accept\n'), Buffer.from(d.id, 'hex')]), secret))
+    const c = delegationModule.checkDelegation(envelope.wrap(d.payload, { root: rootSig, subject }),
+      { rootKey: hex(POINT), rpId: RP_ID, origin: ORIGIN, now: NOW + 10, skew: 60, maxLifetime: MAX_LIFETIME })
+    assert.equal(c.ok, true, `${i}: ${JSON.stringify(c)}`)
+  }
+  // An untrusted entry gets every check a new delegation gets.
+  assert.throws(() => renewals([W(1, { aud: 'https://App.example' })], ctx), { message: 'the audience must be an origin, such as https://app.example' })
+  assert.throws(() => renewals([W(1, { scopes: ['attest'] })], ctx), { message: 'the attest scope is not granted to a worker' })
+  assert.throws(() => renewals([], ctx), { message: `renew 1 to ${MAX_BATCH} workers at once` })
+  assert.throws(() => renewals(Array.from({ length: MAX_BATCH + 1 }, (_, i) => W(i)), ctx), { message: `renew 1 to ${MAX_BATCH} workers at once` })
+  assert.equal(renewals(Array.from({ length: MAX_BATCH }, (_, i) => W(i)), ctx).covers.length, MAX_BATCH)
+  assert.equal(MAX_BATCH, 8, 'W0: one assertion covers at most eight records')
+  // W0's covers are distinct: the same delegation twice is refused, while one key under two names is two delegations.
+  assert.throws(() => renewals([W(1), W(1)], ctx), { message: 'a worker is listed twice' })
+  assert.equal(renewals([W(1), W(1, { agent: 'other' })], ctx).covers.length, 2)
 })

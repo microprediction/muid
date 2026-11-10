@@ -693,7 +693,7 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   wait is cut to 15 s and every test to 60 s, and once one test fails or times out, the rest fail at once. Without
   this, a broken page made each test wait out its limits in turn, and the mutant was counted only when Stryker's
   own timeout ran out.
-- Twins (`tests/meta/id-twins.test.mjs`, 21): the challenge's domain, any algorithm, unsorted scopes, an unbounded
+- Twins (`tests/meta/id-twins.test.mjs`, 51 in all): the challenge's domain, any algorithm, unsorted scopes, an unbounded
   lifetime, an unchecked audience, an edit that keeps the review, a late signature kept, verification preferred,
   any passkey, a credential that is not resident, inline scripts allowed, hidden parts shown; attest granted; a change co-signed that does not add
   this passkey, an edit of the new root kept, authority unchecked, delegations under the first membership, the root
@@ -702,6 +702,21 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
 - **The agent's name (D8):** the worker form takes the agent's name, shown in the review with the rest of what is
   signed (spaces around it are not signed); renaming it withdraws the review; a name outside the grammar is refused
   with a reason before anything is signed.
+- **Batched renewal (decision 3):** `records.js` in Node (`P1`): stored workers read back only if of a worker's form
+  (each wrong type, a missing or extra field, a non-list), the latest of each agent and key, at most `MAX_WORKERS`
+  with the oldest dropped; a worker remembered in place of its older entry; 1 to 8 delegations built again under the
+  current membership, their ids sorted for one assertion, which the core accepts for each; an untrusted entry given
+  every check a new delegation gets; the same worker twice refused. The page (`P2`): three workers authorised are
+  remembered with their lifetimes (never a signature), listed ticked, each with a button to forget it; a review
+  shows every delegation field by field (I4); one assertion (the authenticator's counter moves by one) signs them
+  all, and each hand-off, once its worker consents, is accepted by the core and, logged, by the verifier at its own
+  audience; nine refused and none refused; a change of selection, a forgotten worker and another tab's change each
+  withdraw a review; a signature returning after a change of selection is not handed over; a refused passkey is
+  reported; stored text is shown as text; unreadable storage offers nothing; a passkey with no identity yet, or
+  still joining, is offered nothing to renew. Twins (11 of the 51): the batch unbounded, covers unsorted, storage
+  trusted, the selection or a late signature not withdrawing, an unticked worker renewed, a delegation signed but
+  not shown, the assertion not covering each, renewal offered while joining, a worker not remembered or not
+  forgotten.
 
 ## 4l. The two-application demo (`demo/`, not core)
 
