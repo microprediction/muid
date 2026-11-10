@@ -456,7 +456,9 @@ test('a head that verifies alone but not against the memory (equivocation) is no
 test('two heads of one second: the memory keeps the later in the honest order, whichever arrives first', async () => {
   const T = NOW - 100
   for (const [name, later] of [['settled into another membership', head(T, { epoch: 2, memberships: ['5'.repeat(64)] })],
-    ['a successor turned pending', head(T, { memberships: [IDENTITY, '5'.repeat(64)] })]]) {
+    ['a successor turned pending', head(T, { memberships: [IDENTITY, '5'.repeat(64)] })],
+    // The delegation revoked within the second: the head without the revocation is the earlier, and cannot bring it back.
+    ['the delegation revoked', head(T, { revoked: [DELEGATION_ID] })]]) {
     for (const store of [memoryStore(), sqliteStore(join(tmp(), 'rp.db'))]) {
       const rp = relyingParty({ clock: () => NOW, verifier: verifier(), store })
       assert.equal((await rp.acceptClaim(records(claim(NOW - 5, 'a'), head(T)), CALL, () => 1)).ok, true, name)
