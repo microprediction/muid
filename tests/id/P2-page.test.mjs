@@ -388,6 +388,47 @@ test('a browser that gives the page no storage is told so, and offered nothing',
   }
 })
 
+// Two versions of the page in one browser (model/STATE.md): a page of a later version raises the database's version,
+// and this one's store is closed (the standard's `versionchange`). It then offers nothing, whatever it had open, and
+// says to reload; the same code loaded again is refused the raised database, so it never writes a later form's data.
+test('a page whose storage a newer version of the page has taken withdraws what is open, offers nothing and says so', { timeout: 180_000 }, async () => {
+  const t = await open()
+  try {
+    await createIdentity(t.page)
+    await authorise(t.page)
+    await t.page.waitForSelector('#review-panel:not([hidden])')
+    // A signature asked for before the loss and given after it: nothing can be kept, and the page still says why.
+    await t.page.evaluate(() => {
+      const get = navigator.credentials.get.bind(navigator.credentials)
+      globalThis.asked = new Promise((resolve) => { globalThis.asking = resolve })
+      navigator.credentials.get = async (o) => { const c = await get(o); globalThis.asking(); await new Promise((resolve) => { globalThis.answer = resolve }); return c }
+    })
+    await t.page.click('#sign')
+    await t.page.evaluate(() => globalThis.asked)
+    const raised = await t.page.evaluate(() => new Promise((resolve) => {
+      const o = indexedDB.open('muid', 2)
+      o.onblocked = () => resolve('blocked')
+      o.onsuccess = () => { o.result.close(); resolve('raised') }
+    }))
+    assert.equal(raised, 'raised')
+    await t.page.waitForFunction(() => document.getElementById('error').textContent !== '')
+    assert.equal(await t.page.textContent('#error'), 'A newer version of this page has taken its storage, or the browser has cleared it: reload this page.')
+    const offered = async () => { for (const id of ['create', 'identity', 'authorise', 'renew', 'add-root', 'joining', 'pending', 'review-panel', 'handoff']) assert.equal(await t.page.isHidden('#' + id), true, id) }
+    await offered()
+    await t.page.evaluate(() => globalThis.answer())
+    await t.page.waitForTimeout(500)
+    assert.equal(await t.page.textContent('#error'), 'A newer version of this page has taken its storage, or the browser has cleared it: reload this page.')
+    await offered()
+    await t.page.reload()
+    await errorShown(t.page)
+    assert.equal(await t.page.textContent('#error'), 'This browser gave the page no storage: it can do nothing here.')
+    for (const id of ['create', 'identity', 'authorise']) assert.equal(await t.page.isHidden('#' + id), true, id)
+    assert.deepEqual(t.problems, [])
+  } finally {
+    await t.close()
+  }
+})
+
 // A root is stored only while storage holds the root this tab acts for (none, when it creates one): the write and
 // that check are one transaction, so two tabs creating at once keep one identity, and neither writes over the other.
 test('a root another tab stored while this one was creating its own is adopted, not overwritten; nor by a later registration', { timeout: 180_000 }, async () => {

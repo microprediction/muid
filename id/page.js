@@ -402,7 +402,14 @@ $('cosign-retry').addEventListener('click', () => { $('error').textContent = '';
 // a page open since before cannot act on a stale root or a stale list.
 if (REFUSAL === undefined) {
   try {
-    store = await openStore('muid')
+    // A store lost while the page is open (model/STATE.md: a later version of the page took it, or the browser
+    // cleared it): whatever is open is withdrawn, and the page offers nothing more until it is loaded again.
+    store = await openStore('muid', () => {
+      withdraw()
+      for (const id of ['create', 'identity', 'authorise', 'renew', 'add-root', 'joining', 'pending']) $(id).hidden = true
+      REFUSAL = 'A newer version of this page has taken its storage, or the browser has cleared it: reload this page.'
+      show()
+    })
     await refresh()
     store.watch(() => refresh().then(() => { withdraw(); show() }, fail))
   } catch {
