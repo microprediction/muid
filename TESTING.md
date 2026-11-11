@@ -742,6 +742,25 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   counted; a redrawn list ticking everything, or an untick outliving its entry; a stored key unchecked; another
   tab's change of the workers leaving a review signable.
 
+### Browser histories (`tests/browser-state/`, draft regressions)
+
+The actual id-page module runs in independent document contexts with held witness,
+passkey and submission responses; separate tab caches and shared storage;
+queued storage notifications, write failure, reload and a controllable clock.
+An independent authorization-history oracle checks the committed effects. The
+suite enumerates operation interleavings through eight transitions and uses
+fast-check for longer mixed histories and shrinking. Ordinary-workflow and host
+controls prevent an inactive controller from passing.
+
+The introducing PR is a draft because these regression assertions fail on the
+reviewed page. They are not marked skipped or expected failures. See the
+[runner and explicit model boundaries](tests/browser-state/README.md),
+[baseline counterexamples](research/browser-state-baseline.txt), and
+[audit of other state/atomicity assumptions](research/browser-state-audit.md).
+The historical `--calibrate` diagnostic requires rediscovery of all three prior
+misses and rejects a naive fresh-read-before-write repair under a cross-agent
+read/write interleaving. It is separate from the strict CI entry point.
+
 ## 4l. The two-application demo (`demo/`, not core)
 
 - The four scenarios end to end (`tests/demo/D1-scenarios.test.mjs`): the witness service, Tessera with
