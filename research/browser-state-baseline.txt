@@ -1,0 +1,43 @@
+Reviewed page: 8d21b2c674420a8daf7c59b436d1f4e1eae0cbd1
+Runtime: Node v24.22.1
+Command: node --experimental-vm-modules tests/browser-state/run.mjs --calibrate
+
+Host controls: ordinary workflows, core signatures, delayed effects and atomic write failure passed
+Bounded exploration: 2116 histories, 15144 transitions
+
+review-cancellation: add-panel was restored by a withdrawn callback
+  authorise/tab0 + add/tab0
+  review(0,add) -> review(0,worker) -> reply(0,witness,ok)
+
+handoff-cancellation: add-handoff was restored by a withdrawn callback
+  authorise/tab0 + add/tab0
+  review(0,add) -> reply(0,witness,ok) -> sign(0,add) -> reply(0,signature,ok) -> review(0,worker) -> reply(0,post,ok) -> reply(0,post,ok)
+
+persistence: a replacement handoff was published without committing its remembered key
+  authorise/tab0 + quota/tab0
+  review(0,worker) -> reply(0,witness,ok) -> sign(0,worker) -> fail-write() -> reply(0,signature,ok)
+
+expired-handoff: a published handoff is refused by the core: expired
+  authorise/tab0 + tick/tab0
+  review(0,worker) -> reply(0,witness,ok) -> sign(0,worker) -> advance() -> reply(0,signature,ok)
+
+late-error: an error from a withdrawn operation overwrote the current UI
+  authorise/tab0 + failedReview/tab0
+  review(0,worker) -> review(0,worker) -> reply(0,witness,error)
+
+retired-renewal: a renewal names a key or grant absent from the current committed authorization history
+  renew/tab0 + forgetFirst/tab1
+  review(0,renewal) -> reply(0,witness,ok) -> sign(0,renewal) -> forget(1,row=0) -> reply(0,signature,ok)
+
+storage-history: a write disagrees with the committed authorization/Forget history
+  authorise/tab0 + forgetOther/tab1
+  review(0,worker) -> reply(0,witness,ok) -> sign(0,worker) -> reply(0,signature,ok) -> forget(1,row=1)
+
+Generated history failed (seed=71071, path=10:2:0:4:6:4):
+  forget(0,row=1) -> forget(1,row=0) -> review(0,worker)
+  storage-history: a write disagrees with the committed authorization/Forget history
+
+Elapsed: 130200 ms
+Repair control: fresh-read-before-write still loses an update under a cross-agent read/write interleaving
+
+Calibration: all three previously missed contracts were rediscovered.
