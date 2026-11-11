@@ -54,8 +54,9 @@ const TWINS = [
   ['memory-head-regresses', 'the memory store replaces a head with an older one', 'stores.js', [['if (old === undefined || at > old.at) heads.set', 'heads.set']]],
   ['sqlite-head-regresses', 'the database store replaces a head with an older one', 'stores.js', [[' WHERE excluded.at > heads.at', '']]],
   ['memory-no-grace', 'the memory store expires claim ids at until', 'stores.js', [['if (until + grace <= now) consumed.delete(id)', 'if (until <= now) consumed.delete(id)']]],
-  ['sqlite-open-no-wait', 'the database store gives up at once when a new file is locked', 'stores.js', [['if (e.errcode !== 5 || Date.now() >= until) throw e', 'throw e']]],
-  ['sqlite-open-waits-for-anything', 'the database store waits on every error, not only a lock', 'stores.js', [['if (e.errcode !== 5 || Date.now() >= until) throw e', 'if (Date.now() >= until) throw e']]],
+  ['sqlite-open-no-wait', 'the database store gives up at once when a new file is locked', 'stores.js', [['if (e.errcode !== 5 || performance.now() >= until) throw e', 'throw e']]],
+  ['sqlite-open-waits-for-anything', 'the database store waits on every error, not only a lock', 'stores.js', [['if (e.errcode !== 5 || performance.now() >= until) throw e', 'if (performance.now() >= until) throw e']]],
+  ['sqlite-open-wall-clock', 'the database store measures its wait for a locked new file by the wall clock', 'stores.js', [['const until = performance.now() + busy', 'const until = Date.now() + busy'], ['if (e.errcode !== 5 || performance.now() >= until) throw e', 'if (e.errcode !== 5 || Date.now() >= until) throw e']]],
   ['sqlite-no-grace', 'the database store expires claim ids at until', 'stores.js', [['remove.run(now - grace)', 'remove.run(now)']]],
 ]
 
@@ -103,7 +104,7 @@ test('adapter broken twins', { timeout: 900_000 }, async (t) => {
       assert.ok(r.pass >= 20, `control: only ${r.pass} tests ran`)
     })
     const jobs = TWINS.map(([name, why, file, edits]) => [name, why, generate(name, file, edits)])
-    assert.equal(jobs.length, 23, 'twin count')
+    assert.equal(jobs.length, 24, 'twin count')
     const results = []
     const queue = [...jobs]
     const workers = Math.max(1, Math.floor(availableParallelism() / 4))

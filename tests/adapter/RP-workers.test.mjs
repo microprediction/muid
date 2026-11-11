@@ -83,6 +83,31 @@ test('a store waits `busy` milliseconds for a locked new file, and no longer', (
   holder.close()
 })
 
+// Issue #76: the wait is a duration, so it is measured by a clock that only moves forward (performance.now), not by
+// the wall clock, which a resumed machine or a corrected time steps either way.
+test('the wait for a locked new file is not lengthened or cut short by the wall clock being set back or forward', () => {
+  const file = newFile()
+  const holder = new DatabaseSync(file)
+  holder.exec('BEGIN IMMEDIATE')
+  const real = Date.now
+  try {
+    for (const step of [-3_600_000, 3_600_000]) {
+      // The first reading is true; every later one is an hour off. Should the store wait on the wall clock set back,
+      // it is let go after some seconds, so that this fails rather than hangs.
+      let readings = 0
+      Date.now = () => (readings++ === 0 ? real() : readings > 4000 ? real() + 86_400_000 : real() + step)
+      const began = performance.now()
+      assert.throws(() => sqliteStore(file, { busy: 300 }), { message: 'database is locked' })
+      const waited = performance.now() - began
+      assert.ok(waited >= 300 && waited < 2500, `clock stepped ${step} ms: waited ${waited} ms`)
+    }
+  } finally {
+    Date.now = real
+    holder.exec('COMMIT')
+    holder.close()
+  }
+})
+
 test('a file that is not a database is refused at once, not waited for', () => {
   const file = newFile()
   writeFileSync(file, 'not a database, not at all. '.repeat(40))

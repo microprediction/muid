@@ -4,6 +4,7 @@
 // absent, returning whether it did. Each is the database's own guarantee (a unique key, a conditional upsert,
 // a serialising transaction), not read-then-write in the adapter.
 import { DatabaseSync } from 'node:sqlite'
+import { performance } from 'node:perf_hooks'
 
 // A claim id is kept `grace` seconds past its `until`, so an instance whose clock is behind the one expiring it (by
 // up to the verifier's skew) still refuses a replay. 60 s by default: set it to the largest clock difference allowed.
@@ -43,8 +44,9 @@ export function sqliteStore (file, { grace = 60, busy = 10000 } = {}) {
   if (!Number.isSafeInteger(busy) || busy < 0) throw new TypeError('busy must be a number of milliseconds')
   const db = new DatabaseSync(file)
   // SQLite does not wait to switch a file to WAL while another connection writes to it (others opening a new file at
-  // the same moment): it answers SQLITE_BUSY (5) at once. So this is asked again, for as long as `busy`.
-  const until = Date.now() + busy
+  // the same moment): it answers SQLITE_BUSY (5) at once. So this is asked again, for as long as `busy`: a duration,
+  // measured by the clock that only moves forward, not the wall clock (which may be set back or forward meanwhile).
+  const until = performance.now() + busy
   for (let made = false; !made;) {
     try {
       db.exec(`PRAGMA busy_timeout = ${busy}; PRAGMA journal_mode = WAL;
@@ -53,7 +55,7 @@ export function sqliteStore (file, { grace = 60, busy = 10000 } = {}) {
       made = true
     } catch (e) {
       // Stryker disable next-line EqualityOperator: equivalent; at the very millisecond, one more try or none
-      if (e.errcode !== 5 || Date.now() >= until) throw e
+      if (e.errcode !== 5 || performance.now() >= until) throw e
       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1) // a millisecond's sleep
     }
   }
