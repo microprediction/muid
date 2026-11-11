@@ -1263,10 +1263,15 @@ test('renewal: a change this browser cannot save is said, and the list stays as 
     await authoriseAndSign(t.page, { agent: 'forecaster', subject: workerPub(1), scopes: 'post' })
     assert.equal(await t.page.textContent('#error'), '')
     await t.page.evaluate(() => { globalThis.failWrites = true })
-    // A new key signed while storage refuses: handed over, since it is signed, but the old key is still the one
-    // remembered, and the page says so instead of promising it retired.
-    await authoriseAndSign(t.page, { agent: 'forecaster', subject: workerPub(2), scopes: 'post' })
+    // A new key signed while storage refuses: the old key is still the one remembered, so the new one is handed
+    // nothing, and the page says why instead of promising the old key retired. The review stays, to be signed again.
+    await authorise(t.page, { agent: 'forecaster', subject: workerPub(2), scopes: 'post' })
+    await t.page.waitForSelector('#review-panel:not([hidden])')
+    await t.page.click('#sign')
+    await errorShown(t.page)
     assert.equal(await t.page.textContent('#error'), UNSAVED)
+    assert.equal(await t.page.isHidden('#handoff'), true, 'nothing handed over')
+    assert.equal(await t.page.isHidden('#review-panel'), false)
     assert.deepEqual(await keys(t.page), [workerPub(1)])
     // A worker that cannot be forgotten stays listed, with the same notice.
     await t.page.fill('#scopes', 'post read')
@@ -1278,10 +1283,123 @@ test('renewal: a change this browser cannot save is said, and the list stays as 
     await t.page.reload()
     await t.page.waitForSelector('#renew:not([hidden])')
     assert.deepEqual(await keys(t.page), [workerPub(1)], 'as before the reload')
-    // Saved again, nothing is said.
+    // Saved again, nothing is said, and the worker has its hand-off.
     await authoriseAndSign(t.page, { agent: 'forecaster', subject: workerPub(2), scopes: 'post' })
+    assert.equal(JSON.parse(JSON.parse(await t.page.inputValue('#handoff')).payload).body.subject, workerPub(2))
     assert.equal(await t.page.textContent('#error'), '')
     assert.deepEqual(await keys(t.page), [workerPub(2)])
+    assert.deepEqual(t.problems, [])
+  } finally {
+    await t.close()
+  }
+})
+
+// Found by the generated histories of #72: what was reviewed can expire before it is signed, or while the passkey is
+// asked. An expired delegation is not signed, nor handed over: the review is withdrawn, to be made again from now.
+test('a review that has expired is not signed, and one that expires while the passkey is asked is not handed over', { timeout: 180_000 }, async () => {
+  const t = await open()
+  try {
+    await createIdentity(t.page)
+    await authoriseAndSign(t.page, { agent: 'w1', subject: workerPub(1), scopes: 'post', days: '2' })
+    const EXPIRED = 'What was reviewed has since expired: review again.'
+    const slowPasskey = () => t.page.evaluate(() => {
+      const get = navigator.credentials.get.bind(navigator.credentials)
+      globalThis.asked = new Promise((resolve) => { globalThis.asking = resolve })
+      navigator.credentials.get = async (o) => { globalThis.asking(); await new Promise((resolve) => { globalThis.answer = resolve }); navigator.credentials.get = get; return get(o) }
+    })
+    const before = await signCount(t)
+    // One worker, a day's lifetime: a second short of a day later it is signed; at the day, it is not.
+    await authorise(t.page, { agent: 'w2', subject: workerPub(2), scopes: 'post', days: '1' })
+    await t.page.waitForSelector('#review-panel:not([hidden])')
+    const exp = Date.parse(await t.page.textContent('#show-exp')) / 1000
+    const at = (time) => t.page.evaluate((ms) => { Date.now = () => ms }, time * 1000)
+    await at(exp)
+    await t.page.click('#sign')
+    await errorShown(t.page)
+    assert.equal(await t.page.textContent('#error'), EXPIRED)
+    assert.equal(await t.page.isHidden('#review-panel'), true)
+    assert.equal(await signCount(t), before, 'the passkey was not asked')
+    // Expiring while the passkey is asked: signed, but not handed over or remembered.
+    await at(exp - 86_400)
+    await authorise(t.page, { agent: 'w2', subject: workerPub(2), scopes: 'post', days: '1' })
+    await t.page.waitForSelector('#review-panel:not([hidden])')
+    await at(exp - 1)
+    await slowPasskey()
+    await t.page.click('#sign')
+    await t.page.evaluate(() => globalThis.asked)
+    await at(exp)
+    await t.page.evaluate(() => globalThis.answer())
+    await errorShown(t.page)
+    assert.equal(await t.page.textContent('#error'), EXPIRED)
+    assert.equal(await t.page.isHidden('#handoff'), true)
+    assert.equal((await kept(t.page)).length, 1)
+    // A second before it expires, start to end, it is signed and handed over.
+    await at(exp - 86_400)
+    await authorise(t.page, { agent: 'w2', subject: workerPub(2), scopes: 'post', days: '1' })
+    await t.page.waitForSelector('#review-panel:not([hidden])')
+    await at(exp - 1)
+    await t.page.click('#sign')
+    await t.page.waitForSelector('#handoff:not([hidden])')
+    assert.equal((await kept(t.page)).length, 2)
+    // A renewal: the same, at the expiry of the shortest-lived of those reviewed (w1 has two days, w2 one).
+    await t.page.click('#renew-review')
+    await t.page.waitForSelector('#renew-panel:not([hidden])')
+    const exps = await t.page.$$eval('#renew-list > li', (lis) => lis.map((li) => Date.parse(li.querySelectorAll('dd')[3].textContent) / 1000))
+    const signs = await signCount(t)
+    await at(Math.min(...exps))
+    await t.page.click('#renew-sign')
+    await errorShown(t.page)
+    assert.equal(await t.page.textContent('#error'), EXPIRED)
+    assert.equal(await t.page.isHidden('#renew-panel'), true)
+    assert.equal(await signCount(t), signs)
+    await at(Math.min(...exps) - 86_400)
+    await t.page.click('#renew-review')
+    await t.page.waitForSelector('#renew-panel:not([hidden])')
+    await at(Math.min(...exps) - 1)
+    await slowPasskey()
+    await t.page.click('#renew-sign')
+    await t.page.evaluate(() => globalThis.asked)
+    await at(Math.min(...exps))
+    await t.page.evaluate(() => globalThis.answer())
+    await errorShown(t.page)
+    assert.equal(await t.page.textContent('#error'), EXPIRED)
+    assert.equal(await t.page.isHidden('#renew-handoffs'), true)
+    assert.deepEqual(t.problems, [])
+  } finally {
+    await t.close()
+  }
+})
+
+// Found by the generated histories of #72: an added passkey's change, once signed, is submitted; a review begun
+// while the witness is still answering withdraws it, and its hand-off is not shown when the answer comes.
+test('an added passkey\'s hand-off is not shown if it was withdrawn while the change was submitted', { timeout: 180_000 }, async () => {
+  const t = await open()
+  try {
+    const a = await createIdentity(t.page)
+    const d = await t.device()
+    await d.page.click('#join-button')
+    await d.page.waitForSelector('#joining:not([hidden])')
+    const added = await d.page.inputValue('#join-root')
+    let release = null
+    let posted
+    const seen = new Promise((resolve) => { posted = resolve })
+    const held = new Promise((resolve) => { release = resolve })
+    await t.page.route('**/v1/records', async (route) => { posted(); await held; await route.continue() })
+    await t.page.fill('#new-root', added)
+    await t.page.click('#add-review')
+    await t.page.waitForSelector('#add-panel:not([hidden])')
+    await t.page.click('#add-sign')
+    await seen
+    await t.page.fill('#agent', 'w1')
+    assert.equal(await t.page.isHidden('#add-panel'), true)
+    release()
+    await t.page.waitForLoadState('networkidle')
+    await t.page.waitForFunction(async () => true)
+    for (let i = 0; i < 50 && (await t.witnessGet(`/v1/identities/${a.identity}/records`)).roots.length < 2; i++) await t.page.waitForTimeout(100)
+    assert.equal((await t.witnessGet(`/v1/identities/${a.identity}/records`)).memberships.length, 1, 'signed, so submitted')
+    await t.page.waitForTimeout(300)
+    assert.equal(await t.page.isHidden('#add-handoff'), true)
+    assert.equal(await t.page.textContent('#status'), 'Registered with the witness.')
     assert.deepEqual(t.problems, [])
   } finally {
     await t.close()

@@ -755,7 +755,10 @@ signed, nor a signature that returns after one handed over; and the list shown i
 the browser could not save is said, not shown as made. This is a guarantee about this browser's remembered choices,
 without a lock across tabs: two changes written in the same instant can still lose one, and what is forgotten or
 replaced here is not thereby revoked. The review of an added passkey waits for the witness in the same way as a
-worker's. `id/records.js` builds every record
+worker's. A worker is handed its delegation only once the change is saved, so none is handed over on a
+promise (an old key retired) that was not kept. What was reviewed is signed only while unexpired, and handed over
+only if still unexpired when the passkey answers. An added passkey's change, once signed, is submitted; its hand-off
+is withheld if it was withdrawn meanwhile. `id/records.js` builds every record
 with the core's functions and refuses first what the core would. Not yet: removing a root, freezes and contests, and
 the I1–I3 window protocol for apps.
 

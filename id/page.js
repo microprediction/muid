@@ -39,13 +39,15 @@ function save () {
 }
 // A change to the remembered workers is made to what storage holds now, not to what this tab last drew, so it never
 // undoes another tab's change; and the list is then what storage holds, never ahead of it: a change that could not be
-// saved is said, not shown as made.
+// saved is said, not shown as made. Returns whether it was saved.
 function keepWorkers (change) {
   const next = change(loadWorkers())
   try { localStorage.setItem(WORKERS, JSON.stringify(next)) } catch { /* said below */ }
   workers = loadWorkers()
   show()
-  if (JSON.stringify(workers) !== JSON.stringify(next)) fail(new Error('This browser could not save the change to the remembered workers: they are listed as it holds them.'))
+  const saved = JSON.stringify(workers) === JSON.stringify(next)
+  if (!saved) fail(new Error('This browser could not save the change to the remembered workers: they are listed as it holds them.'))
+  return saved
 }
 
 const element = (tag, ...children) => {
@@ -148,6 +150,14 @@ function changedElsewhere () {
   return true
 }
 
+// Whether any of the delegations reviewed has expired since: if so the review is withdrawn, to be made again from now.
+function lapsed (delegations) {
+  if (delegations.every((d) => Math.floor(Date.now() / 1000) < d.body.exp)) return false
+  withdraw()
+  fail(new Error('What was reviewed has since expired: review again.'))
+  return true
+}
+
 // Counts withdrawals: a review that waited for the witness goes on only if nothing was withdrawn meanwhile.
 let withdrawals = 0
 function withdraw () {
@@ -231,16 +241,17 @@ $('review').addEventListener('click', async () => {
 
 $('sign').addEventListener('click', async () => {
   const d = pending.delegation
-  if (d === null || changedElsewhere()) return
+  if (d === null || changedElsewhere() || lapsed([d])) return
   $('error').textContent = ''
   try {
     const a = await sign([d.id])
-    if (pending.delegation !== d || changedElsewhere()) return // withdrawn while the passkey was asked
+    if (pending.delegation !== d || changedElsewhere() || lapsed([d])) return // withdrawn while the passkey was asked
+    // Remembered for renewal: what was signed, with its lifetime, never the signature. Remembered first: a worker
+    // is handed nothing if the change (which may retire its agent's old key) could not be saved.
+    const { agent, subject, aud, scopes, nbf, exp } = d.body
+    if (!keepWorkers((list) => remember(list, { agent, subject, aud, scopes, lifetime: exp - nbf }))) return
     $('handoff').value = handOff(d.payload, a)
     $('handoff').hidden = false
-    // Remembered for renewal: what was signed, with its lifetime, never the signature.
-    const { agent, subject, aud, scopes, nbf, exp } = d.body
-    keepWorkers((list) => remember(list, { agent, subject, aud, scopes, lifetime: exp - nbf }))
   } catch (e) { fail(e) }
 })
 
@@ -263,11 +274,11 @@ $('renew-review').addEventListener('click', async () => {
 
 $('renew-sign').addEventListener('click', async () => {
   const r = pending.renewal
-  if (r === null || changedElsewhere()) return
+  if (r === null || changedElsewhere() || lapsed(r.delegations)) return
   $('error').textContent = ''
   try {
     const a = await sign(r.covers)
-    if (pending.renewal !== r || changedElsewhere()) return // withdrawn while the passkey was asked
+    if (pending.renewal !== r || changedElsewhere() || lapsed(r.delegations)) return // withdrawn while the passkey was asked
     $('renew-handoffs').replaceChildren(...r.delegations.map((d) => {
       const t = element('textarea')
       t.readOnly = true
@@ -302,8 +313,10 @@ $('add-sign').addEventListener('click', async () => {
   try {
     const a = await sign([c.id])
     if (pending.change !== c) return
+    // Once signed, the change is submitted whatever follows; only its hand-off is withheld if it was withdrawn.
     await submit(root.identity, 'membership', rootSigned(c.payload, root.id, a))
     await submit(root.identity, 'root', c.rootText)
+    if (pending.change !== c) return
     $('add-handoff').value = c.payload
     $('add-handoff').hidden = false
     $('status').textContent = 'Signed. The other device co-signs this change.'
