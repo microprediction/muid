@@ -5,6 +5,9 @@
 // time, in the order made, across every tab and worker of the origin, and each is committed whole or not at all: so
 // no update is made from a value another update has since replaced. `change` is called once, synchronously, and must
 // not wait: a transaction ends when its task does. Nothing else in the page touches browser storage.
+// A store can be lost: a page of a later version raises the database's version (the standard then asks every open
+// connection to close, and makes the upgrade wait until it has), or the browser closes the connection itself. The
+// store closes, calls `lost` once, and changes nothing more: code of this version never writes a later one's data.
 const VALUES = 'values'
 const read = (record) => record === undefined ? { absent: true } : { value: record.value }
 
@@ -20,19 +23,27 @@ function answer (x) {
   throw new TypeError('a change gives { value }, { absent: true } or undefined')
 }
 
-export function openStore (name) {
+export function openStore (name, lost = () => {}) {
   return new Promise((resolve, reject) => {
     if (typeof name !== 'string' || name === '') throw new TypeError('a store has a name')
     const opening = indexedDB.open(name, 1)
     opening.onupgradeneeded = () => { opening.result.createObjectStore(VALUES) }
     opening.onerror = () => reject(opening.error)
-    opening.onsuccess = () => resolve(store(name, opening.result))
+    opening.onsuccess = () => resolve(store(name, opening.result, lost))
   })
 }
 
-function store (name, db) {
+function store (name, db, lost) {
   // Tells the origin's other holders of this store which key a committed update changed.
   const channel = new BroadcastChannel(`muid-store:${name}`)
+  const close = () => {
+    db.close()
+    channel.close()
+  }
+  db.onversionchange = db.onclose = () => {
+    close()
+    lost()
+  }
 
   // One transaction on the values. `work` is given the object store, `done` to name the result, and `fail` to abort
   // with an error. Resolves with the result once the transaction has committed; rejects if it did not.
@@ -82,9 +93,6 @@ function store (name, db) {
       return () => channel.removeEventListener('message', hear)
     },
 
-    close () {
-      db.close()
-      channel.close()
-    },
+    close,
   })
 }

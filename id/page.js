@@ -24,6 +24,7 @@ const WITNESS_KEYS = JSON.parse(meta('muid-witness-keys'))
 // have written it. The page's own copies are never ahead of storage: a change that was not saved is not shown as made.
 let store
 let root = null
+// Stryker disable next-line ArrayDeclaration: equivalent; read from storage before anything is listed
 let workers = []
 const text = (held) => JSON.stringify(held)
 const rootOf = (held) => held.absent ? null : storedRoot(held.value, rpId)
@@ -42,13 +43,18 @@ function adopt (held, own) {
 }
 async function refresh () {
   root = rootOf(await store.get(KEY))
+  // Stryker disable next-line BooleanLiteral: equivalent; nothing is open when this runs at load, a notice withdraws
+  // whatever it finds, and a saving that failed was a Forget's, which withdrew when pressed
   adopt(await store.get(WORKERS), false)
 }
+// Stryker disable next-line ObjectLiteral: nothing shown differs; without the nulls a signing button (hidden) pressed
+// before any review throws where it would return, and does nothing either way
 const pending = { delegation: null, change: null, cosign: null, renewal: null }
 
 // A change to the stored root, made only while storage holds the root it was decided for (`mine`, its id: null
 // when one is being created): another's root is adopted, never overwritten. Whether the change was made.
 async function keepRoot (mine, change) {
+  // Stryker disable next-line BooleanLiteral: equivalent; set by every update that returns
   let made = false
   const held = await store.update(KEY, (now) => {
     const r = rootOf(now)
@@ -195,6 +201,7 @@ function lapsed (delegations) {
 // Counts withdrawals: a review that waited for the witness goes on only if nothing was withdrawn meanwhile.
 let withdrawals = 0
 function withdraw () {
+  // Stryker disable next-line UpdateOperator: equivalent; only compared with what it was
   withdrawals++
   pending.delegation = null
   pending.change = null
@@ -311,8 +318,8 @@ $('renew-sign').addEventListener('click', async () => {
   $('error').textContent = ''
   try {
     const a = await sign(r.covers)
-    if (pending.renewal !== r) return // withdrawn while the passkey was asked
     // A renewal takes effect at this read of storage: a change committed after it is after the renewal.
+    if (pending.renewal !== r) return // withdrawn while the passkey was asked
     if (await changedElsewhere() || pending.renewal !== r || lapsed(r.delegations)) return
     $('renew-handoffs').replaceChildren(...r.delegations.map((d) => {
       const t = element('textarea')
@@ -402,7 +409,14 @@ $('cosign-retry').addEventListener('click', () => { $('error').textContent = '';
 // a page open since before cannot act on a stale root or a stale list.
 if (REFUSAL === undefined) {
   try {
-    store = await openStore('muid')
+    // A store lost while the page is open (model/STATE.md: a later version of the page took it, or the browser
+    // cleared it): whatever is open is withdrawn, and the page offers nothing more until it is loaded again.
+    store = await openStore('muid', () => {
+      withdraw()
+      for (const id of ['create', 'identity', 'authorise', 'renew', 'add-root', 'joining', 'pending']) $(id).hidden = true
+      REFUSAL = 'A newer version of this page has taken its storage, or the browser has cleared it: reload this page.'
+      show()
+    })
     await refresh()
     store.watch(() => refresh().then(() => { withdraw(); show() }, fail))
   } catch {

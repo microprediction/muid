@@ -307,6 +307,7 @@ test('an edit while the passkey is signing withdraws the delegation: the late si
     await t.page.waitForTimeout(1500)
     assert.equal(await t.page.isHidden('#handoff'), true)
     assert.equal(await t.page.inputValue('#handoff'), '')
+    assert.equal(await kept(t.page), null, 'nor is the worker remembered (a surviving mutant)')
   } finally {
     await t.close()
   }
@@ -382,6 +383,47 @@ test('a browser that gives the page no storage is told so, and offered nothing',
     await errorShown(t.page)
     assert.equal(await t.page.textContent('#error'), 'This browser gave the page no storage: it can do nothing here.')
     for (const id of ['create', 'identity', 'authorise', 'renew', 'add-root', 'joining']) assert.equal(await t.page.isHidden('#' + id), true, id)
+    assert.deepEqual(t.problems, [])
+  } finally {
+    await t.close()
+  }
+})
+
+// Two versions of the page in one browser (model/STATE.md): a page of a later version raises the database's version,
+// and this one's store is closed (the standard's `versionchange`). It then offers nothing, whatever it had open, and
+// says to reload; the same code loaded again is refused the raised database, so it never writes a later form's data.
+test('a page whose storage a newer version of the page has taken withdraws what is open, offers nothing and says so', { timeout: 180_000 }, async () => {
+  const t = await open()
+  try {
+    await createIdentity(t.page)
+    await authorise(t.page)
+    await t.page.waitForSelector('#review-panel:not([hidden])')
+    // A signature asked for before the loss and given after it: nothing can be kept, and the page still says why.
+    await t.page.evaluate(() => {
+      const get = navigator.credentials.get.bind(navigator.credentials)
+      globalThis.asked = new Promise((resolve) => { globalThis.asking = resolve })
+      navigator.credentials.get = async (o) => { const c = await get(o); globalThis.asking(); await new Promise((resolve) => { globalThis.answer = resolve }); return c }
+    })
+    await t.page.click('#sign')
+    await t.page.evaluate(() => globalThis.asked)
+    const raised = await t.page.evaluate(() => new Promise((resolve) => {
+      const o = indexedDB.open('muid', 2)
+      o.onblocked = () => resolve('blocked')
+      o.onsuccess = () => { o.result.close(); resolve('raised') }
+    }))
+    assert.equal(raised, 'raised')
+    await t.page.waitForFunction(() => document.getElementById('error').textContent !== '')
+    assert.equal(await t.page.textContent('#error'), 'A newer version of this page has taken its storage, or the browser has cleared it: reload this page.')
+    const offered = async () => { for (const id of ['create', 'identity', 'authorise', 'renew', 'add-root', 'joining', 'pending', 'review-panel', 'handoff']) assert.equal(await t.page.isHidden('#' + id), true, id) }
+    await offered()
+    await t.page.evaluate(() => globalThis.answer())
+    await t.page.waitForTimeout(500)
+    assert.equal(await t.page.textContent('#error'), 'A newer version of this page has taken its storage, or the browser has cleared it: reload this page.')
+    await offered()
+    await t.page.reload()
+    await errorShown(t.page)
+    assert.equal(await t.page.textContent('#error'), 'This browser gave the page no storage: it can do nothing here.')
+    for (const id of ['create', 'identity', 'authorise']) assert.equal(await t.page.isHidden('#' + id), true, id)
     assert.deepEqual(t.problems, [])
   } finally {
     await t.close()
@@ -1455,6 +1497,7 @@ test('renewal: a tab not yet told of another tab\'s change does not undo it, and
     await errorShown(t.page)
     assert.equal(await t.page.textContent('#error'), CHANGED)
     assert.equal(await t.page.isHidden('#handoff'), true)
+    assert.equal(await t.page.isHidden('#review-panel'), true, 'the review is withdrawn (a surviving mutant)')
     assert.deepEqual(await kept(t.page), [])
     await seed(t.page, [stored(1), stored(2)])
     await t.collect()
@@ -1470,6 +1513,19 @@ test('renewal: a tab not yet told of another tab\'s change does not undo it, and
     await t.page.evaluate(() => globalThis.answer())
     await errorShown(t.page)
     assert.equal(await t.page.textContent('#error'), CHANGED)
+    assert.equal(await t.page.isHidden('#renew-handoffs'), true)
+    // A renewal withdrawn while the passkey was asked is dropped there: storage is not read for it, so nothing is
+    // said of a change this tab has not been told of (a surviving mutant; the model's SignReply).
+    await t.page.click('#renew-review')
+    await t.page.waitForSelector('#renew-panel:not([hidden])')
+    await t.page.evaluate(() => { globalThis.asked = new Promise((resolve) => { globalThis.asking = resolve }) })
+    await t.page.click('#renew-sign')
+    await t.page.evaluate(() => globalThis.asked)
+    await t.page.locator('#workers input[type=checkbox]').first().click()
+    await seed(t.page, [stored(1), stored(3)])
+    await t.page.evaluate(() => globalThis.answer())
+    await t.page.waitForTimeout(500)
+    assert.equal(await t.page.textContent('#error'), '')
     assert.equal(await t.page.isHidden('#renew-handoffs'), true)
     assert.deepEqual(t.problems, [])
   } finally {
@@ -1494,12 +1550,16 @@ test('renewal: a change this browser cannot save is said, and the list stays as 
     assert.equal(await t.page.isHidden('#handoff'), true, 'nothing handed over')
     assert.equal(await t.page.isHidden('#review-panel'), false)
     assert.deepEqual(await keys(t.page), [workerPub(1)])
-    // A worker that cannot be forgotten stays listed, with the same notice.
+    // A worker that cannot be forgotten stays listed, with the same notice. A Forget withdraws what is open when it
+    // is pressed, saved or not (as the model of the page has it; a surviving mutant).
     await t.page.fill('#scopes', 'post read')
     assert.equal(await t.page.textContent('#error'), '')
+    await authorise(t.page, { agent: 'forecaster', subject: workerPub(2), scopes: 'post' })
+    await t.page.waitForSelector('#review-panel:not([hidden])')
     await forget(t.page, 0)
     assert.equal(await t.page.textContent('#error'), UNSAVED)
     assert.deepEqual(await keys(t.page), [workerPub(1)])
+    assert.equal(await t.page.isHidden('#review-panel'), true)
     await t.collect()
     await t.page.reload()
     await t.page.waitForSelector('#renew:not([hidden])')
@@ -1822,10 +1882,13 @@ test('a new passkey\'s review edited while it waits for the witness is withdrawn
     let held = null
     let asked
     let release
+    let down = false
     await t.page.route('**/v1/identities/*/records', async (route) => {
       if (held !== null) { asked(); await held }
-      await route.continue()
+      if (down) await route.fulfill({ status: 503, json: { ok: false, reason: 'unavailable' } })
+      else await route.continue()
     })
+    const unavailable = /^Failed to load resource: the server responded with a status of 503/
     const hold = () => { const seen = new Promise((resolve) => { asked = resolve }); held = new Promise((resolve) => { release = resolve }); return seen }
     const settled = async () => { release(); held = null; await t.page.waitForLoadState('networkidle'); await t.page.waitForTimeout(300) }
     // Reviewed for one root, the field then names another while the witness is asked: nothing is shown or signable.
@@ -1863,6 +1926,35 @@ test('a new passkey\'s review edited while it waits for the witness is withdrawn
     await t.page.locator('#workers input').nth(0).uncheck()
     await settled()
     assert.equal(await t.page.textContent('#error'), '')
+    // The witness itself failing to answer a review since withdrawn: not shown, for each review; unwithdrawn, shown.
+    down = true
+    seen = hold()
+    await t.page.fill('#new-root', roots[0])
+    await t.page.click('#add-review')
+    await seen
+    await t.page.fill('#new-root', roots[1])
+    await settled()
+    assert.equal(await t.page.textContent('#error'), '', 'a new passkey')
+    seen = hold()
+    await authorise(t.page, { agent: 'w2', subject: workerPub(2), scopes: 'post' })
+    await seen
+    await t.page.fill('#agent', 'w3')
+    await settled()
+    assert.equal(await t.page.textContent('#error'), '', 'a worker')
+    await t.page.locator('#workers input').nth(0).check()
+    seen = hold()
+    await t.page.click('#renew-review')
+    await seen
+    await t.page.locator('#workers input').nth(0).uncheck()
+    await settled()
+    assert.equal(await t.page.textContent('#error'), '', 'a renewal')
+    await t.page.locator('#workers input').nth(0).check()
+    seen = hold()
+    await t.page.click('#renew-review')
+    await seen
+    await settled()
+    assert.notEqual(await t.page.textContent('#error'), '', 'one not withdrawn says so')
+    down = false
     // Unedited, the review is of the root in the field when Review was pressed.
     seen = hold()
     await t.page.fill('#new-root', roots[0])
@@ -1870,7 +1962,7 @@ test('a new passkey\'s review edited while it waits for the witness is withdrawn
     await seen
     await settled()
     assert.equal(await t.page.isHidden('#add-panel'), false)
-    assert.deepEqual(t.problems, [])
+    assert.deepEqual(t.problems.filter((p) => !unavailable.test(p)), [])
   } finally {
     await t.close()
   }

@@ -175,7 +175,12 @@ test('an update that fails changes nothing and says so; a read that fails is not
     const later = fresh()
     assert.deepEqual(await t.page.evaluate((name) => new Promise((resolve) => {
       const made = indexedDB.open(name, 2)
-      made.onsuccess = async () => { made.result.close(); try { await globalThis.openStore(name); resolve('opened') } catch (e) { resolve(e.name) } }
+      made.onsuccess = async () => {
+        made.result.close()
+        // Five seconds without an answer is a hang, and fails here rather than running into the test's time limit.
+        const hung = new Promise((resolve) => setTimeout(() => resolve('hung'), 5000))
+        try { resolve(await Promise.race([globalThis.openStore(name).then(() => 'opened'), hung])) } catch (e) { resolve(e.name) }
+      }
     }), later), 'VersionError')
     // A closed store tells its watchers nothing more.
     const quiet = await other.evaluate(async (db) => {
@@ -234,6 +239,66 @@ test('writes are asked to be durable before they are reported; another tab is to
     await update(t.page, elsewhere, 'z', 'return { value: 26 }')
     await other.waitForFunction(() => globalThis.far.length >= 1)
     assert.deepEqual(await other.evaluate(() => [globalThis.told, globalThis.far]), [['a', 'b', 'a'], ['z']])
+    assert.deepEqual(t.problems, [])
+  } finally {
+    await t.close()
+  }
+})
+
+// Two versions of the page in one browser (model/STATE.md): a change of stored form raises the database version. By
+// the Indexed Database standard an open connection is then sent `versionchange`, and the upgrade waits until it
+// closes; a database of a later version cannot be opened at an earlier one. So the store closes when asked, says it
+// was lost, and code of the older version never writes to a database of the newer form.
+test('a store is given up when a newer page raises the database version, or the browser closes it: said once, and nothing more is changed', { timeout: 120_000 }, async () => {
+  const t = await open()
+  try {
+    const db = fresh()
+    const newer = await t.tab()
+    const hold = (page, name) => page.evaluate(async (name) => {
+      globalThis.lost = 0
+      globalThis.heard = []
+      globalThis.mine = await globalThis.openStore(name, () => { globalThis.lost++ })
+      globalThis.mine.watch((key) => globalThis.heard.push(key))
+      return globalThis.mine.update('k', () => ({ value: 'older' }))
+    }, name)
+    const use = (page) => page.evaluate(async () => {
+      const out = []
+      for (const act of [() => globalThis.mine.update('k', () => ({ value: 'written by older code' })), () => globalThis.mine.get('k')]) {
+        try { out.push(await act()) } catch (e) { out.push(e.name) }
+      }
+      return out
+    })
+    assert.deepEqual(await hold(t.page, db), { value: 'older' })
+    // The newer page's upgrade is not held up, and finds what was stored.
+    const raised = await newer.evaluate((db) => new Promise((resolve) => {
+      const o = indexedDB.open(db, 2)
+      o.onblocked = () => resolve('blocked')
+      o.onerror = () => resolve('error')
+      o.onsuccess = () => {
+        const got = o.result.transaction('values').objectStore('values').get('k')
+        got.onsuccess = () => { o.result.close(); resolve(got.result) }
+      }
+    }), db)
+    assert.deepEqual(raised, { value: 'older' })
+    await t.page.waitForFunction(() => globalThis.lost > 0)
+    assert.deepEqual(await use(t.page), ['InvalidStateError', 'InvalidStateError'])
+    // It hears no more of the store either, and is told it was lost once only.
+    await newer.evaluate((db) => new BroadcastChannel(`muid-store:${db}`).postMessage('k'), db)
+    await t.page.waitForTimeout(200)
+    assert.deepEqual(await t.page.evaluate(() => [globalThis.lost, globalThis.heard]), [1, []])
+    // Older code opening the raised database is refused by the browser.
+    assert.equal(await t.page.evaluate(async (db) => { try { await globalThis.openStore(db); return 'opened' } catch (e) { return e.name } }, db), 'VersionError')
+    // The browser closing the connection itself (its storage cleared) is the same loss. A store opened without a
+    // listener is closed as quietly.
+    const cleared = fresh()
+    await hold(t.page, cleared)
+    await newer.evaluate(async (name) => { globalThis.quiet = await globalThis.openStore(name) }, cleared)
+    const cdp = await t.page.context().newCDPSession(t.page)
+    await cdp.send('Storage.clearDataForOrigin', { origin: new URL(t.page.url()).origin, storageTypes: 'indexeddb' })
+    await t.page.waitForFunction(() => globalThis.lost > 0)
+    assert.deepEqual(await use(t.page), ['InvalidStateError', 'InvalidStateError'])
+    assert.equal(await newer.evaluate(async () => { try { await globalThis.quiet.get('k'); return 'read' } catch (e) { return e.name } }), 'InvalidStateError')
+    assert.equal(await t.page.evaluate(() => globalThis.lost), 1)
     assert.deepEqual(t.problems, [])
   } finally {
     await t.close()

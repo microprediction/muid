@@ -691,7 +691,13 @@ database is shared by the origin's pages and workers. So an update is never made
 since replaced, in whatever tabs the two are made. `change` is called once and may not wait, since a transaction ends
 with its task: a decision that takes a passkey or the witness is made before the update, and the update checks that
 what it finds is still what was decided on. Other holders of the store are told, by a broadcast channel, which key a
-committed update changed; that message is a prompt to read again, and nothing depends on its arriving. Web storage
+committed update changed; that message is a prompt to read again, and nothing depends on its arriving. A store can be
+lost while it is open: a page of a later version raises the database's version (a change of stored form must), on
+which the standard sends every open connection `versionchange` and holds the upgrade until each has closed; or the
+browser closes the connection itself (its storage cleared). The store then closes, says so once, and changes nothing
+more; the page withdraws what is open, offers nothing, and says to reload. A database of a later version cannot be
+opened at an earlier one (the standard's `VersionError`), so the reloaded older page has no storage: code of an
+older version never writes to data of a newer form, by the standard's rule and not by a check of this code's. Web storage
 (`localStorage`) is not used for anything read and then written: its standard defines no locking between a
 multi-process browser's tabs, and a lock taken beside it (Web Locks) orders the tabs without making one see what
 another just wrote. Research: [`browser-storage.md`](research/browser-storage.md).

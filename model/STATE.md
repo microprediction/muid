@@ -5,27 +5,24 @@ step at which a change has happened (commit point), what is assumed of a restart
 model covers. A model check here is exhaustive only within the bounds its configuration states, and is about the
 model; the tie to the code is by tests, named in [`TESTING.md`](../TESTING.md). Gaps are listed, not excused.
 
-## 1. Mixed versions of the id page in one browser (not covered)
+## 1. Mixed versions of the id page in one browser (handled by the standard's rule; not modelled)
 
 Two tabs of the id origin may run different versions of `id/page.js`: one opened before a deployment, one after.
-Nothing models this, and the code does not yet handle it.
 
-- What is stored has no format version. A stored root that is not of the form the running code knows is read as no
-  root (`storedRoot`), and stored workers not of its form as none (`storedWorkers`). That is right for a value
-  something else on the origin wrote. For a value a *newer* page wrote in a newer form it is wrong: the older tab
-  shows Create, and its Create, finding "none", writes a new root over the stored one; any change to the workers
-  writes back only the entries it understood.
-- The database is opened at a fixed version 1, with no `versionchange` or `blocked` handling. If a later page
-  raised the version, an older tab's open connection would block the upgrade and the new tab would wait without
-  saying why; an older page opening the raised database is refused by the browser (`VersionError`) and says it has
-  no storage, which is the safe outcome.
+- What is stored has no format version of its own. A stored root that is not of the form the running code knows is
+  read as no root (`storedRoot`), and stored workers not of its form as none (`storedWorkers`). That is right for a
+  value something else on the origin wrote; for a value a *newer* page wrote in a newer form it would let the
+  older tab's Create write a new root over the stored one.
+- So a change of stored form must raise the database's version, and the rest is the Indexed Database standard's:
+  every open connection is sent `versionchange` and the upgrade waits until each has closed; a database of a later
+  version cannot be opened at an earlier one. The store (`id/store.js`) closes when asked, or when the browser
+  closes it, and says so; the page then withdraws what is open, offers nothing and says to reload; reloaded, the
+  older code is refused the database and has no storage. Code of an older version never writes to a database of a
+  newer form. Tested in Chrome (`ST1`, `P2`), with broken twins.
+- Not covered: no model has two versions in it; the rule that a change of form raises the version is a rule for
+  whoever makes that change, checked by nothing; an open that is `blocked` by a connection that does not close
+  (not this code's) is not reported, since at a fixed version it cannot happen.
 - The page has been used by nobody, so no stored value of an older form exists today.
-
-The mechanism to adopt is the Indexed Database standard's own: a change of stored form raises the database version;
-every connection handles `versionchange` by closing, after which that tab has no storage and offers nothing until
-reloaded; an open that is `blocked` is reported. Then the standard, not this code, guarantees that code of an older
-version never writes to a database of a newer form. To do before the stored form first changes; the handlers
-themselves can be added and tested in Chrome now.
 
 ## 2. The components
 
@@ -43,7 +40,7 @@ themselves can be added and tested in Chrome now.
 
 ## 3. What this leaves to do, in order
 
-1. Version handling in the browser store (§1): the handlers and their Chrome tests.
+1. When the stored form first changes: raise the database version, and report a `blocked` open.
 2. The witness service's outbox: a TLA+ model of decide, stage, append, keep, with a crash and a lost log answer
    between any two, and two requests for one identity; the invariant that the witness never signs two rivals and
    serves nothing the log lacks. It is the same shape as the id page's outbox and the adapter's transaction.

@@ -696,7 +696,7 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   wait is cut to 15 s and every test to 60 s, and once one test fails or times out, the rest fail at once. Without
   this, a broken page made each test wait out its limits in turn, and the mutant was counted only when Stryker's
   own timeout ran out.
-- Twins (`tests/meta/id-twins.test.mjs`, 104 in all): the challenge's domain, any algorithm, unsorted scopes, an unbounded
+- Twins (`tests/meta/id-twins.test.mjs`, 111 in all): the challenge's domain, any algorithm, unsorted scopes, an unbounded
   lifetime, an unchecked audience, an edit that keeps the review, a late signature kept, verification preferred,
   any passkey, a credential that is not resident, inline scripts allowed, hidden parts shown; attest granted; a change co-signed that does not add
   this passkey, an edit of the new root kept, authority unchecked, delegations under the first membership, the root
@@ -813,6 +813,27 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   answer (a surviving mutant). Twins (6 more, 104 in all): the losing Create registering; a registration, or a
   co-signature, marking whatever root the tab then holds; either said to be done when it was not; a co-signature
   sent unkept.
+- **Two versions of the page in one browser:** `ST1`: a store open when another connection raises the database's
+  version closes (the upgrade is not blocked, and finds what was stored), says once that it was lost, hears and
+  changes nothing more (`InvalidStateError`); opened again at its own version it is refused (`VersionError`); the
+  browser clearing the origin's databases is the same loss, and a store opened with no listener closes as quietly.
+  `P2`: a page with a review open and a signature asked for, its storage then taken: everything is hidden, the page
+  says to reload, the signature given afterwards changes nothing, and the reloaded page says it has no storage.
+  Twins (5 more, 111 in all): the store staying open; a browser's close, or a newer page's, not said; the review
+  left open; the page going on offering.
+- **The page's first complete mutation run (631 mutants, 98.57%, nine surviving):** three were weak tests, now
+  strengthened: a worker signed after its review was withdrawn is not remembered either; a change that arrives
+  while the passkey is asked withdraws the review, not only the hand-off;
+  a Forget withdraws what is open when pressed, though it cannot be saved; a renewal withdrawn while the passkey
+  was asked reads no storage and says nothing. Those last two lines looked redundant beside their neighbours, but
+  each is a step of the page's model (`Forget`, `SignReply`), so they stay, and are now pinned. Five are equivalent
+  and marked so with their reasons. Twins (2 more, 111 in all): a Forget leaving the review; a withdrawn renewal
+  reading storage.
+- **Found by the first complete run of the 104 twins:** four were not caught, each by a weak test, not a fault of
+  the page. The three late-refusal twins differ from the page only when the witness itself fails after a withdrawal
+  (a review that would be refused returns before it is refused): `P2` now has the witness answer 503 after each of
+  the three reviews is withdrawn (nothing shown), and once unwithdrawn (shown). An opening that hangs made its test
+  run out of time, which the harness does not count as caught: `ST1` now fails it after five seconds.
 - **Models of the page (`model/tla/IdPage.tla`, `IdRoot.tla`; TLC, exhaustive within their bounds):**
   `IdPage` is the remembered workers across tabs: each tab's copy, its one open review, its requests to the witness
   and the passkey, and its queue of storage operations, with the running of an operation and the tab's hearing of
