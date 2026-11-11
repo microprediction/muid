@@ -119,6 +119,36 @@ async function open ({ init } = {}) {
     close: async () => { await collect(); await end() } }
 }
 
+// The page's store (SPEC §7) read and written directly: IndexedDB, with no notice to any tab, as a tab not yet told
+// of a change finds it. `held` gives a key's value (null if absent); `hold` sets it; `drop` removes it.
+const direct = (page, mode, key, value) => page.evaluate(([mode, key, value]) => new Promise((resolve, reject) => {
+  const opening = indexedDB.open('muid', 1)
+  opening.onupgradeneeded = () => opening.result.createObjectStore('values')
+  opening.onerror = () => reject(opening.error)
+  opening.onsuccess = () => {
+    const tx = opening.result.transaction('values', mode === 'get' ? 'readonly' : 'readwrite')
+    const values = tx.objectStore('values')
+    let out = null
+    if (mode === 'get') values.get(key).onsuccess = (e) => { if (e.target.result !== undefined) out = e.target.result.value }
+    else if (mode === 'delete') values.delete(key)
+    else values.put({ value }, key)
+    tx.oncomplete = () => { opening.result.close(); resolve(out) }
+    tx.onabort = () => reject(tx.error)
+  }
+}), [mode, key, value])
+const held = (page, key) => direct(page, 'get', key)
+const hold = (page, key, value) => direct(page, 'put', key, value)
+const drop = (page, key) => direct(page, 'delete', key)
+// A change made through the adapter from this page, as any page of the origin makes one: every tab's page is told.
+const change = (page, key, value) => page.evaluate(async ([key, value]) => {
+  const { openStore } = await import('/id/store.js')
+  const s = await openStore('muid')
+  await s.update(key, () => value === null ? { absent: true } : { value })
+  s.close()
+}, [key, value])
+// Tells every tab's page that a key changed, whether or not it did.
+const tell = (page, key) => page.evaluate((key) => { const c = new BroadcastChannel('muid-store:muid'); c.postMessage(key); c.close() }, key)
+
 const errorShown = (page) => page.waitForFunction(() => document.getElementById('error').textContent !== '')
 
 async function createIdentity (page, name = 'test') {
@@ -152,7 +182,7 @@ test('create an identity and authorise a worker: the core, the witness and the v
     assert.equal(credentials.length, 1)
     assert.equal(credentials[0].isResidentCredential, true)
     assert.equal(credentials[0].userName, 'test')
-    assert.equal(JSON.parse(await t.page.evaluate(() => localStorage.getItem('muid.root'))).text, r.text)
+    assert.equal((await held(t.page, 'root')).text, r.text)
 
     // Surrounding spaces are not part of what is signed.
     await authorise(t.page, { agent: ' forecaster ', subject: ` ${SUBJECT} `, aud: ' https://app.example ', scopes: ' post  read ' })
@@ -298,7 +328,7 @@ test("with another passkey for this site on the device, the identity's own signs
     await t.page.click('#sign')
     await t.page.waitForSelector('#handoff:not([hidden])')
     const h = JSON.parse(await t.page.inputValue('#handoff'))
-    const own = JSON.parse(await t.page.evaluate(() => localStorage.getItem('muid.root'))).credential
+    const own = (await held(t.page, 'root')).credential
     assert.deepEqual(await t.page.evaluate(() => globalThis.asked), [['public-key', Buffer.from(own, 'base64url').toString('base64')]])
     const key = rootModule.checkRoot(r.text, { rpId: 'localhost' }).key
     const id = h.root.covers[0]
@@ -309,9 +339,15 @@ test("with another passkey for this site on the device, the identity's own signs
 })
 
 test('an unreadable stored identity is forgotten: the page offers to create one', { timeout: 120_000 }, async () => {
-  const t = await open({ init: () => { if (!sessionStorage.getItem('seeded')) { sessionStorage.setItem('seeded', '1'); localStorage.setItem('muid.root', '{') } } })
+  const t = await open()
   try {
-    await t.page.reload()
+    await t.page.waitForSelector('#create:not([hidden])')
+    for (const unreadable of ['{', 7, [], { identity: 'x' }]) {
+      await hold(t.page, 'root', unreadable)
+      await t.collect()
+      await t.page.reload()
+      await t.page.waitForSelector('#create:not([hidden])')
+    }
     await t.page.waitForSelector('#create:not([hidden])')
     assert.equal(await t.page.isHidden('#identity'), true)
     assert.equal(await t.page.isHidden('#authorise'), true)
@@ -322,11 +358,67 @@ test('an unreadable stored identity is forgotten: the page offers to create one'
 })
 
 test('a stored root of the wrong form is forgotten, not shown', { timeout: 120_000 }, async () => {
-  const t = await open({ init: () => { if (!sessionStorage.getItem('seeded')) { sessionStorage.setItem('seeded', '1'); localStorage.setItem('muid.root', '{"identity":"<b>x</b>","text":5}') } } })
+  const t = await open()
   try {
+    await t.page.waitForSelector('#create:not([hidden])')
+    await hold(t.page, 'root', { identity: '<b>x</b>', text: 5 })
+    await t.collect()
     await t.page.reload()
     await t.page.waitForSelector('#create:not([hidden])')
     assert.equal(await t.page.isHidden('#identity'), true)
+    assert.deepEqual(t.problems, [])
+  } finally {
+    await t.close()
+  }
+})
+
+// SPEC §7: the page keeps what it keeps through its storage adapter. Without storage it offers nothing, and says so.
+test('a browser that gives the page no storage is told so, and offered nothing', { timeout: 120_000 }, async () => {
+  const t = await open({ init: () => { IDBFactory.prototype.open = () => { throw new DOMException('no', 'SecurityError') } } })
+  try {
+    await errorShown(t.page)
+    assert.equal(await t.page.textContent('#error'), 'This browser gave the page no storage: it can do nothing here.')
+    for (const id of ['create', 'identity', 'authorise', 'renew', 'add-root', 'joining']) assert.equal(await t.page.isHidden('#' + id), true, id)
+    assert.deepEqual(t.problems, [])
+  } finally {
+    await t.close()
+  }
+})
+
+// A root is stored only while storage holds the root this tab acts for (none, when it creates one): the write and
+// that check are one transaction, so two tabs creating at once keep one identity, and neither writes over the other.
+test('a root another tab stored while this one was creating its own is adopted, not overwritten; nor by a later registration', { timeout: 180_000 }, async () => {
+  const t = await open()
+  try {
+    // Another device's root, of the right form for this site, stands for what another tab stores meanwhile.
+    const d = await t.device()
+    const theirs = await createIdentity(d.page)
+    const stored = await held(d.page, 'root')
+    await t.page.evaluate(() => {
+      const create = navigator.credentials.create.bind(navigator.credentials)
+      globalThis.asked = new Promise((resolve) => { globalThis.asking = resolve })
+      navigator.credentials.create = async (o) => { const c = await create(o); globalThis.asking(); await new Promise((resolve) => { globalThis.answer = resolve }); return c }
+    })
+    await t.page.bringToFront()
+    await t.page.fill('#name', 'mine')
+    await t.page.click('#create-button')
+    await t.page.evaluate(() => globalThis.asked)
+    await hold(t.page, 'root', stored)
+    await t.page.evaluate(() => globalThis.answer())
+    await t.page.waitForSelector('#identity:not([hidden])')
+    assert.equal(await t.page.textContent('#identity-id'), theirs.identity, 'the stored identity is the one shown')
+    assert.deepEqual(await held(t.page, 'root'), stored, 'and it was not written over')
+    // A registration that completes after the stored root has become another's marks nothing on it.
+    const fresh = await open()
+    try {
+      await fresh.page.route('**/v1/records', async (route) => { await hold(fresh.page, 'root', { ...stored, registered: false }); await route.continue() })
+      await fresh.page.fill('#name', 'second')
+      await fresh.page.click('#create-button')
+      await fresh.page.waitForFunction((id) => document.getElementById('identity-id').textContent === id, theirs.identity)
+      assert.deepEqual(await held(fresh.page, 'root'), { ...stored, registered: false }, 'not marked registered by another root\'s registration')
+    } finally {
+      await fresh.close()
+    }
     assert.deepEqual(t.problems, [])
   } finally {
     await t.close()
@@ -346,12 +438,15 @@ test('another tab that creates an identity is followed here, and one is never cr
     assert.equal(await other.textContent('#identity-id'), a.identity)
     assert.equal(await other.isHidden('#create'), true)
     // A create begun in a tab that has not yet heard of it adopts the stored identity and creates nothing.
-    await other.evaluate(() => { const r = localStorage.getItem('muid.root'); localStorage.removeItem('muid.root'); window.dispatchEvent(new StorageEvent('storage', { key: 'muid.root', newValue: null })); localStorage.setItem('muid.root', r) })
+    const stored = await held(other, 'root')
+    await drop(other, 'root')
+    await tell(t.page, 'root')
     await other.waitForSelector('#create:not([hidden])')
+    await hold(other, 'root', stored)
     await other.click('#create-button')
     await other.waitForSelector('#identity:not([hidden])')
     assert.equal(await other.textContent('#identity-id'), a.identity)
-    assert.equal(JSON.parse(await t.page.evaluate(() => localStorage.getItem('muid.root'))).identity, a.identity, 'not overwritten')
+    assert.equal((await held(t.page, 'root')).identity, a.identity, 'not overwritten')
     // A review open in the other tab is withdrawn when what is stored changes; storage cleared there is followed too.
     await other.fill('#agent', 'forecaster')
     await other.fill('#subject', SUBJECT)
@@ -359,15 +454,9 @@ test('another tab that creates an identity is followed here, and one is never cr
     await other.fill('#scopes', 'post')
     await other.click('#review')
     await other.waitForSelector('#review-panel:not([hidden])')
-    // Another key of this origin changing is not the identity changing: the review stays. (A listener added after the
-    // page's runs after it, so once it has seen the event the page has handled it.)
-    await other.evaluate(() => { window.seen = []; window.addEventListener('storage', (e) => window.seen.push(e.key)) })
-    await t.page.evaluate(() => localStorage.setItem('unrelated', '1'))
-    await other.waitForFunction(() => window.seen.includes('unrelated'))
-    assert.equal(await other.isHidden('#review-panel'), false, 'another key leaves the review')
-    await t.page.evaluate(() => localStorage.setItem('muid.root', JSON.stringify({ ...JSON.parse(localStorage.getItem('muid.root')), note: 1 })))
+    await change(t.page, 'root', { ...stored, note: 1 })
     await other.waitForSelector('#review-panel', { state: 'hidden' })
-    await t.page.evaluate(() => localStorage.clear())
+    await change(t.page, 'root', null)
     await other.waitForSelector('#create:not([hidden])')
     assert.equal(await other.isHidden('#identity'), true)
     assert.deepEqual(t.problems, [])
@@ -773,9 +862,16 @@ test('a co-signature whose answer is lost is pending: sent again on reload and b
 const workerKey = (i) => Uint8Array.from({ length: 32 }, (_, j) => i + j)
 const workerPub = (i) => hex(ed25519.getPublicKey(workerKey(i)))
 const stored = (i, over = {}) => ({ agent: `w${i}`, subject: workerPub(i), aud: 'https://app.example', scopes: ['post'], lifetime: 3600, ...over })
-const seed = (page, value) => page.evaluate((v) => localStorage.setItem('muid.workers', v), typeof value === 'string' ? value : JSON.stringify(value))
-const kept = async (page) => JSON.parse(await page.evaluate(() => localStorage.getItem('muid.workers')))
+const seed = (page, value) => hold(page, 'workers', value)
+const kept = (page) => held(page, 'workers')
 const signCount = async (t) => (await t.cdp.send('WebAuthn.getCredentials', { authenticatorId: t.authenticatorId })).credentials[0].signCount
+
+// Forget pressed on the nth remembered worker, and the change made (the list is one shorter) or refused (an error).
+async function forget (page, n) {
+  const listed = await page.locator('#workers li').count()
+  await page.locator('#workers button').nth(n).click()
+  await page.waitForFunction((listed) => document.querySelectorAll('#workers li').length !== listed || document.getElementById('error').textContent !== '', listed)
+}
 
 async function authoriseAndSign (page, fields) {
   await authorise(page, fields)
@@ -969,7 +1065,7 @@ test('renewal, I4: 1 to 8 at once; a change of selection withdraws; a forgotten 
     // Forgetting a worker withdraws a review, removes it from the list and from what is kept; the rest stay.
     await t.page.click('#renew-review')
     await t.page.waitForSelector('#renew-panel:not([hidden])')
-    await t.page.locator('#workers button').nth(1).click()
+    await forget(t.page, 1)
     assert.equal(await t.page.isHidden('#renew-panel'), true)
     assert.deepEqual((await kept(t.page)).map((w) => w.agent), ['w1', 'w3', 'w4', 'w5', 'w6', 'w7', 'w8', 'w9'])
     assert.equal(await t.page.locator('#workers li').count(), 8)
@@ -990,11 +1086,11 @@ test('renewal, I4: 1 to 8 at once; a change of selection withdraws; a forgotten 
     await t.page.reload()
     await t.page.waitForSelector('#renew:not([hidden])')
     assert.equal(await t.page.locator('#workers li').count(), 3)
-    await t.page.locator('#workers button').nth(0).click()
+    await forget(t.page, 0)
     assert.deepEqual(await kept(t.page), [stored(1, { aud: 'https://other.example' }), stored(1, { agent: 'w5' })])
     // The last one forgotten, there is nothing to renew.
-    await t.page.locator('#workers button').nth(0).click()
-    await t.page.locator('#workers button').nth(0).click()
+    await forget(t.page, 0)
+    await forget(t.page, 0)
     assert.deepEqual(await kept(t.page), [])
     assert.equal(await t.page.isHidden('#renew'), true)
 
@@ -1118,7 +1214,7 @@ test('a change made while a review waits for the witness withdraws it: of one wo
     held = hold()
     await t.page.click('#renew-review')
     await held.seen
-    await other.locator('#workers button').nth(0).click()
+    await forget(other, 0)
     await t.page.waitForFunction(() => document.querySelectorAll('#workers li').length === 1)
     await settled()
     assert.equal(await t.page.isHidden('#renew-panel'), true, 'the forgotten worker is not shown for renewal')
@@ -1144,18 +1240,18 @@ test('a change made while a review waits for the witness withdraws it: of one wo
 // of another's change undid it. A change is now made to what storage holds at that moment, and a review made before
 // another tab's change is not signed. Storage notifications to a tab are held here to make it that late tab.
 const HOLD_STORAGE = () => {
-  const add = window.addEventListener.bind(window)
+  const add = BroadcastChannel.prototype.addEventListener
   globalThis.heldStorage = []
   globalThis.holdStorage = false
-  window.addEventListener = (type, fn, ...rest) => type !== 'storage'
-    ? add(type, fn, ...rest)
-    : add(type, (e) => { if (globalThis.holdStorage) globalThis.heldStorage.push(() => fn(e)); else fn(e) }, ...rest)
+  BroadcastChannel.prototype.addEventListener = function (type, fn, ...rest) {
+    return add.call(this, type, (e) => { if (globalThis.holdStorage) globalThis.heldStorage.push(() => fn(e)); else fn(e) }, ...rest)
+  }
   // Writes of the remembered workers fail while failWrites is set, as a full or forbidden storage would.
-  const set = Storage.prototype.setItem
+  const put = IDBObjectStore.prototype.put
   globalThis.failWrites = false
-  Storage.prototype.setItem = function (k, v) {
-    if (globalThis.failWrites && k === 'muid.workers') throw new DOMException('quota', 'QuotaExceededError')
-    return set.call(this, k, v)
+  IDBObjectStore.prototype.put = function (value, key) {
+    if (globalThis.failWrites && key === 'workers') throw new DOMException('quota', 'QuotaExceededError')
+    return put.call(this, value, key)
   }
 }
 const CHANGED = 'The remembered workers were changed in another tab: review again.'
@@ -1176,7 +1272,7 @@ test('renewal: a tab not yet told of another tab\'s change does not undo it, and
     await late.evaluate(() => { globalThis.holdStorage = true })
     await authoriseAndSign(t.page, { agent: 'forecaster', subject: workerPub(2), scopes: 'post' })
     assert.deepEqual(await keys(late), [workerPub(1), workerPub(3)], 'the late tab has not been told')
-    await late.locator('#workers button').nth(1).click()
+    await forget(late, 1)
     assert.deepEqual((await kept(late)).map((w) => [w.agent, w.subject]), [['forecaster', workerPub(2)]])
     assert.deepEqual(await keys(late), [workerPub(2)], 'the late tab lists what storage holds')
     assert.equal(await late.textContent('#error'), '')
@@ -1191,7 +1287,7 @@ test('renewal: a tab not yet told of another tab\'s change does not undo it, and
     const before = await signCount(t)
     await t.page.click('#renew-review')
     await t.page.waitForSelector('#renew-panel:not([hidden])')
-    await late.locator('#workers button').nth(0).click()
+    await forget(late, 0)
     assert.equal((await kept(late)).length, 1)
     assert.equal(await t.page.isHidden('#renew-panel'), false, 'not told: the review is still shown')
     await t.page.click('#renew-sign')
@@ -1204,7 +1300,7 @@ test('renewal: a tab not yet told of another tab\'s change does not undo it, and
     // The same for one worker's review, and for either review started after the change.
     await authorise(t.page, { agent: 'w5', subject: workerPub(5), scopes: 'post' })
     await t.page.waitForSelector('#review-panel:not([hidden])')
-    await late.locator('#workers button').nth(0).click()
+    await forget(late, 0)
     assert.equal((await kept(late)).length, 0)
     await t.page.click('#sign')
     await errorShown(t.page)
@@ -1229,7 +1325,7 @@ test('renewal: a tab not yet told of another tab\'s change does not undo it, and
     await t.page.evaluate(() => { globalThis.asked = new Promise((resolve) => { globalThis.asking = resolve }) })
     await t.page.click('#sign')
     await t.page.evaluate(() => globalThis.asked)
-    await late.locator('#workers button').nth(0).click()
+    await forget(late, 0)
     await t.page.evaluate(() => globalThis.answer())
     await errorShown(t.page)
     assert.equal(await t.page.textContent('#error'), CHANGED)
@@ -1276,7 +1372,7 @@ test('renewal: a change this browser cannot save is said, and the list stays as 
     // A worker that cannot be forgotten stays listed, with the same notice.
     await t.page.fill('#scopes', 'post read')
     assert.equal(await t.page.textContent('#error'), '')
-    await t.page.locator('#workers button').nth(0).click()
+    await forget(t.page, 0)
     assert.equal(await t.page.textContent('#error'), UNSAVED)
     assert.deepEqual(await keys(t.page), [workerPub(1)])
     await t.collect()
@@ -1495,13 +1591,13 @@ test('renewal: a stored worker whose key is not a key is dropped; an unticked wo
     await authoriseAndSign(t.page, { agent: 'forecaster', subject: workerPub(2), scopes: 'post' })
     await authoriseAndSign(t.page, { agent: 'w5', subject: workerPub(5), scopes: 'post' })
     assert.deepEqual(await t.page.$$eval('#workers input', (bs) => bs.map((b) => b.checked)), [false, true, true])
-    await t.page.locator('#workers button').nth(2).click()
+    await forget(t.page, 2)
     assert.deepEqual(await t.page.$$eval('#workers input', (bs) => bs.map((b) => b.checked)), [false, true])
     await t.page.click('#renew-review')
     await t.page.waitForSelector('#renew-panel:not([hidden])')
     assert.deepEqual(await t.page.$$eval('#renew-list > li', (lis) => lis.map((li) => li.querySelector('dd').textContent)), ['forecaster'])
     // Forgotten and authorised again, it is a new entry: ticked.
-    await t.page.locator('#workers button').nth(0).click()
+    await forget(t.page, 0)
     await authoriseAndSign(t.page, { agent: 'w1', subject: workerPub(1), scopes: 'post' })
     assert.deepEqual(await t.page.$$eval('#workers input', (bs) => bs.map((b) => b.checked)), [true, true])
     assert.deepEqual(t.problems, [])
@@ -1527,7 +1623,7 @@ test('renewal: a worker another tab remembers or forgets is followed here; a joi
     await t.page.click('#renew-review')
     await t.page.waitForSelector('#renew-panel:not([hidden])')
     const before = await signCount(t)
-    await other.locator('#workers button').nth(0).click()
+    await forget(other, 0)
     await t.page.waitForFunction(() => document.querySelectorAll('#workers li').length === 1)
     assert.equal(await t.page.isHidden('#renew'), false)
     assert.equal(await t.page.isHidden('#renew-panel'), true)
@@ -1535,7 +1631,7 @@ test('renewal: a worker another tab remembers or forgets is followed here; a joi
     await t.page.waitForTimeout(500)
     assert.equal(await t.page.isHidden('#renew-handoffs'), true)
     assert.equal(await signCount(t), before, 'nothing signed')
-    await other.locator('#workers button').nth(0).click()
+    await forget(other, 0)
     await t.page.waitForSelector('#renew', { state: 'hidden' })
     assert.equal(await t.page.locator('#workers li').count(), 0)
     // A passkey still joining another identity has no authority to renew with: remembered workers are not offered.

@@ -763,12 +763,13 @@ what it was given expires, unless it is revoked. A review waits for the witness'
 withdraws a review (an edit, a change of selection, a forgotten worker, another tab's change) withdraws one still
 waiting, which then shows and signs nothing. A stored entry whose key is not a key is no worker, so nothing from
 storage but a key is shown beside what the passkey signs. A worker unticked stays unticked while it is listed. The remembered workers are
-one list shared by this browser's tabs: a change is made to what storage holds at that moment, never to what a tab
-last drew, so a tab not yet told of another's change does not undo it; a review made before such a change is not
-signed, nor a signature that returns after one handed over; and the list shown is what storage holds, so a change
-the browser could not save is said, not shown as made. This is a guarantee about this browser's remembered choices,
-without a lock across tabs: two changes written in the same instant can still lose one, and what is forgotten or
-replaced here is not thereby revoked. The review of an added passkey waits for the witness in the same way as a
+one list shared by this browser's tabs, kept through the storage adapter (§7): each change is one transaction, made
+to what storage holds at that moment, so no tab undoes another's change, whenever the two are made. A signed worker
+is remembered only if the list is still exactly as it was when the user reviewed it (the check and the write are
+that one transaction); otherwise, and for a renewal reviewed before another tab's change, nothing is signed or
+handed over and the tab is brought up to date. The list shown is what storage holds, so a change the browser could
+not save is said, not shown as made. This is a guarantee about this browser's remembered choices: what is forgotten
+or replaced here is not thereby revoked. The review of an added passkey waits for the witness in the same way as a
 worker's. A worker is handed its delegation only once the change is saved, so none is handed over on a
 promise (an old key retired) that was not kept. What was reviewed is signed only while unexpired, and handed over
 only if still unexpired when the passkey answers. An added passkey's change, once signed, is submitted; its hand-off
@@ -794,10 +795,12 @@ the I1–I3 window protocol for apps.
   groups of four hex digits), and the device that adds it shows the fingerprint of the root it is about to sign in,
   for the user to compare, as Bluetooth pairing's numeric comparison and Signal's safety numbers have users compare a
   short code: a root record swapped on its way between devices shows another.
-- **STORED STATE IS UNTRUSTED:** what the page keeps in `localStorage` is read back as untrusted (anything on the
-  origin may have written it) — a root of its form for this `rp_id`, its id taken from its own record, or none — and
-  read again before a new root is made: a page open in another tab follows what is stored (`storage` events), and
-  never makes a root over one that exists. What the page sends the witness is kept first and sent again on load
+- **STORED STATE IS UNTRUSTED:** what the page keeps (through the storage adapter, §7) is read back as untrusted
+  (anything on the origin may have written it) — a root of its form for this `rp_id`, its id taken from its own
+  record, or none — and read again before a new root is made: a page open in another tab follows what is stored
+  (the adapter's notice), and never makes a root over one that exists: a root is written only while storage holds
+  the root the tab acts for, or none when it creates one, checked in the transaction that writes it. Without
+  storage the page offers nothing, and says so. What the page sends the witness is kept first and sent again on load
   until taken (an outbox, as the witness keeps for its log): a new root's registration, and a joining root's
   co-signature, kept only if it is that root's own signature of a change that adds it. The witness takes the same
   record and signer again unchanged.
