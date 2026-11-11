@@ -46,16 +46,18 @@ async function refresh () {
 }
 const pending = { delegation: null, change: null, cosign: null, renewal: null }
 
-// A change to the stored root, made only while storage holds the root this tab acts for (none, when it creates
-// one): another tab's root is adopted, never overwritten.
-async function keepRoot (change) {
-  const mine = root === null ? null : root.id
+// A change to the stored root, made only while storage holds the root it was decided for (`mine`, its id: null
+// when one is being created): another's root is adopted, never overwritten. Whether the change was made.
+async function keepRoot (mine, change) {
+  let made = false
   const held = await store.update(KEY, (now) => {
     const r = rootOf(now)
-    return (r === null ? null : r.id) === mine ? { value: change(r) } : undefined
+    made = (r === null ? null : r.id) === mine
+    return made ? { value: change(r) } : undefined
   })
   root = rootOf(held)
   show()
+  return made
 }
 
 // A change to the remembered workers, made to what storage holds at that moment. Given `reviewed` (the workers as
@@ -222,7 +224,8 @@ async function create (joining) {
     } })
     const r = rootRecord(c.response.getPublicKey(), c.response.getPublicKeyAlgorithm(), rpId)
     // Kept before the witness is asked, so that a failed registration is retried with this root, not a new passkey.
-    await keepRoot(() => ({ ...r, credential: b64u(c.rawId), joining, registered: false }))
+    // If another tab's root is there instead, it is that tab's to register, or not: it may be joining.
+    if (!await keepRoot(null, () => ({ ...r, credential: b64u(c.rawId), joining, registered: false }))) return
   } catch (e) { fail(e); return }
   if (!joining) await register()
 }
@@ -232,10 +235,10 @@ async function create (joining) {
 const unregistered = () => root !== null && root.joining !== true && root.registered !== true
 
 async function register () {
+  const r = root // the root sent: only it is marked, whatever this tab holds by the time the witness answers
   try {
-    await submit(root.identity, 'root', root.text)
-    await keepRoot((kept) => ({ ...kept, registered: true }))
-    $('status').textContent = 'Registered with the witness.'
+    await submit(r.identity, 'root', r.text)
+    if (await keepRoot(r.id, (kept) => ({ ...kept, registered: true }))) $('status').textContent = 'Registered with the witness.'
   } catch (e) { fail(e) }
 }
 
@@ -371,11 +374,12 @@ $('cosign-sign').addEventListener('click', async () => {
   const c = pending.cosign
   if (c === null) return
   $('error').textContent = ''
+  const mine = root.id // the root whose passkey signs
   try {
     const a = await sign([c.id])
     if (pending.cosign !== c) return
     // Kept before the witness is asked, as a registration is, so that a lost answer is sent again, not lost.
-    await keepRoot((kept) => ({ ...kept, cosigned: rootSigned(c.payload, root.id, a) }))
+    if (!await keepRoot(mine, (kept) => ({ ...kept, cosigned: rootSigned(c.payload, mine, a) }))) return
   } catch (e) { fail(e); return }
   await cosign()
 })
@@ -383,11 +387,13 @@ $('cosign-sign').addEventListener('click', async () => {
 // The kept co-signature, sent (again: the witness accepts one it already holds); once taken, this root is the
 // identity's.
 async function cosign () {
+  const r = root // the root whose co-signature is sent: only it becomes the identity's
   try {
-    const identity = cosignedIdentity(root.cosigned, root.id)
-    await submit(identity, 'membership', root.cosigned)
-    await keepRoot(({ cosigned, ...rest }) => ({ ...rest, identity, joining: false, registered: true }))
-    $('status').textContent = 'Co-signed. The change settles once its contest window has passed.'
+    const identity = cosignedIdentity(r.cosigned, r.id)
+    await submit(identity, 'membership', r.cosigned)
+    if (await keepRoot(r.id, ({ cosigned, ...rest }) => ({ ...rest, identity, joining: false, registered: true }))) {
+      $('status').textContent = 'Co-signed. The change settles once its contest window has passed.'
+    }
   } catch (e) { fail(e) }
 }
 $('cosign-retry').addEventListener('click', () => { $('error').textContent = ''; cosign() })

@@ -428,6 +428,58 @@ test('a root another tab stored while this one was creating its own is adopted, 
   }
 })
 
+// Found by review (#74): what a tab does after a root is stored follows the root that was stored, not what the tab
+// set out to do. A Create that loses to another tab's Join registers nothing; a registration, or a co-signature,
+// marks only the root it was made for.
+test('a Create that adopts another tab\'s joining root registers nothing; a registration marks only its own root, though the tab was told of another', { timeout: 180_000 }, async () => {
+  const t = await open()
+  try {
+    const d = await t.device()
+    const theirs = await createIdentity(d.page)
+    const stored = await held(d.page, 'root')
+    const joiner = { ...stored, joining: true, registered: false }
+    const posted = []
+    await t.page.route('**/v1/records', async (route) => { posted.push(route.request().postDataJSON()); await route.continue() })
+    await t.page.evaluate(() => {
+      const create = navigator.credentials.create.bind(navigator.credentials)
+      globalThis.asked = new Promise((resolve) => { globalThis.asking = resolve })
+      navigator.credentials.create = async (o) => { const c = await create(o); globalThis.asking(); await new Promise((resolve) => { globalThis.answer = resolve }); return c }
+    })
+    await t.page.bringToFront()
+    await t.page.fill('#name', 'mine')
+    await t.page.click('#create-button')
+    await t.page.evaluate(() => globalThis.asked)
+    await hold(t.page, 'root', joiner)
+    await t.page.evaluate(() => globalThis.answer())
+    await t.page.waitForSelector('#joining:not([hidden])')
+    await t.page.waitForLoadState('networkidle')
+    assert.deepEqual(posted, [], 'the joining root is sent to no witness')
+    assert.deepEqual(await held(t.page, 'root'), joiner, 'and is kept as it was')
+    assert.equal(await t.page.textContent('#status'), '')
+    // A registration under way when the stored root becomes another's, and this tab is told: the other is not marked.
+    const fresh = await open()
+    try {
+      const other = { ...stored, registered: false }
+      await fresh.page.route('**/v1/records', async (route) => {
+        await change(fresh.page, 'root', other)
+        await fresh.page.waitForFunction((id) => document.getElementById('identity-id').textContent === id, theirs.identity)
+        await route.continue()
+      })
+      await fresh.page.fill('#name', 'second')
+      await fresh.page.click('#create-button')
+      await fresh.page.waitForFunction((id) => document.getElementById('identity-id').textContent === id, theirs.identity)
+      await fresh.page.waitForLoadState('networkidle')
+      assert.deepEqual(await held(fresh.page, 'root'), other, 'not marked registered by another root\'s registration')
+      assert.equal(await fresh.page.textContent('#status'), '', 'nor said to be')
+    } finally {
+      await fresh.close()
+    }
+    assert.deepEqual(t.problems, [])
+  } finally {
+    await t.close()
+  }
+})
+
 // Found by review: a tab opened before the identity was made still offered to create one, and overwrote it.
 test('another tab that creates an identity is followed here, and one is never created over it', { timeout: 120_000 }, async () => {
   const t = await open()
@@ -634,6 +686,75 @@ test('a second passkey: one device adds it, the other co-signs; once settled it 
       maxLifetime: 2_592_000, maxStaleness: 86_400, maxClaimAge: 300 })
     const accepted = v.verifyDelegation({ delegation: text, root: bRoot, head, logged }, { now: t.clock(), scope: 'post', revoked: [] })
     assert.equal(accepted.ok, true, JSON.stringify(accepted))
+    assert.deepEqual(t.problems, [])
+  } finally {
+    await t.close()
+  }
+})
+
+test('a co-signature is kept, and its root made the identity\'s, only for the root that signed it', { timeout: 180_000 }, async () => {
+  const t = await open()
+  try {
+    await createIdentity(t.page)
+    const b = await t.device()
+    await b.page.click('#join-button')
+    await b.page.waitForSelector('#joining:not([hidden])')
+    const mine = await held(b.page, 'root')
+    // Another joining root, of the right form for this site, stands for what the browser holds instead meanwhile.
+    const c = await t.device()
+    await c.page.click('#join-button')
+    await c.page.waitForSelector('#joining:not([hidden])')
+    const other = await held(c.page, 'root')
+    await t.page.bringToFront()
+    await t.page.fill('#new-root', await b.page.inputValue('#join-root'))
+    await t.page.click('#add-review')
+    await t.page.waitForSelector('#add-panel:not([hidden])')
+    await t.page.click('#add-sign')
+    await t.page.waitForSelector('#add-handoff:not([hidden])')
+    const payload = await t.page.inputValue('#add-handoff')
+    const posted = []
+    let swap = false
+    await b.page.route('**/v1/records', async (route) => {
+      posted.push(route.request().postDataJSON().type)
+      if (swap) {
+        await change(b.page, 'root', other)
+        await b.page.waitForFunction((text) => document.getElementById('join-root').value === text, other.text)
+      }
+      await route.continue()
+    })
+    const review = async () => {
+      await b.page.bringToFront()
+      await b.page.fill('#cosign-payload', payload)
+      await b.page.click('#cosign-review')
+      await b.page.waitForSelector('#cosign-panel:not([hidden])')
+    }
+    // The stored root becomes another while the passkey is asked: the co-signature is not kept, and not sent.
+    await b.page.evaluate(() => {
+      const get = navigator.credentials.get.bind(navigator.credentials)
+      globalThis.asked = new Promise((resolve) => { globalThis.asking = resolve })
+      navigator.credentials.get = async (o) => { const a = await get(o); navigator.credentials.get = get; globalThis.asking(); await new Promise((resolve) => { globalThis.answer = resolve }); return a }
+    })
+    await review()
+    await b.page.click('#cosign-sign')
+    await b.page.evaluate(() => globalThis.asked)
+    await hold(b.page, 'root', other)
+    await b.page.evaluate(() => globalThis.answer())
+    await b.page.waitForFunction((text) => document.getElementById('join-root').value === text, other.text)
+    await b.page.waitForLoadState('networkidle')
+    assert.deepEqual(posted, [], 'nothing is sent')
+    assert.equal(await b.page.textContent('#error'), '', 'and nothing is tried')
+    assert.deepEqual(await held(b.page, 'root'), other, 'and the root there is left as it was')
+    // It becomes another while the witness is asked, and the tab is told: the other root is not marked.
+    await change(b.page, 'root', mine)
+    await b.page.waitForFunction((text) => document.getElementById('join-root').value === text, mine.text)
+    await review()
+    swap = true
+    await b.page.click('#cosign-sign')
+    await b.page.waitForFunction((text) => document.getElementById('join-root').value === text, other.text)
+    await b.page.waitForLoadState('networkidle')
+    assert.deepEqual(posted, ['membership'])
+    assert.deepEqual(await held(b.page, 'root'), other, 'the other root is not made the identity\'s')
+    assert.equal(await b.page.textContent('#status'), '', 'nor said to be co-signed')
     assert.deepEqual(t.problems, [])
   } finally {
     await t.close()

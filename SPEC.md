@@ -807,7 +807,10 @@ the I1–I3 window protocol for apps.
   (anything on the origin may have written it) — a root of its form for this `rp_id`, its id taken from its own
   record, or none — and read again before a new root is made: a page open in another tab follows what is stored
   (the adapter's notice), and never makes a root over one that exists: a root is written only while storage holds
-  the root the tab acts for, or none when it creates one, checked in the transaction that writes it. Without
+  the root the change was decided for, or none when one is created, checked in the transaction that writes it. What
+follows a write follows the root that was stored, not what the tab set out to do: a Create that finds another tab's
+root there registers nothing (that root may be joining, and a joining root is never registered as an identity of
+its own), and a registration or a co-signature the witness took marks only the root that was sent. Without
   storage the page offers nothing, and says so. What the page sends the witness is kept first and sent again on load
   until taken (an outbox, as the witness keeps for its log): a new root's registration, and a joining root's
   co-signature, kept only if it is that root's own signature of a change that adds it. The witness takes the same

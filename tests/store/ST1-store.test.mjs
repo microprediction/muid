@@ -128,7 +128,7 @@ test('an update that fails changes nothing and says so; a read that fails is not
     // The change throws: its error is the update's, and nothing is written.
     assert.deepEqual(await update(t.page, db, 'k', 'throw new RangeError("no")'), { threw: 'RangeError', message: 'no' })
     // The change answers with something that is neither a value, an absence nor undefined.
-    for (const bad of ['return null', 'return {}', 'return { value: 1, absent: true }', 'return { absent: false }', 'return { absent: 1 }', 'return 7', 'return Promise.resolve({ value: 2 })', 'return { value: 1, extra: 2 }']) {
+    for (const bad of ['return null', 'return {}', 'return { value: 1, absent: true }', 'return { absent: false }', 'return { absent: 1 }', 'return 7', 'return Promise.resolve({ value: 2 })', 'return { value: 1, extra: 2 }', 'return Object.assign(() => {}, { value: 3 })']) {
       assert.deepEqual(await update(t.page, db, 'k', bad), { threw: 'TypeError', message: 'a change gives { value }, { absent: true } or undefined' }, bad)
     }
     // A value that cannot be stored.

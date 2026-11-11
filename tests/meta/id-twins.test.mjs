@@ -36,7 +36,7 @@ const TWINS = [
   ['add-edit-keeps-review', 'an edit of the new root leaves the change signable', [["for (const id of ['agent', 'subject', 'aud', 'scopes', 'days', 'new-root', 'cosign-payload'])", "for (const id of ['agent', 'subject', 'aud', 'scopes', 'days', 'cosign-payload'])"]], 'page.js'],
   ['authority-unchecked', 'a passkey without authority yet signs delegations', [["  if (!s.authority.includes(root.id)) throw new Error('this passkey has no authority yet: wait for the change to settle')\n", '']], 'page.js'],
   ['membership-of-epoch-1', 'delegations name the first membership whatever the current one', [['  return s.membership\n', '  return root.identity\n']], 'page.js'],
-  ['root-unregistered', 'a new identity is not registered with the witness', [["    await submit(root.identity, 'root', root.text)\n", '']], 'page.js'],
+  ['root-unregistered', 'a new identity is not registered with the witness', [["    await submit(r.identity, 'root', r.text)\n", '']], 'page.js'],
   ['added-root-unsubmitted', "the added root's record is not given to the witness", [["    await submit(root.identity, 'root', c.rootText)\n", '']], 'page.js'],
   ['change-while-pending', 'a change is proposed while another is pending', [["  if (state.pending) throw new Error('a change is already pending: wait for it to settle')\n", '']], 'records.js'],
   ['roots-unsorted', "the change's roots are not sorted", [['roots: [...state.roots, r.id].sort() }', 'roots: [...state.roots, r.id] }']], 'records.js'],
@@ -52,10 +52,10 @@ const TWINS = [
   ['tabs-not-followed', 'what another tab stores is not followed', [["    store.watch(() => refresh().then(() => { withdraw(); show() }, fail))\n", ""]], 'page.js'],
   ['framed-acts', 'framed, the page still offers its actions', [['const FRAMED = window.top !== window.self', 'const FRAMED = false']], 'page.js'],
   ['origin-unchecked', 'served under another origin, the page still acts', [['  : location.origin !== ORIGIN ?', '  : false ?']], 'page.js'],
-  ['cosign-not-kept', 'a co-signature is sent without being kept, so a lost answer loses it', [["    await keepRoot((kept) => ({ ...kept, cosigned: rootSigned(c.payload, root.id, a) }))\n", "    root = { ...root, cosigned: rootSigned(c.payload, root.id, a) }\n"]], 'page.js'],
+  ['cosign-not-kept', 'a co-signature is sent without being kept, so a lost answer loses it', [["    if (!await keepRoot(mine, (kept) => ({ ...kept, cosigned: rootSigned(c.payload, mine, a) }))) return\n", "    root = { ...root, cosigned: rootSigned(c.payload, mine, a) }\n"]], 'page.js'],
   ['cosign-no-retry-on-load', 'a kept co-signature is not sent again when the page loads', [['\nif (root?.cosigned !== undefined) cosign()\n', '\n']], 'page.js'],
   ['outbox-sent-framed', 'framed, the page still sends what it kept', [["if (REFUSAL === undefined) {\n  try {\n", "if (true) {\n  try {\n"]], 'page.js'],
-  ['cosign-kept-after', 'a co-signature the witness took stays in the outbox', [["    await keepRoot(({ cosigned, ...rest }) => ({ ...rest, identity, joining: false, registered: true }))\n", "    await keepRoot((rest) => ({ ...rest, identity, joining: false, registered: true }))\n"]], 'page.js'],
+  ['cosign-kept-after', 'a co-signature the witness took stays in the outbox', [["keepRoot(r.id, ({ cosigned, ...rest }) => ({ ...rest, identity, joining: false, registered: true }))", "keepRoot(r.id, (rest) => ({ ...rest, identity, joining: false, registered: true }))"]], 'page.js'],
   ['cosigned-trusted', 'a stored co-signature is sent whatever it is', [["  if (x.cosigned !== undefined && (x.joining !== true || cosignedIdentity(x.cosigned, r.id) === undefined)) return null\n", '']], 'records.js'],
   ['renew-unbounded', 'more than eight workers are put under one assertion', [['  if (workers.length < 1 || workers.length > MAX_BATCH) throw', '  if (workers.length < 1) throw']], 'records.js'],
   ['renew-covers-unsorted', "a renewal's covers are in the order listed", [['  const covers = delegations.map((d) => d.id).sort()\n', '  const covers = delegations.map((d) => d.id)\n']], 'records.js'],
@@ -94,7 +94,7 @@ const TWINS = [
   ['store-answer-unchecked', "a change's answer is stored whatever its form", [['            const next = answer(change(now))\n', '            const next = change(now)\n']], 'store.js'],
   ['store-tells-unchanged', 'other tabs are told of an update that changed nothing', [['      if (r.changed) channel.postMessage(key)\n', '      channel.postMessage(key)\n']], 'store.js'],
   ['store-tells-nobody', 'other tabs are not told of a committed update', [['      if (r.changed) channel.postMessage(key)\n', '']], 'store.js'],
-  ['root-overwritten', "a root is stored over another tab's", [['    return (r === null ? null : r.id) === mine ? { value: change(r) } : undefined\n', '    return { value: change(r) }\n']], 'page.js'],
+  ['root-overwritten', "a root is stored over another tab's", [['    made = (r === null ? null : r.id) === mine\n', '    made = true\n']], 'page.js'],
   ['no-storage-acts', 'without storage the page still offers to act', [["    REFUSAL = 'This browser gave the page no storage: it can do nothing here.'\n", '']], 'page.js'],
   ['list-put-back-unseen', 'a stored list put back as it was is taken for unchanged', [["      return { value: { rev: revOf(now) + 1, workers: change(workersOf(now)) } }\n", "      return { value: { rev: revOf(now), workers: change(workersOf(now)) } }\n"], ["const text = (held) => JSON.stringify(held)\n", "const text = (held) => JSON.stringify(held.absent ? null : held.value?.workers)\n"]], 'page.js'],
   ['forget-reaches-new-key', "a Forget in a stale tab forgets the row's new key", [["list.filter((x) => x.agent !== w.agent || x.aud !== w.aud || x.subject !== w.subject)", "list.filter((x) => x.agent !== w.agent || x.aud !== w.aud)"]], 'page.js'],
@@ -109,6 +109,12 @@ const TWINS = [
   ['late-refusal-shown', "a refusal of a worker's review already withdrawn is shown", [["    $('review-panel').hidden = false\n  } catch (e) { if (asked === withdrawals) fail(e) }", "    $('review-panel').hidden = false\n  } catch (e) { fail(e) }"]], 'page.js'],
   ['renew-late-refusal-shown', "a refusal of a renewal already withdrawn is shown", [["    $('renew-panel').hidden = false\n  } catch (e) { if (asked === withdrawals) fail(e) }", "    $('renew-panel').hidden = false\n  } catch (e) { fail(e) }"]], 'page.js'],
   ['add-late-refusal-shown', "a refusal of a new passkey's review already withdrawn is shown", [["    $('add-panel').hidden = false\n  } catch (e) { if (asked === withdrawals) fail(e) }", "    $('add-panel').hidden = false\n  } catch (e) { fail(e) }"]], 'page.js'],
+  ['create-loser-registers', "a Create that found another tab's root there goes on to register it", [["    if (!await keepRoot(null, () => ({ ...r, credential: b64u(c.rawId), joining, registered: false }))) return\n", "    await keepRoot(null, () => ({ ...r, credential: b64u(c.rawId), joining, registered: false }))\n"]], 'page.js'],
+  ['registration-marks-any-root', 'a registration marks whatever root the tab holds when the witness answers', [["keepRoot(r.id, (kept) => ({ ...kept, registered: true }))", "keepRoot(root.id, (kept) => ({ ...kept, registered: true }))"]], 'page.js'],
+  ['registration-said-unmade', 'a registration is said to be made when its root was no longer there', [["    if (await keepRoot(r.id, (kept) => ({ ...kept, registered: true }))) $('status').textContent", "    await keepRoot(r.id, (kept) => ({ ...kept, registered: true })); $('status').textContent"]], 'page.js'],
+  ['cosign-sent-unkept', 'a co-signature that could not be kept is sent all the same', [["    if (!await keepRoot(mine, (kept) => ({ ...kept, cosigned: rootSigned(c.payload, mine, a) }))) return\n", "    await keepRoot(mine, (kept) => ({ ...kept, cosigned: rootSigned(c.payload, mine, a) }))\n"]], 'page.js'],
+  ['cosign-marks-any-root', "a co-signature the witness took makes whatever root the tab holds the identity's", [["keepRoot(r.id, ({ cosigned, ...rest })", "keepRoot(root.id, ({ cosigned, ...rest })"]], 'page.js'],
+  ['cosign-said-unmade', 'a co-signing is said to be done when its root was no longer there', [["    if (await keepRoot(r.id, ({ cosigned, ...rest }) => ({ ...rest, identity, joining: false, registered: true }))) {\n", "    await keepRoot(r.id, ({ cosigned, ...rest }) => ({ ...rest, identity, joining: false, registered: true })); {\n"]], 'page.js'],
   ['forget-keeps', 'a forgotten worker stays listed', [["keepWorkers((list) => list.filter((x) => x.agent !== w.agent || x.aud !== w.aud || x.subject !== w.subject))", "keepWorkers((list) => list)"]], 'page.js'],
   ['forget-every-audience', "forgetting a worker at one audience forgets it at the others", [["list.filter((x) => x.agent !== w.agent || x.aud !== w.aud || x.subject !== w.subject)", "list.filter((x) => x.agent !== w.agent)"]], 'page.js'],
   ['old-key-renewable', "an agent's replaced key stays remembered for renewal (issue #70)", [['(old.subject !== worker.subject || old.aud === worker.aud)', '(old.subject === worker.subject && old.aud === worker.aud)']], 'records.js'],
@@ -116,7 +122,7 @@ const TWINS = [
   ['two-keys-renewed', 'a renewal signs one agent under two keys', [["  if (workers.some((w) => workers.some((v) => v.agent === w.agent && v.subject !== w.subject))) throw new Error('an agent is listed with two keys')\n", '']], 'records.js'],
   ['retires-unsaid', 'a review does not say that it replaces a remembered key', [["    $('show-retires').textContent = old.length === 0 ? '' : `", "    $('show-retires').textContent = true ? '' : `"]], 'page.js'],
   ['retires-left-over', 'a review says a key is replaced when none is', [["    $('show-retires').textContent = old.length === 0 ? '' : `", "    if (old.length > 0) $('show-retires').textContent = `"]], 'page.js'],
-  ['registered-not-saved', 'a registration that succeeded is not saved, so it is sent again', [["    await keepRoot((kept) => ({ ...kept, registered: true }))\n", "    root = { ...root, registered: true }\n"]], 'page.js'],
+  ['registered-not-saved', 'a registration that succeeded is not saved, so it is sent again', [["    if (await keepRoot(r.id, (kept) => ({ ...kept, registered: true }))) $('status').textContent = 'Registered with the witness.'\n", "    root = { ...root, registered: true }\n"]], 'page.js'],
 ]
 
 function run (dir) {
@@ -165,7 +171,7 @@ test('id page broken twins', { timeout: 7_200_000 }, async (t) => {
       assert.ok(r.pass >= 14, `control: only ${r.pass} tests ran`)
     })
     const jobs = TWINS.map(([name, why, edits, file]) => [name, why, generate(name, edits, file)])
-    assert.equal(jobs.length, 98, 'twin count')
+    assert.equal(jobs.length, 104, 'twin count')
     const results = []
     const queue = [...jobs]
     const workers = Math.max(1, Math.floor(availableParallelism() / 4))
