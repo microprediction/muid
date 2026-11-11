@@ -31,5 +31,22 @@ MCAdapter AdapterNoDelegationCheck NoExpiredAuthorizationAtCommit
 MCAdapter AdapterNoHeadCheck NoExpiredAuthorizationAtCommit
 MCAdapter AdapterNoKeyCheck NoExpiredAuthorizationAtCommit
 MCAdapter AdapterBoundTighter FreshnessBound
+MCIdPage IdPage pass
+MCIdPage IdPageNoTransactional NoLostUpdate
+MCIdPage IdPageNoFreshWrite NoResurrection
+MCIdPage IdPageNoForgetExact NoLostUpdate
+MCIdPage IdPageNoCheckReviewed ShownIsSaved
+MCIdPage IdPageNoCheckChanged ReviewedStateIsCurrent
+MCIdPage IdPageNoCompareRev ReviewedStateIsCurrent
+MCIdPage IdPageNoCheckExpiry Unexpired
+MCIdPage IdPageNoGuardReplies NoRevival
+MCIdPage IdPageNoPublishAfterCommit SavedBeforeHandover
+MCIdPage IdPageNoWithdrawOnChange ShownIsSaved
+MCIdPage IdPageNoViewFromStore ViewHonest
+IdRoot IdRoot pass
+IdRoot IdRootNoCas NeverOverwritten
+IdRoot IdRootLoserRegisters JoiningNeverRegistered
+IdRoot IdRootMarksHeld MarkedIsTaken
+IdRoot IdRootMarksHeldMember MemberIsCosigned
 MODELS
 exit $status

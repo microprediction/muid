@@ -813,6 +813,24 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   answer (a surviving mutant). Twins (6 more, 104 in all): the losing Create registering; a registration, or a
   co-signature, marking whatever root the tab then holds; either said to be done when it was not; a co-signature
   sent unkept.
+- **Models of the page (`model/tla/IdPage.tla`, `IdRoot.tla`; TLC, exhaustive within their bounds):**
+  `IdPage` is the remembered workers across tabs: each tab's copy, its one open review, its requests to the witness
+  and the passkey, and its queue of storage operations, with the running of an operation and the tab's hearing of
+  it as separate steps; another tab's steps, a late or lost notice, an edit, a reload, an aborted transaction and
+  the clock may come between any two. Ten invariants (its header lists them). `IdPage.cfg`, on every pull request:
+  one tab, three reviews, three operations queued, four committed changes: 7,249,778 distinct states, no error.
+  `IdPageTwoTabs.cfg`: two tabs (taken as alike), two reviews between them, two operations queued each, three
+  committed changes: 87,610,424 distinct states, no error, 51 minutes on three cores, so run by hand and not on
+  every pull request. A larger bound (two reviews for each tab) was stopped at 325 million distinct states, depth
+  21, with no error: not a result. Eleven negative controls, one per rule of the page turned off, each at the
+  two-tab bound and each reporting the invariant named beside it in `.github/scripts/tlc.sh`. `IdRoot` is the
+  stored root: making one, registering it, co-signing as a joining root, with a notice, a reload or the browser's
+  storage being cleared between any two steps: 276,490 distinct states, no error; four controls, two of them the
+  page as it was before #74. Before it was complete the page model found the two single-tab gaps above. What this
+  does not show: anything about the JavaScript itself, or beyond the bounds, or about one agent's rows at two
+  audiences or two agents (those configurations were not completed). The tie to the code is by faults: a guard
+  (`tests/guards/model-faults.test.mjs`) fails unless every switch of either model has a control TLC runs and a
+  broken twin of the page with the same fault, which the tests in Chrome catch.
 - The id twins' time limit is two hours: 81 took over an hour on a loaded machine.
 - The membership twins' time limit is 30 minutes: they take 6 to 9 in CI, and at 10 one run was cut off.
 
