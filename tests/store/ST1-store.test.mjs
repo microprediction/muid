@@ -5,6 +5,7 @@ import { test, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { chromium } from 'playwright-core'
 import { serve } from '../id/serve.mjs'
+import { activate, handBack } from '../id/mutant.mjs'
 
 const opened = new Set()
 after(async () => { await Promise.all([...opened].map((end) => end())) })
@@ -13,15 +14,15 @@ after(async () => { await Promise.all([...opened].map((end) => end())) })
 async function open () {
   const site = await serve()
   const browser = await chromium.launch({ channel: 'chrome', headless: true })
-  const end = async () => { opened.delete(end); await browser.close(); site.close() }
+  const pages = []
+  const end = async () => { opened.delete(end); await handBack(pages); await browser.close(); site.close() }
   opened.add(end)
   const context = await browser.newContext()
-  // Under mutation testing, the mutant the runner activated is activated in the page too.
-  const mutant = process.env.__STRYKER_ACTIVE_MUTANT__
-  if (mutant !== undefined) await context.addInitScript((m) => { globalThis.__stryker__ = { activeMutant: m } }, mutant)
+  await activate(context)
   const problems = []
   const tab = async () => {
     const page = await context.newPage()
+    pages.push(page)
     page.on('pageerror', (e) => problems.push(String(e)))
     await page.goto(site.origin + '/id/store.js')
     // Each tab keeps its stores by name; `s(name)` opens one once.
@@ -155,6 +156,21 @@ test('an update that fails changes nothing and says so; a read that fails is not
     }, db)
     assert.deepEqual(closed, ['InvalidStateError', 'InvalidStateError'])
     assert.deepEqual(await get(t.page, db, 'k'), { value: 'first!' })
+    // A write whose request succeeds and whose transaction then aborts was not made: the update fails, the key is
+    // as it was, and no tab is told.
+    const other = await t.tab()
+    await other.evaluate(async (db) => { globalThis.told = []; (await globalThis.s(db)).watch((key) => globalThis.told.push(key)) }, db)
+    const aborted = await t.page.evaluate(async (db) => {
+      const s = await globalThis.openStore(db)
+      const real = IDBObjectStore.prototype.put
+      IDBObjectStore.prototype.put = function (...args) { const r = real.apply(this, args); r.addEventListener('success', () => this.transaction.abort()); return r }
+      try { return await s.update('k', () => ({ value: 'never' })) } catch (e) { return [e instanceof Error, e.name, e.message] } finally { IDBObjectStore.prototype.put = real }
+    }, db)
+    assert.deepEqual(aborted, [true, 'AbortError', 'the transaction was aborted'], 'an abort with no error of its own is still an error')
+    assert.deepEqual(await get(t.page, db, 'k'), { value: 'first!' })
+    await update(t.page, db, 'after', 'return { value: 1 }')
+    await other.waitForFunction(() => globalThis.told.length >= 1)
+    assert.deepEqual(await other.evaluate(() => globalThis.told), ['after'], 'not told of the write that was not made')
     // A failing request inside a read: the transaction's failure is the get's.
     const failed = await t.page.evaluate(async (db) => {
       const s = await globalThis.openStore(db)

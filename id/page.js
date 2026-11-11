@@ -27,8 +27,11 @@ let root = null
 let workers = []
 const text = (held) => JSON.stringify(held)
 const rootOf = (held) => held.absent ? null : storedRoot(held.value, rpId)
-const workersOf = (held) => storedWorkers(held.absent ? null : held.value)
-// `seen` is the remembered workers as this tab last read them: storage that differs was changed by another tab.
+// The workers are stored as { rev, workers }: `rev` is one more with every change, so that the list a review was
+// made against is told apart from an equal list reached by later changes (a key replaced and then put back).
+const workersOf = (held) => storedWorkers(held.absent ? null : held.value?.workers)
+const revOf = (held) => Number.isSafeInteger(held.value?.rev) ? held.value.rev : 0
+// `seen` is what is stored for the workers as this tab last read it: storage that differs was changed since.
 let seen
 async function refresh () {
   root = rootOf(await store.get(KEY))
@@ -59,7 +62,7 @@ async function keepWorkers (change, reviewed) {
   try {
     const held = await store.update(WORKERS, (now) => {
       if (reviewed !== undefined && text(now) !== reviewed) { outcome = 'changed'; return undefined }
-      return { value: change(workersOf(now)) }
+      return { value: { rev: revOf(now) + 1, workers: change(workersOf(now)) } }
     })
     seen = text(held)
     workers = workersOf(held)
@@ -99,7 +102,7 @@ function listWorkers () {
     box.addEventListener('change', () => { if (box.checked) unticked.delete(slot(w)); else unticked.add(slot(w)); withdraw() })
     const forget = element('button', 'Forget')
     forget.type = 'button'
-    forget.addEventListener('click', () => { withdraw(); keepWorkers((list) => list.filter((x) => x.agent !== w.agent || x.aud !== w.aud)) })
+    forget.addEventListener('click', () => { withdraw(); keepWorkers((list) => list.filter((x) => x.agent !== w.agent || x.aud !== w.aud || x.subject !== w.subject)) })
     return element('li', element('label', box, ` ${w.agent} at ${w.aud}: ${w.scopes.join(' ')} `, element('code', w.subject)), forget)
   }))
 }
@@ -273,7 +276,8 @@ $('sign').addEventListener('click', async () => {
     // if the workers are still as they were reviewed: a worker is handed nothing if the change (which may retire
     // its agent's old key) was not saved.
     const { agent, subject, aud, scopes, nbf, exp } = d.body
-    if (await keepWorkers((list) => remember(list, { agent, subject, aud, scopes, lifetime: exp - nbf }), seen) !== 'saved' || pending.delegation !== d) return
+    if (await keepWorkers((list) => remember(list, { agent, subject, aud, scopes, lifetime: exp - nbf }), seen) !== 'saved') return
+    if (pending.delegation !== d || lapsed([d])) return // withdrawn, or expired, while it was saved
     $('handoff').value = handOff(d.payload, a)
     $('handoff').hidden = false
   } catch (e) { fail(e) }
@@ -302,7 +306,9 @@ $('renew-sign').addEventListener('click', async () => {
   $('error').textContent = ''
   try {
     const a = await sign(r.covers)
-    if (pending.renewal !== r || lapsed(r.delegations) || await changedElsewhere()) return // withdrawn while the passkey was asked
+    if (pending.renewal !== r) return // withdrawn while the passkey was asked
+    // A renewal takes effect at this read of storage: a change committed after it is after the renewal.
+    if (await changedElsewhere() || pending.renewal !== r || lapsed(r.delegations)) return
     $('renew-handoffs').replaceChildren(...r.delegations.map((d) => {
       const t = element('textarea')
       t.readOnly = true

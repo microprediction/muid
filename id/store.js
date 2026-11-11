@@ -41,7 +41,7 @@ function store (name, db) {
     let result
     let error
     tx.oncomplete = () => resolve(result)
-    tx.onabort = () => reject(error ?? tx.error)
+    tx.onabort = () => reject(error ?? tx.error ?? new DOMException('the transaction was aborted', 'AbortError'))
     work(tx.objectStore(VALUES), (r) => { result = r }, (e) => { error = e; tx.abort() })
   })
 

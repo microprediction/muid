@@ -9,6 +9,7 @@ import { generateKeyPairSync } from 'node:crypto'
 import { root as rootModule, delegation as delegationModule, assertion as assertionModule, envelope, verifier as verifierModule } from '../impl.mjs'
 import { witness, witnessService, memoryHoldings, memoryLog } from '../witness/impl.mjs'
 import { serve } from './serve.mjs'
+import { activate, handBack } from './mutant.mjs'
 
 const hex = (b) => Buffer.from(b).toString('hex')
 const WORKER = Uint8Array.from({ length: 32 }, (_, i) => 77 + i)
@@ -79,10 +80,7 @@ async function open ({ init } = {}) {
   async function device () {
     const context = await browser.newContext()
     if (FAIL_FAST) context.setDefaultTimeout(WAIT)
-    // Under mutation testing, the mutant the runner activated is activated in the page too: Stryker's instrumented
-    // code reads it from process.env in Node, which a page has not.
-    const mutant = process.env.__STRYKER_ACTIVE_MUTANT__
-    if (mutant !== undefined) await context.addInitScript((m) => { globalThis.__stryker__ = { activeMutant: m } }, mutant)
+    await activate(context)
     if (init !== undefined) await context.addInitScript(init)
     const page = watched(await context.newPage())
     const cdp = await context.newCDPSession(page)
@@ -93,17 +91,7 @@ async function open ({ init } = {}) {
     pages.push(page)
     return { context, page, cdp, authenticatorId }
   }
-  // Under mutation testing's first run, the pages' coverage is added to this process's, which the runner reads.
-  const collect = async () => {
-    const ns = globalThis.__stryker__
-    if (ns === undefined) return
-    for (const frame of pages.flatMap((p) => p.frames())) {
-      const cov = await frame.evaluate(() => globalThis.__stryker__?.mutantCoverage).catch(() => undefined)
-      if (cov === undefined) continue
-      ns.mutantCoverage ??= { static: {}, perTest: {} }
-      for (const [id, n] of Object.entries(cov.static)) ns.mutantCoverage.static[id] = (ns.mutantCoverage.static[id] ?? 0) + n
-    }
-  }
+  const collect = () => handBack(pages)
   const first = await device()
   // What the witness itself holds, whatever the page is shown (an outage or a refusing witness stands in front of it).
   const witnessGet = async (path) => (await real.handle(new Request('http://witness' + path))).json()
@@ -862,8 +850,9 @@ test('a co-signature whose answer is lost is pending: sent again on reload and b
 const workerKey = (i) => Uint8Array.from({ length: 32 }, (_, j) => i + j)
 const workerPub = (i) => hex(ed25519.getPublicKey(workerKey(i)))
 const stored = (i, over = {}) => ({ agent: `w${i}`, subject: workerPub(i), aud: 'https://app.example', scopes: ['post'], lifetime: 3600, ...over })
-const seed = (page, value) => hold(page, 'workers', value)
-const kept = (page) => held(page, 'workers')
+// What is stored for the workers is { rev, workers }: `seed` writes a list as one more change; `kept` reads the list.
+const seed = async (page, value) => hold(page, 'workers', { rev: ((await held(page, 'workers'))?.rev ?? 0) + 1, workers: value })
+const kept = async (page) => (await held(page, 'workers'))?.workers ?? null
 const signCount = async (t) => (await t.cdp.send('WebAuthn.getCredentials', { authenticatorId: t.authenticatorId })).credentials[0].signCount
 
 // Forget pressed on the nth remembered worker, and the change made (the list is one shorter) or refused (an error).
@@ -1460,6 +1449,143 @@ test('a review that has expired is not signed, and one that expires while the pa
     await errorShown(t.page)
     assert.equal(await t.page.textContent('#error'), EXPIRED)
     assert.equal(await t.page.isHidden('#renew-handoffs'), true)
+
+    // Expiry and withdrawal are looked at again after the passkey answers and the store has been asked, just before
+    // anything is handed over. Another tab holds a transaction open on the store, so this tab's save (or its read
+    // for a renewal) waits; what happens while it waits decides.
+    const other = await t.tab(t.context)
+    const holdStore = () => other.evaluate(() => new Promise((resolve, reject) => {
+      const opening = indexedDB.open('muid', 1)
+      opening.onerror = () => reject(opening.error)
+      opening.onsuccess = () => {
+        const tx = opening.result.transaction('values', 'readwrite')
+        const values = tx.objectStore('values')
+        globalThis.holding = true
+        globalThis.freed = new Promise((resolve) => { tx.oncomplete = () => { opening.result.close(); resolve() } })
+        const spin = () => { if (globalThis.holding) values.get('workers').onsuccess = spin }
+        spin()
+        resolve()
+      }
+    }))
+    const freeStore = () => other.evaluate(() => { globalThis.holding = false; return globalThis.freed })
+    const base = Math.min(...exps)
+    const signedWhileHeld = async (button) => {
+      await slowPasskey()
+      await t.page.click(button)
+      await t.page.evaluate(() => globalThis.asked)
+      await holdStore()
+      await t.page.evaluate(() => globalThis.answer())
+      await t.page.waitForTimeout(400) // the passkey has answered, and the page waits for the store
+    }
+    // A worker saved a moment before it expires, the answer coming after: remembered, since it was saved in time,
+    // but not handed over.
+    await at(base)
+    await authorise(t.page, { agent: 'w7', subject: workerPub(7), scopes: 'post', days: '1' })
+    await t.page.waitForSelector('#review-panel:not([hidden])')
+    await at(base + 86_400 - 1)
+    await signedWhileHeld('#sign')
+    await at(base + 86_400)
+    await freeStore()
+    await errorShown(t.page)
+    assert.equal(await t.page.textContent('#error'), EXPIRED)
+    assert.equal(await t.page.isHidden('#handoff'), true)
+    assert.deepEqual((await kept(t.page)).map((w) => w.agent), ['w1', 'w2', 'w7'])
+    // Withdrawn by an edit while it is saved: remembered, not handed over, and nothing said.
+    await at(base)
+    await authorise(t.page, { agent: 'w8', subject: workerPub(8), scopes: 'post', days: '1' })
+    await t.page.waitForSelector('#review-panel:not([hidden])')
+    await signedWhileHeld('#sign')
+    await t.page.fill('#scopes', 'read')
+    await freeStore()
+    await t.page.waitForFunction(() => document.querySelectorAll('#workers li').length === 4)
+    assert.equal(await t.page.isHidden('#handoff'), true)
+    assert.equal(await t.page.textContent('#error'), '')
+    // A renewal whose read of the store returns after it has expired, or after it was withdrawn.
+    await t.page.click('#renew-review')
+    await t.page.waitForSelector('#renew-panel:not([hidden])')
+    const least = Math.min(...await t.page.$$eval('#renew-list > li', (lis) => lis.map((li) => Date.parse(li.querySelectorAll('dd')[3].textContent) / 1000)))
+    await at(least - 1)
+    await signedWhileHeld('#renew-sign')
+    await at(least)
+    await freeStore()
+    await errorShown(t.page)
+    assert.equal(await t.page.textContent('#error'), EXPIRED)
+    assert.equal(await t.page.isHidden('#renew-handoffs'), true)
+    await at(base)
+    await t.page.click('#renew-review')
+    await t.page.waitForSelector('#renew-panel:not([hidden])')
+    await signedWhileHeld('#renew-sign')
+    await t.page.locator('#workers input').nth(0).uncheck()
+    await freeStore()
+    await t.page.waitForTimeout(400)
+    assert.equal(await t.page.isHidden('#renew-handoffs'), true)
+    assert.equal(await t.page.textContent('#error'), '')
+    // Unhurried, the same renewal is handed over.
+    await t.page.locator('#workers input').nth(0).check()
+    await t.page.click('#renew-review')
+    await t.page.waitForSelector('#renew-panel:not([hidden])')
+    await signedWhileHeld('#renew-sign')
+    await freeStore()
+    await t.page.waitForSelector('#renew-handoffs:not([hidden])')
+    assert.equal(await t.page.locator('#renew-handoffs textarea').count(), 4)
+    assert.deepEqual(t.problems, [])
+  } finally {
+    await t.close()
+  }
+})
+
+// A review is made against one state of the stored workers, counted: the same list reached again by later changes
+// (a key replaced and put back) is not that state. And a Forget is of the row the tab shows, key and all: pressed in a
+// tab not yet told that the row's key was replaced, it does not forget the new key's row.
+test('renewal: a list put back as it was is a change all the same; a Forget does not reach a row it did not show', { timeout: 180_000 }, async () => {
+  const t = await open({ init: HOLD_STORAGE })
+  try {
+    await createIdentity(t.page)
+    await authoriseAndSign(t.page, { agent: 'forecaster', subject: workerPub(1), scopes: 'post' })
+    await authoriseAndSign(t.page, { agent: 'other', subject: workerPub(3), scopes: 'post' })
+    const late = await t.tab(t.context)
+    await late.waitForSelector('#renew:not([hidden])')
+    await late.evaluate(() => { globalThis.holdStorage = true })
+    await authoriseAndSign(t.page, { agent: 'forecaster', subject: workerPub(2), scopes: 'post' })
+    // The late tab still shows forecaster under its first key, first in its list, and forgets that row.
+    assert.deepEqual(await keys(late), [workerPub(1), workerPub(3)])
+    await late.locator('#workers button').nth(0).click()
+    await late.waitForFunction((k) => [...document.querySelectorAll('#workers code')].some((c) => c.textContent === k), workerPub(2))
+    assert.deepEqual((await kept(late)).map((w) => [w.agent, w.subject]), [['other', workerPub(3)], ['forecaster', workerPub(2)]], 'the new key is still remembered')
+    assert.deepEqual(await keys(late), [workerPub(3), workerPub(2)])
+    await late.evaluate(() => { globalThis.holdStorage = false; for (const f of globalThis.heldStorage.splice(0)) f() })
+
+    // A renewal reviewed; two changes later the stored list is the same again. It is not signed.
+    const again = async () => { const now = await held(t.page, 'workers'); await hold(t.page, 'workers', { rev: now.rev + 2, workers: now.workers }) }
+    const before = await signCount(t)
+    await t.page.click('#renew-review')
+    await t.page.waitForSelector('#renew-panel:not([hidden])')
+    await again()
+    await t.page.click('#renew-sign')
+    await errorShown(t.page)
+    assert.equal(await t.page.textContent('#error'), CHANGED)
+    assert.equal(await signCount(t), before)
+    // The same while a worker's passkey is asked: the worker is neither remembered nor handed over.
+    await authorise(t.page, { agent: 'w5', subject: workerPub(5), scopes: 'post' })
+    await t.page.waitForSelector('#review-panel:not([hidden])')
+    await t.page.evaluate(() => {
+      const get = navigator.credentials.get.bind(navigator.credentials)
+      globalThis.asked = new Promise((resolve) => { globalThis.asking = resolve })
+      navigator.credentials.get = async (o) => { globalThis.asking(); await new Promise((resolve) => { globalThis.answer = resolve }); navigator.credentials.get = get; return get(o) }
+    })
+    await t.page.click('#sign')
+    await t.page.evaluate(() => globalThis.asked)
+    await again()
+    await t.page.evaluate(() => globalThis.answer())
+    await errorShown(t.page)
+    assert.equal(await t.page.textContent('#error'), CHANGED)
+    assert.equal(await t.page.isHidden('#handoff'), true)
+    assert.deepEqual((await kept(t.page)).map((w) => w.agent), ['other', 'forecaster'])
+    // Each change the page commits counts one.
+    const rev = (await held(t.page, 'workers')).rev
+    await authoriseAndSign(t.page, { agent: 'w5', subject: workerPub(5), scopes: 'post' })
+    await forget(t.page, 0)
+    assert.equal((await held(t.page, 'workers')).rev, rev + 2)
     assert.deepEqual(t.problems, [])
   } finally {
     await t.close()
