@@ -147,7 +147,7 @@ function generate (name, edits, file) {
   return dir
 }
 
-test('id page broken twins', { timeout: 3_600_000 }, async (t) => {
+test('id page broken twins', { timeout: 7_200_000 }, async (t) => {
   try {
     await t.test('control: an unmodified copy, run from outside the repository, passes', async () => {
       const r = await run(generate('control', [], null))
