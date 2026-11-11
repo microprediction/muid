@@ -748,7 +748,14 @@ one agent under two keys is never renewed. Forgetting or replacing a key only st
 what it was given expires, unless it is revoked. A review waits for the witness's answer before it shows anything: whatever
 withdraws a review (an edit, a change of selection, a forgotten worker, another tab's change) withdraws one still
 waiting, which then shows and signs nothing. A stored entry whose key is not a key is no worker, so nothing from
-storage but a key is shown beside what the passkey signs. A worker unticked stays unticked while it is listed. `id/records.js` builds every record
+storage but a key is shown beside what the passkey signs. A worker unticked stays unticked while it is listed. The remembered workers are
+one list shared by this browser's tabs: a change is made to what storage holds at that moment, never to what a tab
+last drew, so a tab not yet told of another's change does not undo it; a review made before such a change is not
+signed, nor a signature that returns after one handed over; and the list shown is what storage holds, so a change
+the browser could not save is said, not shown as made. This is a guarantee about this browser's remembered choices,
+without a lock across tabs: two changes written in the same instant can still lose one, and what is forgotten or
+replaced here is not thereby revoked. The review of an added passkey waits for the witness in the same way as a
+worker's. `id/records.js` builds every record
 with the core's functions and refuses first what the core would. Not yet: removing a root, freezes and contests, and
 the I1–I3 window protocol for apps.
 

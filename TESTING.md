@@ -696,7 +696,7 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   wait is cut to 15 s and every test to 60 s, and once one test fails or times out, the rest fail at once. Without
   this, a broken page made each test wait out its limits in turn, and the mutant was counted only when Stryker's
   own timeout ran out.
-- Twins (`tests/meta/id-twins.test.mjs`, 64 in all): the challenge's domain, any algorithm, unsorted scopes, an unbounded
+- Twins (`tests/meta/id-twins.test.mjs`, 74 in all): the challenge's domain, any algorithm, unsorted scopes, an unbounded
   lifetime, an unchecked audience, an edit that keeps the review, a late signature kept, verification preferred,
   any passkey, a credential that is not resident, inline scripts allowed, hidden parts shown; attest granted; a change co-signed that does not add
   this passkey, an edit of the new root kept, authority unchecked, delegations under the first membership, the root
@@ -717,7 +717,7 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   audience; nine refused and none refused; a change of selection, a forgotten worker and another tab's change each
   withdraw a review; a signature returning after a change of selection is not handed over; a refused passkey is
   reported; stored text is shown as text; unreadable storage offers nothing; a passkey with no identity yet, or
-  still joining, is offered nothing to renew. Twins (11 of the 64): the batch unbounded, covers unsorted, storage
+  still joining, is offered nothing to renew. Twins (11 of the 74): the batch unbounded, covers unsorted, storage
   trusted, the selection or a late signature not withdrawing, an unticked worker renewed, a delegation signed but
   not shown, the assertion not covering each, renewal offered while joining, a worker not remembered or not
   forgotten.
@@ -728,7 +728,7 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   refused. `P2`: a key authorised for a remembered agent is shown, before signing, as replacing the old key by
   name, and nothing changes until it is signed; then only the new key is listed, stored and renewed; reviewed again
   the notice is gone; an old key written back into storage is not read back; a worker forgotten at one audience
-  stays at its other. Twins (6 of the 64): the old key kept, or kept at its other audiences; two keys renewed;
+  stays at its other. Twins (6 of the 74): the old key kept, or kept at its other audiences; two keys renewed;
   the replacement unsaid, or said when there is none; one audience's Forget forgetting every audience.
 - **Found by an independent review of the renewal page:** a review waits for the witness before it shows anything,
   and a change made meanwhile did not withdraw it. `P2`, with the witness's answer held: a field edited, a box
@@ -738,9 +738,20 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   is dropped, so it is not listed and never named in the replacement notice. A worker unticked stays unticked when
   the list is drawn again, is not renewed, and comes back ticked only as a new entry. Another tab forgetting one of
   two workers withdraws an open review while the list stays shown (the earlier test hid the whole section, so
-  proved nothing). Twins (7 of the 64): either review going on after a change while it waited; withdrawals not
+  proved nothing). Twins (7 of the 74): either review going on after a change while it waited; withdrawals not
   counted; a redrawn list ticking everything, or an untick outliving its entry; a stored key unchecked; another
   tab's change of the workers leaving a review signable.
+- **Found by review of the pull request:** `P2`, with a tab's storage notifications held so that it is not told: the
+  other tab replaces an agent's key, the late tab forgets another worker, and the replaced key does not come back; a
+  renewal and a worker reviewed before another tab's change are not signed (the passkey is not asked), the tab is
+  brought up to date and says why; a change arriving while the passkey is asked leaves nothing handed over or
+  remembered. With storage refusing writes: a new key is handed over but the page says it could not be saved, the
+  list stays as storage holds it, a Forget likewise, and a reload shows the same. With the witness's answer held:
+  an added passkey's review edited while it waits shows and signs nothing, and a refusal of what was withdrawn is
+  not shown, for all three reviews. Twins (10 of the 74): a stale list written; an unsaved change shown as made;
+  either stale review signed, or handed over after a change during signing; the added passkey's review going on; a
+  late refusal shown, for each review. Not covered: two tabs writing in the same instant (no lock is taken).
+- The membership twins' time limit is 30 minutes: they take 6 to 9 in CI, and at 10 one run was cut off.
 
 ## 4l. The two-application demo (`demo/`, not core)
 

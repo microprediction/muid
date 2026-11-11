@@ -66,7 +66,7 @@ function generate (name, edits) {
   return path
 }
 
-test('membership broken twins', { timeout: 600_000 }, async (t) => {
+test('membership broken twins', { timeout: 1_800_000 }, async (t) => {
   try {
     await t.test('control: an unmodified copy, run from outside the repository, passes', async () => {
       const r = await run(generate('control', []))

@@ -23,8 +23,13 @@ function load () {
 }
 let root = load()
 // The remembered workers, as storage holds them now: read as untrusted, as the root is.
+// `seen` is the stored text this tab last read: storage that differs from it was changed by another tab, which this
+// one may not have been told of yet.
+const stored = () => { try { return localStorage.getItem(WORKERS) } catch { return null } }
+let seen
 function loadWorkers () {
-  try { return storedWorkers(JSON.parse(localStorage.getItem(WORKERS))) } catch { return [] }
+  seen = stored()
+  try { return storedWorkers(JSON.parse(seen)) } catch { return [] }
 }
 let workers = loadWorkers()
 const pending = { delegation: null, change: null, cosign: null, renewal: null }
@@ -32,10 +37,15 @@ const pending = { delegation: null, change: null, cosign: null, renewal: null }
 function save () {
   try { localStorage.setItem(KEY, JSON.stringify(root)) } catch { /* kept for this visit only */ }
 }
+// A change to the remembered workers is made to what storage holds now, not to what this tab last drew, so it never
+// undoes another tab's change; and the list is then what storage holds, never ahead of it: a change that could not be
+// saved is said, not shown as made.
 function keepWorkers (change) {
-  workers = change(workers)
-  try { localStorage.setItem(WORKERS, JSON.stringify(workers)) } catch { /* kept for this visit only */ }
+  const next = change(loadWorkers())
+  try { localStorage.setItem(WORKERS, JSON.stringify(next)) } catch { /* said below */ }
+  workers = loadWorkers()
   show()
+  if (JSON.stringify(workers) !== JSON.stringify(next)) fail(new Error('This browser could not save the change to the remembered workers: they are listed as it holds them.'))
 }
 
 const element = (tag, ...children) => {
@@ -127,6 +137,17 @@ async function sign (covers) {
   return assertion(covers, a.response)
 }
 
+// Whether another tab changed the remembered workers and this one was not yet told: if so, it is brought up to date
+// with nothing left to sign, since what was reviewed was reviewed against the list as it was.
+function changedElsewhere () {
+  if (stored() === seen) return false
+  workers = loadWorkers()
+  withdraw()
+  show()
+  fail(new Error('The remembered workers were changed in another tab: review again.'))
+  return true
+}
+
 // Counts withdrawals: a review that waited for the witness goes on only if nothing was withdrawn meanwhile.
 let withdrawals = 0
 function withdraw () {
@@ -205,16 +226,16 @@ $('review').addEventListener('click', async () => {
     const old = retired(workers, d.body)
     $('show-retires').textContent = old.length === 0 ? '' : `This replaces the key remembered for ${d.body.agent}, ${old.join()}: that key will no longer be renewed here. It keeps working until what it was given expires, unless it is revoked.`
     $('review-panel').hidden = false
-  } catch (e) { fail(e) }
+  } catch (e) { if (asked === withdrawals) fail(e) } // a refusal of what was withdrawn is not shown
 })
 
 $('sign').addEventListener('click', async () => {
   const d = pending.delegation
-  if (d === null) return
+  if (d === null || changedElsewhere()) return
   $('error').textContent = ''
   try {
     const a = await sign([d.id])
-    if (pending.delegation !== d) return // withdrawn while the passkey was asked
+    if (pending.delegation !== d || changedElsewhere()) return // withdrawn while the passkey was asked
     $('handoff').value = handOff(d.payload, a)
     $('handoff').hidden = false
     // Remembered for renewal: what was signed, with its lifetime, never the signature.
@@ -237,16 +258,16 @@ $('renew-review').addEventListener('click', async () => {
     $('renew-list').replaceChildren(...r.delegations.map((d) =>
       element('li', element('dl', ...fields(d.body).flatMap(([name, value]) => [element('dt', name), element('dd', value)])))))
     $('renew-panel').hidden = false
-  } catch (e) { fail(e) }
+  } catch (e) { if (asked === withdrawals) fail(e) } // a refusal of what was withdrawn is not shown
 })
 
 $('renew-sign').addEventListener('click', async () => {
   const r = pending.renewal
-  if (r === null) return
+  if (r === null || changedElsewhere()) return
   $('error').textContent = ''
   try {
     const a = await sign(r.covers)
-    if (pending.renewal !== r) return // withdrawn while the passkey was asked
+    if (pending.renewal !== r || changedElsewhere()) return // withdrawn while the passkey was asked
     $('renew-handoffs').replaceChildren(...r.delegations.map((d) => {
       const t = element('textarea')
       t.readOnly = true
@@ -260,14 +281,18 @@ $('renew-sign').addEventListener('click', async () => {
 
 $('add-review').addEventListener('click', async () => {
   withdraw()
+  const asked = withdrawals
   try {
-    const c = addRoot({ identity: root.identity, state: await state(), root: $('new-root').value.trim(), rpId })
-    pending.change = { ...c, rootText: $('new-root').value.trim() }
+    const rootText = $('new-root').value.trim()
+    const current = await state()
+    if (asked !== withdrawals) return // withdrawn while the witness was asked
+    const c = addRoot({ identity: root.identity, state: current, root: rootText, rpId })
+    pending.change = { ...c, rootText }
     $('add-added').textContent = c.added
     $('add-fingerprint').textContent = fingerprint(c.added)
     $('add-epoch').textContent = String(c.body.epoch)
     $('add-panel').hidden = false
-  } catch (e) { fail(e) }
+  } catch (e) { if (asked === withdrawals) fail(e) } // a refusal of what was withdrawn is not shown
 })
 
 $('add-sign').addEventListener('click', async () => {

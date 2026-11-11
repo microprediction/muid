@@ -1140,6 +1140,223 @@ test('a change made while a review waits for the witness withdraws it: of one wo
   }
 })
 
+// Found by review of #71. Each tab drew its list from storage once and wrote the whole list back, so a tab not yet told
+// of another's change undid it. A change is now made to what storage holds at that moment, and a review made before
+// another tab's change is not signed. Storage notifications to a tab are held here to make it that late tab.
+const HOLD_STORAGE = () => {
+  const add = window.addEventListener.bind(window)
+  globalThis.heldStorage = []
+  globalThis.holdStorage = false
+  window.addEventListener = (type, fn, ...rest) => type !== 'storage'
+    ? add(type, fn, ...rest)
+    : add(type, (e) => { if (globalThis.holdStorage) globalThis.heldStorage.push(() => fn(e)); else fn(e) }, ...rest)
+  // Writes of the remembered workers fail while failWrites is set, as a full or forbidden storage would.
+  const set = Storage.prototype.setItem
+  globalThis.failWrites = false
+  Storage.prototype.setItem = function (k, v) {
+    if (globalThis.failWrites && k === 'muid.workers') throw new DOMException('quota', 'QuotaExceededError')
+    return set.call(this, k, v)
+  }
+}
+const CHANGED = 'The remembered workers were changed in another tab: review again.'
+const UNSAVED = 'This browser could not save the change to the remembered workers: they are listed as it holds them.'
+const keys = (page) => page.$$eval('#workers code', (cs) => cs.map((c) => c.textContent))
+
+test('renewal: a tab not yet told of another tab\'s change does not undo it, and signs nothing reviewed before it', { timeout: 180_000 }, async () => {
+  const t = await open({ init: HOLD_STORAGE })
+  try {
+    await createIdentity(t.page)
+    await authoriseAndSign(t.page, { agent: 'forecaster', subject: workerPub(1), scopes: 'post' })
+    await authoriseAndSign(t.page, { agent: 'other', subject: workerPub(3), scopes: 'post' })
+    const late = await t.tab(t.context)
+    await late.waitForSelector('#renew:not([hidden])')
+    assert.deepEqual(await keys(late), [workerPub(1), workerPub(3)])
+    // The late tab hears nothing more. The first replaces forecaster's key; the late tab, still showing the old key,
+    // forgets the other worker: the replaced key does not come back.
+    await late.evaluate(() => { globalThis.holdStorage = true })
+    await authoriseAndSign(t.page, { agent: 'forecaster', subject: workerPub(2), scopes: 'post' })
+    assert.deepEqual(await keys(late), [workerPub(1), workerPub(3)], 'the late tab has not been told')
+    await late.locator('#workers button').nth(1).click()
+    assert.deepEqual((await kept(late)).map((w) => [w.agent, w.subject]), [['forecaster', workerPub(2)]])
+    assert.deepEqual(await keys(late), [workerPub(2)], 'the late tab lists what storage holds')
+    assert.equal(await late.textContent('#error'), '')
+    await late.evaluate(() => { globalThis.holdStorage = false; for (const f of globalThis.heldStorage.splice(0)) f() })
+    await t.page.waitForFunction(() => document.querySelectorAll('#workers li').length === 1)
+    assert.deepEqual(await keys(t.page), [workerPub(2)])
+
+    // Now the first tab is the late one. It reviews a renewal and a new worker; another tab then changes the workers.
+    await authoriseAndSign(t.page, { agent: 'other', subject: workerPub(3), scopes: 'post' })
+    await late.waitForFunction(() => document.querySelectorAll('#workers li').length === 2)
+    await t.page.evaluate(() => { globalThis.holdStorage = true })
+    const before = await signCount(t)
+    await t.page.click('#renew-review')
+    await t.page.waitForSelector('#renew-panel:not([hidden])')
+    await late.locator('#workers button').nth(0).click()
+    assert.equal((await kept(late)).length, 1)
+    assert.equal(await t.page.isHidden('#renew-panel'), false, 'not told: the review is still shown')
+    await t.page.click('#renew-sign')
+    await errorShown(t.page)
+    assert.equal(await t.page.textContent('#error'), CHANGED)
+    assert.equal(await t.page.isHidden('#renew-panel'), true)
+    assert.equal(await t.page.isHidden('#renew-handoffs'), true)
+    assert.deepEqual(await keys(t.page), [workerPub(3)], 'brought up to date')
+    assert.equal(await signCount(t), before, 'the passkey was not asked')
+    // The same for one worker's review, and for either review started after the change.
+    await authorise(t.page, { agent: 'w5', subject: workerPub(5), scopes: 'post' })
+    await t.page.waitForSelector('#review-panel:not([hidden])')
+    await late.locator('#workers button').nth(0).click()
+    assert.equal((await kept(late)).length, 0)
+    await t.page.click('#sign')
+    await errorShown(t.page)
+    assert.equal(await t.page.textContent('#error'), CHANGED)
+    assert.equal(await t.page.isHidden('#review-panel'), true)
+    assert.equal(await t.page.isHidden('#handoff'), true)
+    assert.equal(await signCount(t), before)
+    assert.deepEqual(await kept(t.page), [], 'nothing remembered of what was not signed')
+    // Up to date again, the same review is signed.
+    await authoriseAndSign(t.page, { agent: 'w5', subject: workerPub(5), scopes: 'post' })
+    assert.equal(await signCount(t), before + 1)
+    assert.equal(await t.page.textContent('#error'), '')
+    // A change that arrives while the passkey is asked: the signature is not handed over, nor the worker remembered.
+    await late.evaluate(() => { globalThis.holdStorage = true })
+    const slowPasskey = () => t.page.evaluate(() => {
+      const get = navigator.credentials.get.bind(navigator.credentials)
+      navigator.credentials.get = async (o) => { globalThis.asking?.(); await new Promise((resolve) => { globalThis.answer = resolve }); return get(o) }
+    })
+    await slowPasskey()
+    await authorise(t.page, { agent: 'w6', subject: workerPub(6), scopes: 'post' })
+    await t.page.waitForSelector('#review-panel:not([hidden])')
+    await t.page.evaluate(() => { globalThis.asked = new Promise((resolve) => { globalThis.asking = resolve }) })
+    await t.page.click('#sign')
+    await t.page.evaluate(() => globalThis.asked)
+    await late.locator('#workers button').nth(0).click()
+    await t.page.evaluate(() => globalThis.answer())
+    await errorShown(t.page)
+    assert.equal(await t.page.textContent('#error'), CHANGED)
+    assert.equal(await t.page.isHidden('#handoff'), true)
+    assert.deepEqual(await kept(t.page), [])
+    await seed(t.page, [stored(1), stored(2)])
+    await t.collect()
+    await t.page.reload()
+    await t.page.waitForSelector('#renew:not([hidden])')
+    await slowPasskey()
+    await t.page.click('#renew-review')
+    await t.page.waitForSelector('#renew-panel:not([hidden])')
+    await t.page.evaluate(() => { globalThis.asked = new Promise((resolve) => { globalThis.asking = resolve }) })
+    await t.page.click('#renew-sign')
+    await t.page.evaluate(() => globalThis.asked)
+    await seed(t.page, [stored(1)])
+    await t.page.evaluate(() => globalThis.answer())
+    await errorShown(t.page)
+    assert.equal(await t.page.textContent('#error'), CHANGED)
+    assert.equal(await t.page.isHidden('#renew-handoffs'), true)
+    assert.deepEqual(t.problems, [])
+  } finally {
+    await t.close()
+  }
+})
+
+test('renewal: a change this browser cannot save is said, and the list stays as storage holds it', { timeout: 180_000 }, async () => {
+  const t = await open({ init: HOLD_STORAGE })
+  try {
+    await createIdentity(t.page)
+    await authoriseAndSign(t.page, { agent: 'forecaster', subject: workerPub(1), scopes: 'post' })
+    assert.equal(await t.page.textContent('#error'), '')
+    await t.page.evaluate(() => { globalThis.failWrites = true })
+    // A new key signed while storage refuses: handed over, since it is signed, but the old key is still the one
+    // remembered, and the page says so instead of promising it retired.
+    await authoriseAndSign(t.page, { agent: 'forecaster', subject: workerPub(2), scopes: 'post' })
+    assert.equal(await t.page.textContent('#error'), UNSAVED)
+    assert.deepEqual(await keys(t.page), [workerPub(1)])
+    // A worker that cannot be forgotten stays listed, with the same notice.
+    await t.page.fill('#scopes', 'post read')
+    assert.equal(await t.page.textContent('#error'), '')
+    await t.page.locator('#workers button').nth(0).click()
+    assert.equal(await t.page.textContent('#error'), UNSAVED)
+    assert.deepEqual(await keys(t.page), [workerPub(1)])
+    await t.collect()
+    await t.page.reload()
+    await t.page.waitForSelector('#renew:not([hidden])')
+    assert.deepEqual(await keys(t.page), [workerPub(1)], 'as before the reload')
+    // Saved again, nothing is said.
+    await authoriseAndSign(t.page, { agent: 'forecaster', subject: workerPub(2), scopes: 'post' })
+    assert.equal(await t.page.textContent('#error'), '')
+    assert.deepEqual(await keys(t.page), [workerPub(2)])
+    assert.deepEqual(t.problems, [])
+  } finally {
+    await t.close()
+  }
+})
+
+// Found by review of #71: the review of an added passkey waits for the witness too.
+test('a new passkey\'s review edited while it waits for the witness is withdrawn, and its late error is not shown', { timeout: 180_000 }, async () => {
+  const t = await open()
+  try {
+    const a = await createIdentity(t.page)
+    const roots = []
+    for (let i = 0; i < 2; i++) {
+      const d = await t.device()
+      await d.page.click('#join-button')
+      await d.page.waitForSelector('#joining:not([hidden])')
+      roots.push(await d.page.inputValue('#join-root'))
+    }
+    let held = null
+    let asked
+    let release
+    await t.page.route('**/v1/identities/*/records', async (route) => {
+      if (held !== null) { asked(); await held }
+      await route.continue()
+    })
+    const hold = () => { const seen = new Promise((resolve) => { asked = resolve }); held = new Promise((resolve) => { release = resolve }); return seen }
+    const settled = async () => { release(); held = null; await t.page.waitForLoadState('networkidle'); await t.page.waitForTimeout(300) }
+    // Reviewed for one root, the field then names another while the witness is asked: nothing is shown or signable.
+    let seen = hold()
+    await t.page.fill('#new-root', roots[0])
+    await t.page.click('#add-review')
+    await seen
+    await t.page.fill('#new-root', roots[1])
+    await settled()
+    assert.equal(await t.page.isHidden('#add-panel'), true)
+    await t.page.evaluate(() => document.getElementById('add-sign').click())
+    await t.page.waitForTimeout(500)
+    assert.equal((await t.witnessGet(`/v1/identities/${a.identity}/records`)).memberships.length, 0)
+    // A review that would be refused, edited while it waits: its refusal is of what is no longer there, and not shown.
+    seen = hold()
+    await t.page.fill('#new-root', 'not a root')
+    await t.page.click('#add-review')
+    await seen
+    await t.page.fill('#new-root', roots[1])
+    await settled()
+    assert.equal(await t.page.textContent('#error'), '')
+    // The same for a worker's review and a renewal's.
+    seen = hold()
+    await authorise(t.page, { agent: 'Not A Name', subject: workerPub(1), scopes: 'post' })
+    await seen
+    await t.page.fill('#agent', 'w1')
+    await settled()
+    assert.equal(await t.page.textContent('#error'), '')
+    await seed(t.page, [stored(1, { scopes: ['attest'] })])
+    await t.page.reload()
+    await t.page.waitForSelector('#renew:not([hidden])')
+    seen = hold()
+    await t.page.click('#renew-review')
+    await seen
+    await t.page.locator('#workers input').nth(0).uncheck()
+    await settled()
+    assert.equal(await t.page.textContent('#error'), '')
+    // Unedited, the review is of the root in the field when Review was pressed.
+    seen = hold()
+    await t.page.fill('#new-root', roots[0])
+    await t.page.click('#add-review')
+    await seen
+    await settled()
+    assert.equal(await t.page.isHidden('#add-panel'), false)
+    assert.deepEqual(t.problems, [])
+  } finally {
+    await t.close()
+  }
+})
+
 // Found by review: what storage holds is not trusted, and nothing of it is shown beside what the passkey signs unless
 // it is a key: an entry whose key is not one is no worker.
 test('renewal: a stored worker whose key is not a key is dropped; an unticked worker stays unticked until forgotten', { timeout: 180_000 }, async () => {
