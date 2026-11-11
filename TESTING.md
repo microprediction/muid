@@ -820,15 +820,23 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   the clock may come between any two. Ten invariants (its header lists them). `IdPage.cfg`, on every pull request:
   one tab, three reviews, three operations queued, four committed changes: 7,249,778 distinct states, no error.
   `IdPageTwoTabs.cfg`: two tabs (taken as alike), two reviews between them, two operations queued each, three
-  committed changes: 87,610,424 distinct states, no error, 51 minutes on three cores, so run by hand and not on
-  every pull request. A larger bound (two reviews for each tab) was stopped at 325 million distinct states, depth
-  21, with no error: not a result. Eleven negative controls, one per rule of the page turned off, each at the
+  committed changes: 87,610,424 distinct states, no error, 51 minutes on three cores, so not on every pull request:
+  the `model` workflow runs it (`tlc.sh long`) when a model, `id/page.js` or `id/store.js` changes, and weekly
+  against drift in the tools, no oftener because an exhaustive search of an unchanged model answers the same; it is
+  stopped, as a failure, if the runner's disk runs low. A larger bound (two reviews for each tab, `IdPageWide.cfg`)
+  was stopped at 325 million distinct states, depth 21, with no error: not a result. That bound, two agents under
+  one key (`IdPageTwoAgents.cfg`) and one agent at two audiences (`IdPageTwoAuds.cfg`) are sampled instead: random
+  walks (`tlc.sh sample`, TLC's simulation mode), twenty minutes each, nightly with a new seed. A walk that breaks
+  an invariant fails the run and prints its trace; walks that break none show nothing about the bound. How little:
+  thirty seconds of walks (12 million states) over the control without transactions did not find the lost update
+  the exhaustive run finds; over the control without guarded replies they found the revival in nine, so that one
+  is run nightly as the walks' own control. Eleven negative controls, one per rule of the page turned off, each at the
   two-tab bound and each reporting the invariant named beside it in `.github/scripts/tlc.sh`. `IdRoot` is the
   stored root: making one, registering it, co-signing as a joining root, with a notice, a reload or the browser's
   storage being cleared between any two steps: 276,490 distinct states, no error; four controls, two of them the
   page as it was before #74. Before it was complete the page model found the two single-tab gaps above. What this
   does not show: anything about the JavaScript itself, or beyond the bounds, or about one agent's rows at two
-  audiences or two agents (those configurations were not completed). The tie to the code is by faults: a guard
+  audiences or two agents (those configurations are sampled, not completed). The tie to the code is by faults: a guard
   (`tests/guards/model-faults.test.mjs`) fails unless every switch of either model has a control TLC runs and a
   broken twin of the page with the same fault, which the tests in Chrome catch.
 - The id twins' time limit is two hours: 81 took over an hour on a loaded machine.

@@ -1039,6 +1039,11 @@ never afterwards. Details and thresholds: `TESTING.md`; sources: [`assurance.md`
   of `decode`, W1's `clientDataJSON` check and `verifyDelegation`/`verifyClaim` on spliced records, each from its
   committed seeds; every seed is also run on every pull request. A finding fails the job with its input, and becomes
   a pinned test.
+- On a change to a model or to the id page's code, and weekly (`model.yml`): TLC, exhaustively, over the model
+  configurations too large for every pull request. On a pull request this one does gate. Weekly and no oftener: an exhaustive search of an unchanged
+  model answers the same each time, so the weekly run guards only against drift in the tools.
+- Nightly (`model.yml`): TLC's random walks, a new seed each night, over the bounds no exhaustive run has finished.
+  A walk that breaks an invariant fails the run with its trace; walks that break none are not a result.
 
 Not yet scheduled:
 - An adversarial review agent against the core. Its findings go to a **private** security advisory, never a public

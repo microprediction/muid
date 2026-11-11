@@ -47,9 +47,10 @@ test('every switch of the id page models has a negative control TLC runs and a b
       for (const twin of list) assert.ok(twins.includes(`\n  ['${twin}', `), `${name}: twin ${twin} exists`)
     }
   }
-  // Every configuration of these models is either run by the script or the one too large for every pull request.
+  // Every configuration of these models is run by the script, in one of its modes, and the workflows run each mode.
   for (const f of configs.filter((f) => /^Id(Page|Root)/.test(f))) {
-    if (f === 'IdPageTwoTabs.cfg') continue
     assert.match(script, new RegExp(`^\\S+ ${f.slice(0, -4)} \\w+$`, 'm'), `${f} is run`)
   }
+  const workflows = read('.github/workflows/scan.yml') + read('.github/workflows/model.yml')
+  for (const run of ['tlc.sh\n', 'tlc.sh long\n', 'tlc.sh sample "$SECONDS_EACH"\n']) assert.ok(workflows.includes(`run: bash .github/scripts/${run}`), `a workflow runs ${run.trim()}`)
 })
