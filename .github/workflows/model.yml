@@ -9,7 +9,8 @@ name: model
 on:
   pull_request:
     paths:
-      - model/tla/**
+      - model/tla/IdPage*
+      - model/tla/MCIdPage.tla
       - id/page.js
       - id/store.js
       - .github/scripts/tlc.sh
@@ -17,7 +18,8 @@ on:
   push:
     branches: [master]
     paths:
-      - model/tla/**
+      - model/tla/IdPage*
+      - model/tla/MCIdPage.tla
       - id/page.js
       - id/store.js
       - .github/scripts/tlc.sh

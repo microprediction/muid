@@ -54,6 +54,10 @@ const TWINS = [
   ['covers-unchecked', 'one assertion may propose a change and contest it', [["    if (shared) return refuse('covers')\n", '']]],
   ['revocation-by-retired-root', "a delegation from a root without authority serves a self-revocation", [['return has(s.authority, d.root) && d.identity', 'return d.identity']]],
   ['outbox-skipped', 'records signed before a lost log answer are not appended again first', [['    if (entry?.outbox === undefined) return entry\n    await append(entry.outbox.texts)\n', '    if (entry?.outbox === undefined) return entry\n']], 'service.js'],
+  ['outbox-ignored', 'a decision is made against the records held, whatever waits in the outbox', [['      const e = await settle(entry)\n', '      const e = entry === undefined ? undefined : { held: entry.held, head: entry.head }\n']], 'service.js'],
+  ['logged-then-kept', 'what is signed is appended to the log and only then kept, with no outbox', [['      return { entry: { ...e, outbox: { entry: s.entry, texts: s.texts } }, value: { staged: s.value } }', '      await append(s.texts)\n      return { entry: s.entry, value: { done: s.value } }']], 'service.js'],
+  ['answered-before-logged', 'a request is answered with what it signed before the log has taken it', [['    await holdings.update(identity, async (entry) => ({ entry: await settle(entry) }))\n    return r.staged', '    return r.staged']], 'service.js'],
+  ['outbox-served', 'while an outbox waits, the records it would make are the ones served', [['      return { entry: { ...e, outbox: { entry: s.entry, texts: s.texts } }, value: { staged: s.value } }', '      return { entry: { ...s.entry, outbox: { entry: s.entry, texts: s.texts } }, value: { staged: s.value } }']], 'service.js'],
   ['body-read-in-full', 'the body is read in full before its size is checked', [['    n += r.value.length\n    if (n > max) {', '    n += r.value.length\n    if (false) {']], 'service.js'],
   ['self-revocation-unsigned', "a delegate's revocation of itself is not verified", [["      if (!checkEd25519(r.sig.signature, signedBytes(r.payload), b.target).ok) return refuse('signature')\n", '']]],
   ['no-cap', 'a list grows past MAX_RECORDS', [["    if (held[list].length >= MAX_RECORDS) return refuse('full')\n", '']]],
@@ -155,7 +159,7 @@ test('witness broken twins', { timeout: 1_800_000 }, async (t) => {
       assert.ok(r.pass >= 25, `control: only ${r.pass} tests ran`)
     })
     const jobs = TWINS.map(([name, why, edits, file]) => [name, why, generate(name, edits, file)])
-    assert.equal(jobs.length, 83, 'twin count')
+    assert.equal(jobs.length, 87, 'twin count')
     const results = []
     const queue = [...jobs]
     const workers = Math.max(1, Math.floor(availableParallelism() / 4))

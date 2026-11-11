@@ -486,7 +486,7 @@ the network and the transparency log are the service's, and the signing key stay
 **The witness service (`witness/service.js`, not core)** puts these behind a small HTTP API, fetch-style (a
 `Request` in, a `Response` out). Records the witness signs wait in an outbox until the log has taken them, and the
 outbox is appended again, the same texts, before anything else is done for the identity: a log that took an entry
-but whose answer was lost never leads the witness to sign a rival (review round 8). Endpoints: `POST /v1/records` (`{ identity, type, text }`; a root, membership, contest or
+but whose answer was lost never leads the witness to sign a rival (review round 8). Checked by TLC (`model/tla/WitnessOutbox.tla`): with three requests for one identity in flight, any of them dying at any step and the log losing any answer, the log never holds two rival records, no request is answered with, and the records served never hold, what the log lacks; without any one of six rules of `commit` (among them the store's one-at-a-time update, which the service only assumes) one of those fails. Endpoints: `POST /v1/records` (`{ identity, type, text }`; a root, membership, contest or
 freeze), `POST /v1/revocations` (`{ identity, text, delegation? }`), `POST /v1/delegations` (`{ identity, text }`;
 answered with the `logged` record, appended to the log first when it is new), `GET /v1/identities/{id}/records` (what R8 needs)
 and `GET /v1/identities/{id}/head` (a head, reused for `headInterval` seconds while nothing changes; a resubmission
@@ -1026,7 +1026,7 @@ never afterwards. Details and thresholds: `TESTING.md`; sources: [`assurance.md`
 | Semgrep (`.semgrep/core.yml`, image pinned by digest) | any match in `src/`, or a rule that stops firing on its own cases (`semgrep --test`) |
 | Secret scanning (gitleaks, checksum-verified) | a secret in any commit, except findings reviewed in `.gitleaksignore` |
 | Duplication (jscpd) | a clone in `src/` not in the reviewed `.jscpd-baseline.json` |
-| TLA+ models (`model/tla/`, TLC, exhaustive within stated bounds: the adapter, the id page's remembered workers, its stored root) | a model whose invariant TLC finds violated, or a negative control it no longer violates; a model fault with no broken twin of the code |
+| TLA+ models (`model/tla/`, TLC, exhaustive within stated bounds: the adapter, the id page's remembered workers, its stored root, the witness service's outbox) | a model whose invariant TLC finds violated, or a negative control it no longer violates; a model fault with no broken twin of the code |
 | Tamarin theories (`model/tamarin/`) | a lemma not verified, or a negative control whose result changes |
 | SimpleWebAuthn differential | a root assertion accepted here and refused by SimpleWebAuthn; a known difference (where only it accepts) that changes |
 | Release-age cooldown | a locked package published less than seven days ago (`.npmrc` `min-release-age` holds new choices to the same) |

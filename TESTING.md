@@ -860,6 +860,14 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   audiences or two agents (those configurations are sampled, not completed). The tie to the code is by faults: a guard
   (`tests/guards/model-faults.test.mjs`) fails unless every switch of either model has a control TLC runs and a
   broken twin of the page with the same fault, which the tests in Chrome catch.
+- **Model of the witness service's outbox (`model/tla/WitnessOutbox.tla`; TLC):** one identity's entry and its
+  outbox, the log, and three requests in flight, each the service's `commit`: the outbox appended, the decision made
+  against its entry, the new outbox kept; then appended, its entry kept, and the request answered. A request may die
+  at any step and the log may take a text and lose its answer. Five invariants (its header lists them): 406,446
+  distinct states at four texts signed and a log of seven, no error, seconds. Six negative controls, each a rule of
+  `commit` turned off and the invariant it then breaks named in `tlc.sh`; the same guard ties each to a broken twin
+  of `service.js` (four added, 87 in all). Not shown: that anything is ever logged, or anything about `witness.js`'s
+  decisions.
 - The id twins' time limit is two hours: 81 took over an hour on a loaded machine.
 - The membership twins' time limit is 30 minutes: they take 6 to 9 in CI, and at 10 one run was cut off.
 
