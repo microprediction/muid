@@ -14,6 +14,7 @@ Background research behind the draft spec in [`../SPEC.md`](../SPEC.md). Sources
 | [prior-art.md](prior-art.md) | The established mechanism behind each rule (TUF, KERI, did:plc, Delay/Candide/Argent, KEYTRANS, C2SP, UCAN, DPoP, Fulcio), and each deviation kept |
 | [witness-tlog.md](witness-tlog.md) | Proposal: the witness as a C2SP transparency log, with checkpoints, inclusion and consistency proofs and cosigners |
 | [light-identities.md](light-identities.md) | Proposal: heavy and light identities, stable agent names, renewal without the passkey; why other designs do not cover it |
+| [browser-storage.md](browser-storage.md) | State shared by an origin's tabs: what `localStorage`, Web Locks and IndexedDB each guarantee, and what deployed libraries do |
 | [assurance.md](assurance.md) | Mutation testing, property testing, fuzzing, linters, known-answer vectors, supply chain, anti-vacuity |
 
 ## Structure of each topic file

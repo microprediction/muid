@@ -13,9 +13,9 @@ import { fileURLToPath } from 'node:url'
 const TEST_TIMEOUT = 300_000
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url))
-const FILES = ['records.js', 'page.js', 'index.html', 'page.css']
-const SUITE_DIR = join(ROOT, 'tests/id/')
-const SUITE = readdirSync(SUITE_DIR).filter((f) => f.endsWith('.test.mjs')).map((f) => join(SUITE_DIR, f))
+const FILES = ['records.js', 'page.js', 'store.js', 'index.html', 'page.css']
+// The page's tests and its storage adapter's: both run against id/, or a twin of it.
+const SUITE = ['tests/id/', 'tests/store/'].flatMap((d) => readdirSync(join(ROOT, d)).filter((f) => f.endsWith('.test.mjs')).map((f) => join(ROOT, d, f)))
 
 // [name, bug class, [find, replace] pairs, file]
 const TWINS = [
@@ -88,6 +88,12 @@ const TWINS = [
   ['expiry-of-the-longest', 'a renewal is signed while any one of its delegations is unexpired', [['  if (delegations.every((d) => Math.floor(Date.now() / 1000) < d.body.exp)) return false\n', '  if (delegations.some((d) => Math.floor(Date.now() / 1000) < d.body.exp)) return false\n']], 'page.js'],
   ['unsaved-handed-over', 'a worker whose remembering could not be saved is handed over', [['    if (!keepWorkers((list) => remember(list, { agent, subject, aud, scopes, lifetime: exp - nbf }))) return\n', '    keepWorkers((list) => remember(list, { agent, subject, aud, scopes, lifetime: exp - nbf }))\n']], 'page.js'],
   ['add-handoff-restored', "an added passkey's hand-off is shown after it was withdrawn", [["    if (pending.change !== c) return\n    $('add-handoff').value", "    $('add-handoff').value"]], 'page.js'],
+  ['store-read-then-write', 'an update reads in one transaction and writes in another, so tabs overwrite each other', [["      const r = await transact('readwrite', { durability: 'strict' }, (values, done, fail) => {\n        const got = values.get(key)\n        got.onsuccess = () => {\n          const now = read(got.result)\n", "      const before = await this.get(key)\n      const r = await transact('readwrite', { durability: 'strict' }, (values, done, fail) => {\n        const got = values.get(key)\n        got.onsuccess = () => {\n          const now = before\n"]], 'store.js'],
+  ['store-failure-is-absence', 'a transaction that fails is reported as an absent key', [['    tx.onabort = () => reject(error ?? tx.error)\n', '    tx.onabort = () => resolve({ absent: true })\n']], 'store.js'],
+  ['store-not-durable', 'an update is reported before it is asked to be durable', [["transact('readwrite', { durability: 'strict' }, ", "transact('readwrite', undefined, "]], 'store.js'],
+  ['store-answer-unchecked', "a change's answer is stored whatever its form", [['            const next = answer(change(now))\n', '            const next = change(now)\n']], 'store.js'],
+  ['store-tells-unchanged', 'other tabs are told of an update that changed nothing', [['      if (r.changed) channel.postMessage(key)\n', '      channel.postMessage(key)\n']], 'store.js'],
+  ['store-tells-nobody', 'other tabs are not told of a committed update', [['      if (r.changed) channel.postMessage(key)\n', '']], 'store.js'],
   ['add-wait-keeps', "a new passkey's review edited while the witness is asked is shown all the same", [["    if (asked !== withdrawals) return // withdrawn while the witness was asked\n    const c = addRoot(", "    const c = addRoot("]], 'page.js'],
   ['late-refusal-shown', "a refusal of a worker's review already withdrawn is shown", [["    $('review-panel').hidden = false\n  } catch (e) { if (asked === withdrawals) fail(e) }", "    $('review-panel').hidden = false\n  } catch (e) { fail(e) }"]], 'page.js'],
   ['renew-late-refusal-shown', "a refusal of a renewal already withdrawn is shown", [["    $('renew-panel').hidden = false\n  } catch (e) { if (asked === withdrawals) fail(e) }", "    $('renew-panel').hidden = false\n  } catch (e) { fail(e) }"]], 'page.js'],
@@ -148,7 +154,7 @@ test('id page broken twins', { timeout: 3_600_000 }, async (t) => {
       assert.ok(r.pass >= 14, `control: only ${r.pass} tests ran`)
     })
     const jobs = TWINS.map(([name, why, edits, file]) => [name, why, generate(name, edits, file)])
-    assert.equal(jobs.length, 81, 'twin count')
+    assert.equal(jobs.length, 87, 'twin count')
     const results = []
     const queue = [...jobs]
     const workers = Math.max(1, Math.floor(availableParallelism() / 4))

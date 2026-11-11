@@ -677,10 +677,24 @@ client_data_json, signature }`; WebAuthn fields base64url):
 
 Research: [`webauthn.md`](research/webauthn.md).
 
-## 7. Storage interface (later step)
+## 7. Storage interface
 
 `get(key)` returns `{ value }` or `{ absent: true }`, or throws. A failed read is never reported as absence. A guard
 test fails the build on any direct `indexedDB` or `localStorage` use outside the one adapter.
+
+**The browser's adapter (`id/store.js`).** Values by key in one IndexedDB object store. `update(key, change)` reads
+the key, gives what it holds to `change`, and stores its answer (`{ value }`, `{ absent: true }`, or `undefined` to
+leave it) in one read-write transaction, asked to be durable (`strict`) before it is reported. What this rests on is
+stated by the Indexed Database standard, not by this code: read-write transactions whose scopes overlap do not run at
+the same time, the one made first goes first, and a transaction's changes are written all or not at all; the
+database is shared by the origin's pages and workers. So an update is never made from a value another update has
+since replaced, in whatever tabs the two are made. `change` is called once and may not wait, since a transaction ends
+with its task: a decision that takes a passkey or the witness is made before the update, and the update checks that
+what it finds is still what was decided on. Other holders of the store are told, by a broadcast channel, which key a
+committed update changed; that message is a prompt to read again, and nothing depends on its arriving. Web storage
+(`localStorage`) is not used for anything read and then written: its standard defines no locking between a
+multi-process browser's tabs, and a lock taken beside it (Web Locks) orders the tabs without making one see what
+another just wrote. Research: [`browser-storage.md`](research/browser-storage.md).
 
 **Relying-party adapter (`adapter/`, not core).** The verifier is pure; the state a relying party keeps around it is
 replay and head memory, and the adapter makes both atomic with the established mechanism for each. `acceptClaim`

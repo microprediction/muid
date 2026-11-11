@@ -16,7 +16,7 @@ const ROOT = fileURLToPath(new URL('../', import.meta.url))
 const GLOBAL = ['package.json', 'package-lock.json', '.github/workflows/test.yml', 'tests/mutation-plan.mjs']
 
 // Every pull request and push runs this job, for the configs the change affects: quick enough to wait for.
-export const EVERY_RUN = ['stryker.id-records.config.json', 'stryker.adapter.config.json', 'stryker.receipt.config.json',
+export const EVERY_RUN = ['stryker.id-records.config.json', 'stryker.id-store.config.json', 'stryker.adapter.config.json', 'stryker.receipt.config.json',
   'stryker.note.config.json', 'stryker.ed25519.config.json', 'stryker.root.config.json', 'stryker.p256.config.json',
   'stryker.origin.config.json', 'stryker.merkle.config.json', 'stryker.envelope.config.json',
   'stryker.delegation.config.json', 'stryker.bytes.config.json', 'stryker.attestation.config.json',
