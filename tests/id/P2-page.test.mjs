@@ -361,11 +361,12 @@ test('an unreadable stored identity is forgotten: the page offers to create one'
   }
 })
 
-test('a stored root of the wrong form is forgotten, not shown', { timeout: 120_000 }, async () => {
+test('a stored root of the wrong form is forgotten, not shown; what is stored for the workers and is no list of them is none', { timeout: 120_000 }, async () => {
   const t = await open()
   try {
     await t.page.waitForSelector('#create:not([hidden])')
     await hold(t.page, 'root', { identity: '<b>x</b>', text: 5 })
+    await hold(t.page, 'workers', null)
     await t.collect()
     await t.page.reload()
     await t.page.waitForSelector('#create:not([hidden])')
@@ -420,6 +421,7 @@ test('a page whose storage a newer version of the page has taken withdraws what 
     await t.page.waitForTimeout(500)
     assert.equal(await t.page.textContent('#error'), 'A newer version of this page has taken its storage, or the browser has cleared it: reload this page.')
     await offered()
+    await t.collect()
     await t.page.reload()
     await errorShown(t.page)
     assert.equal(await t.page.textContent('#error'), 'This browser gave the page no storage: it can do nothing here.')
