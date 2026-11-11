@@ -24,6 +24,7 @@ const WITNESS_KEYS = JSON.parse(meta('muid-witness-keys'))
 // have written it. The page's own copies are never ahead of storage: a change that was not saved is not shown as made.
 let store
 let root = null
+// Stryker disable next-line ArrayDeclaration: equivalent; read from storage before anything is listed
 let workers = []
 const text = (held) => JSON.stringify(held)
 const rootOf = (held) => held.absent ? null : storedRoot(held.value, rpId)
@@ -44,11 +45,14 @@ async function refresh () {
   root = rootOf(await store.get(KEY))
   adopt(await store.get(WORKERS), false)
 }
+// Stryker disable next-line ObjectLiteral: nothing shown differs; without the nulls a signing button (hidden) pressed
+// before any review throws where it would return, and does nothing either way
 const pending = { delegation: null, change: null, cosign: null, renewal: null }
 
 // A change to the stored root, made only while storage holds the root it was decided for (`mine`, its id: null
 // when one is being created): another's root is adopted, never overwritten. Whether the change was made.
 async function keepRoot (mine, change) {
+  // Stryker disable next-line BooleanLiteral: equivalent; set by every update that returns
   let made = false
   const held = await store.update(KEY, (now) => {
     const r = rootOf(now)
@@ -108,7 +112,7 @@ function listWorkers () {
     box.addEventListener('change', () => { if (box.checked) unticked.delete(slot(w)); else unticked.add(slot(w)); withdraw() })
     const forget = element('button', 'Forget')
     forget.type = 'button'
-    forget.addEventListener('click', () => { withdraw(); keepWorkers((list) => list.filter((x) => x.agent !== w.agent || x.aud !== w.aud || x.subject !== w.subject)) })
+    forget.addEventListener('click', () => { keepWorkers((list) => list.filter((x) => x.agent !== w.agent || x.aud !== w.aud || x.subject !== w.subject)) })
     return element('li', element('label', box, ` ${w.agent} at ${w.aud}: ${w.scopes.join(' ')} `, element('code', w.subject)), forget)
   }))
 }
@@ -195,6 +199,7 @@ function lapsed (delegations) {
 // Counts withdrawals: a review that waited for the witness goes on only if nothing was withdrawn meanwhile.
 let withdrawals = 0
 function withdraw () {
+  // Stryker disable next-line UpdateOperator: equivalent; only compared with what it was
   withdrawals++
   pending.delegation = null
   pending.change = null
@@ -311,7 +316,6 @@ $('renew-sign').addEventListener('click', async () => {
   $('error').textContent = ''
   try {
     const a = await sign(r.covers)
-    if (pending.renewal !== r) return // withdrawn while the passkey was asked
     // A renewal takes effect at this read of storage: a change committed after it is after the renewal.
     if (await changedElsewhere() || pending.renewal !== r || lapsed(r.delegations)) return
     $('renew-handoffs').replaceChildren(...r.delegations.map((d) => {

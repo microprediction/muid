@@ -307,6 +307,7 @@ test('an edit while the passkey is signing withdraws the delegation: the late si
     await t.page.waitForTimeout(1500)
     assert.equal(await t.page.isHidden('#handoff'), true)
     assert.equal(await t.page.inputValue('#handoff'), '')
+    assert.equal(await kept(t.page), null, 'nor is the worker remembered (a surviving mutant)')
   } finally {
     await t.close()
   }
@@ -1496,6 +1497,7 @@ test('renewal: a tab not yet told of another tab\'s change does not undo it, and
     await errorShown(t.page)
     assert.equal(await t.page.textContent('#error'), CHANGED)
     assert.equal(await t.page.isHidden('#handoff'), true)
+    assert.equal(await t.page.isHidden('#review-panel'), true, 'the review is withdrawn (a surviving mutant)')
     assert.deepEqual(await kept(t.page), [])
     await seed(t.page, [stored(1), stored(2)])
     await t.collect()
@@ -1535,12 +1537,24 @@ test('renewal: a change this browser cannot save is said, and the list stays as 
     assert.equal(await t.page.isHidden('#handoff'), true, 'nothing handed over')
     assert.equal(await t.page.isHidden('#review-panel'), false)
     assert.deepEqual(await keys(t.page), [workerPub(1)])
-    // A worker that cannot be forgotten stays listed, with the same notice.
+    // A worker that cannot be forgotten stays listed, with the same notice. A review open then, made against the
+    // list as it still is, stays open.
     await t.page.fill('#scopes', 'post read')
     assert.equal(await t.page.textContent('#error'), '')
+    await authorise(t.page, { agent: 'forecaster', subject: workerPub(2), scopes: 'post' })
+    await t.page.waitForSelector('#review-panel:not([hidden])')
     await forget(t.page, 0)
     assert.equal(await t.page.textContent('#error'), UNSAVED)
     assert.deepEqual(await keys(t.page), [workerPub(1)])
+    assert.equal(await t.page.isHidden('#review-panel'), false)
+    // But if what could not be saved finds the list changed by another tab (this one not yet told), the page is
+    // brought to it and the review, made against the list as it was, is withdrawn (a surviving mutant).
+    await t.page.evaluate(() => { globalThis.failWrites = false })
+    await seed(t.page, await kept(t.page))
+    await t.page.evaluate(() => { globalThis.failWrites = true; document.getElementById('error').textContent = '' })
+    await forget(t.page, 0)
+    assert.equal(await t.page.textContent('#error'), UNSAVED)
+    assert.equal(await t.page.isHidden('#review-panel'), true)
     await t.collect()
     await t.page.reload()
     await t.page.waitForSelector('#renew:not([hidden])')
