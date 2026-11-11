@@ -1514,6 +1514,19 @@ test('renewal: a tab not yet told of another tab\'s change does not undo it, and
     await errorShown(t.page)
     assert.equal(await t.page.textContent('#error'), CHANGED)
     assert.equal(await t.page.isHidden('#renew-handoffs'), true)
+    // A renewal withdrawn while the passkey was asked is dropped there: storage is not read for it, so nothing is
+    // said of a change this tab has not been told of (a surviving mutant; the model's SignReply).
+    await t.page.click('#renew-review')
+    await t.page.waitForSelector('#renew-panel:not([hidden])')
+    await t.page.evaluate(() => { globalThis.asked = new Promise((resolve) => { globalThis.asking = resolve }) })
+    await t.page.click('#renew-sign')
+    await t.page.evaluate(() => globalThis.asked)
+    await t.page.locator('#workers input[type=checkbox]').first().click()
+    await seed(t.page, [stored(1), stored(3)])
+    await t.page.evaluate(() => globalThis.answer())
+    await t.page.waitForTimeout(500)
+    assert.equal(await t.page.textContent('#error'), '')
+    assert.equal(await t.page.isHidden('#renew-handoffs'), true)
     assert.deepEqual(t.problems, [])
   } finally {
     await t.close()
@@ -1537,8 +1550,8 @@ test('renewal: a change this browser cannot save is said, and the list stays as 
     assert.equal(await t.page.isHidden('#handoff'), true, 'nothing handed over')
     assert.equal(await t.page.isHidden('#review-panel'), false)
     assert.deepEqual(await keys(t.page), [workerPub(1)])
-    // A worker that cannot be forgotten stays listed, with the same notice. A review open then, made against the
-    // list as it still is, stays open.
+    // A worker that cannot be forgotten stays listed, with the same notice. A Forget withdraws what is open when it
+    // is pressed, saved or not (as the model of the page has it; a surviving mutant).
     await t.page.fill('#scopes', 'post read')
     assert.equal(await t.page.textContent('#error'), '')
     await authorise(t.page, { agent: 'forecaster', subject: workerPub(2), scopes: 'post' })
@@ -1546,14 +1559,6 @@ test('renewal: a change this browser cannot save is said, and the list stays as 
     await forget(t.page, 0)
     assert.equal(await t.page.textContent('#error'), UNSAVED)
     assert.deepEqual(await keys(t.page), [workerPub(1)])
-    assert.equal(await t.page.isHidden('#review-panel'), false)
-    // But if what could not be saved finds the list changed by another tab (this one not yet told), the page is
-    // brought to it and the review, made against the list as it was, is withdrawn (a surviving mutant).
-    await t.page.evaluate(() => { globalThis.failWrites = false })
-    await seed(t.page, await kept(t.page))
-    await t.page.evaluate(() => { globalThis.failWrites = true; document.getElementById('error').textContent = '' })
-    await forget(t.page, 0)
-    assert.equal(await t.page.textContent('#error'), UNSAVED)
     assert.equal(await t.page.isHidden('#review-panel'), true)
     await t.collect()
     await t.page.reload()

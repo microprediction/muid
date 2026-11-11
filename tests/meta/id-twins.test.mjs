@@ -61,7 +61,7 @@ const TWINS = [
   ['renew-covers-unsorted', "a renewal's covers are in the order listed", [['  const covers = delegations.map((d) => d.id).sort()\n', '  const covers = delegations.map((d) => d.id)\n']], 'records.js'],
   ['workers-any-form', 'whatever storage holds is taken as a worker', [['    const w = workerOf(e)\n', '    const w = e ?? undefined\n']], 'records.js'],
   ['renew-selection-keeps-review', 'a change of selection leaves the reviewed renewal signable', [["else unticked.add(slot(w)); withdraw() })", "else unticked.add(slot(w)) })"]], 'page.js'],
-  ['renew-late-signature-kept', 'a renewal signed after a change of selection is handed over', [["    if (await changedElsewhere() || pending.renewal !== r || lapsed(r.delegations)) return\n", "    if (await changedElsewhere() || lapsed(r.delegations)) return\n"]], 'page.js'],
+  ['renew-late-signature-kept', 'a renewal signed after a change of selection is handed over', [["    if (pending.renewal !== r) return // withdrawn while the passkey was asked\n", ""], ["    if (await changedElsewhere() || pending.renewal !== r || lapsed(r.delegations)) return\n", "    if (await changedElsewhere() || lapsed(r.delegations)) return\n"]], 'page.js'],
   ['renew-unticked', 'a worker that was unticked is renewed', [['    const chosen = workers.filter((w) => !unticked.has(slot(w)))\n', '    const chosen = workers\n']], 'page.js'],
   ['review-wait-keeps', 'a review edited while the witness is asked is shown all the same', [["    if (asked !== withdrawals) return // withdrawn while the witness was asked\n    const d = delegation(", "    const d = delegation("]], 'page.js'],
   ['renew-wait-keeps', 'a renewal changed while the witness is asked is shown all the same', [["    if (asked !== withdrawals) return // withdrawn while the witness was asked\n    const r = renewals(", "    const r = renewals("]], 'page.js'],
@@ -108,6 +108,8 @@ const TWINS = [
   ['store-holds-on', "a store stays open when a newer page raises the database's version, holding the upgrade up", [["  db.onversionchange = db.onclose = () => {\n", "  db.onclose = () => {\n"]], 'store.js'],
   ['store-browser-close-unsaid', 'a store the browser closed is not said to be lost', [["  db.onversionchange = db.onclose = () => {\n", "  db.onversionchange = () => {\n"]], 'store.js'],
   ['store-lost-unsaid', 'a store that closed for a newer page does not say so', [["    close()\n    lost()\n", "    close()\n"]], 'store.js'],
+  ['forget-leaves-review', 'a Forget leaves a review open until its saving lands, or for good if it cannot be saved', [["forget.addEventListener('click', () => { withdraw(); keepWorkers(", "forget.addEventListener('click', () => { keepWorkers("]], 'page.js'],
+  ['renew-withdrawn-reads-storage', 'a renewal withdrawn while the passkey was asked goes on to read storage, and speaks of a change', [["    if (pending.renewal !== r) return // withdrawn while the passkey was asked\n", ""]], 'page.js'],
   ['lost-store-review-stays', "a review stays open in a page whose store was lost", [["    store = await openStore('muid', () => {\n      withdraw()\n", "    store = await openStore('muid', () => {\n"]], 'page.js'],
   ['lost-store-still-offers', "a page whose store was lost goes on offering what it cannot keep", [["      REFUSAL = 'A newer version of this page has taken its storage, or the browser has cleared it: reload this page.'\n", ""]], 'page.js'],
   ['add-wait-keeps', "a new passkey's review edited while the witness is asked is shown all the same", [["    if (asked !== withdrawals) return // withdrawn while the witness was asked\n    const c = addRoot(", "    const c = addRoot("]], 'page.js'],
@@ -176,7 +178,7 @@ test('id page broken twins', { timeout: 7_200_000 }, async (t) => {
       assert.ok(r.pass >= 14, `control: only ${r.pass} tests ran`)
     })
     const jobs = TWINS.map(([name, why, edits, file]) => [name, why, generate(name, edits, file)])
-    assert.equal(jobs.length, 109, 'twin count')
+    assert.equal(jobs.length, 111, 'twin count')
     const results = []
     const queue = [...jobs]
     const workers = Math.max(1, Math.floor(availableParallelism() / 4))

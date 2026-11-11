@@ -43,6 +43,8 @@ function adopt (held, own) {
 }
 async function refresh () {
   root = rootOf(await store.get(KEY))
+  // Stryker disable next-line BooleanLiteral: equivalent; nothing is open when this runs at load, a notice withdraws
+  // whatever it finds, and a saving that failed was a Forget's, which withdrew when pressed
   adopt(await store.get(WORKERS), false)
 }
 // Stryker disable next-line ObjectLiteral: nothing shown differs; without the nulls a signing button (hidden) pressed
@@ -112,7 +114,7 @@ function listWorkers () {
     box.addEventListener('change', () => { if (box.checked) unticked.delete(slot(w)); else unticked.add(slot(w)); withdraw() })
     const forget = element('button', 'Forget')
     forget.type = 'button'
-    forget.addEventListener('click', () => { keepWorkers((list) => list.filter((x) => x.agent !== w.agent || x.aud !== w.aud || x.subject !== w.subject)) })
+    forget.addEventListener('click', () => { withdraw(); keepWorkers((list) => list.filter((x) => x.agent !== w.agent || x.aud !== w.aud || x.subject !== w.subject)) })
     return element('li', element('label', box, ` ${w.agent} at ${w.aud}: ${w.scopes.join(' ')} `, element('code', w.subject)), forget)
   }))
 }
@@ -317,6 +319,7 @@ $('renew-sign').addEventListener('click', async () => {
   try {
     const a = await sign(r.covers)
     // A renewal takes effect at this read of storage: a change committed after it is after the renewal.
+    if (pending.renewal !== r) return // withdrawn while the passkey was asked
     if (await changedElsewhere() || pending.renewal !== r || lapsed(r.delegations)) return
     $('renew-handoffs').replaceChildren(...r.delegations.map((d) => {
       const t = element('textarea')
