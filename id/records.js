@@ -107,7 +107,7 @@ const givesWay = (old, worker) => old.agent === worker.agent && (old.subject !==
 
 function workerOf (x) {
   if (x === null || typeof x !== 'object' || Array.isArray(x) || Object.keys(x).length !== 5 ||
-    typeof x.agent !== 'string' || typeof x.subject !== 'string' || typeof x.aud !== 'string' || !Array.isArray(x.scopes) ||
+    typeof x.agent !== 'string' || typeof x.aud !== 'string' || !Array.isArray(x.scopes) ||
     !x.scopes.every((s) => typeof s === 'string') || !Number.isSafeInteger(x.lifetime) || !checkEd25519Key(x.subject).ok) return undefined
   return { agent: x.agent, subject: x.subject, aud: x.aud, scopes: [...x.scopes], lifetime: x.lifetime }
 }
