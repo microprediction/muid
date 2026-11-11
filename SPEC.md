@@ -764,10 +764,18 @@ withdraws a review (an edit, a change of selection, a forgotten worker, another 
 waiting, which then shows and signs nothing. A stored entry whose key is not a key is no worker, so nothing from
 storage but a key is shown beside what the passkey signs. A worker unticked stays unticked while it is listed. The remembered workers are
 one list shared by this browser's tabs, kept through the storage adapter (§7): each change is one transaction, made
-to what storage holds at that moment, so no tab undoes another's change, whenever the two are made. A signed worker
-is remembered only if the list is still exactly as it was when the user reviewed it (the check and the write are
-that one transaction); otherwise, and for a renewal reviewed before another tab's change, nothing is signed or
-handed over and the tab is brought up to date. The list shown is what storage holds, so a change the browser could
+to what storage holds at that moment, so no tab undoes another's change, whenever the two are made. The list is stored
+with a count, one more with every committed change, so that a list changed and put back as it was is still a change.
+A signed worker is remembered only if the stored list and its count are exactly as they were when the user reviewed
+it (the check and the write are that one transaction), and is handed over only once that transaction has committed
+and only if it is still open and unexpired then. A renewal takes effect at its read of storage after the passkey has
+answered: it is handed over only if nothing was committed between the state reviewed and that read, and it is still
+open and unexpired; a change committed after that read is after the renewal, and no promise is made about the moment
+the hand-off appears, which no transaction can cover. Otherwise nothing is signed or handed over and the tab is
+brought up to date. A Forget removes the row shown (its agent, audience and key) and no other: pressed in a tab not
+yet told that the agent's key was replaced, it removes nothing. Whenever a tab's copy of the list changes (its own
+Forget landing, another review's saving, another tab's change), whatever it has open is withdrawn; only a review's
+own saving leaves it open, to be handed over. The list shown is what storage holds, so a change the browser could
 not save is said, not shown as made. This is a guarantee about this browser's remembered choices: what is forgotten
 or replaced here is not thereby revoked. The review of an added passkey waits for the witness in the same way as a
 worker's. A worker is handed its delegation only once the change is saved, so none is handed over on a

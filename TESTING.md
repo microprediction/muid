@@ -696,7 +696,7 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   wait is cut to 15 s and every test to 60 s, and once one test fails or times out, the rest fail at once. Without
   this, a broken page made each test wait out its limits in turn, and the mutant was counted only when Stryker's
   own timeout ran out.
-- Twins (`tests/meta/id-twins.test.mjs`, 88 in all): the challenge's domain, any algorithm, unsorted scopes, an unbounded
+- Twins (`tests/meta/id-twins.test.mjs`, 98 in all): the challenge's domain, any algorithm, unsorted scopes, an unbounded
   lifetime, an unchecked audience, an edit that keeps the review, a late signature kept, verification preferred,
   any passkey, a credential that is not resident, inline scripts allowed, hidden parts shown; attest granted; a change co-signed that does not add
   this passkey, an edit of the new root kept, authority unchecked, delegations under the first membership, the root
@@ -717,7 +717,7 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   audience; nine refused and none refused; a change of selection, a forgotten worker and another tab's change each
   withdraw a review; a signature returning after a change of selection is not handed over; a refused passkey is
   reported; stored text is shown as text; unreadable storage offers nothing; a passkey with no identity yet, or
-  still joining, is offered nothing to renew. Twins (11 of the 88): the batch unbounded, covers unsorted, storage
+  still joining, is offered nothing to renew. Twins (11 of the 98): the batch unbounded, covers unsorted, storage
   trusted, the selection or a late signature not withdrawing, an unticked worker renewed, a delegation signed but
   not shown, the assertion not covering each, renewal offered while joining, a worker not remembered or not
   forgotten.
@@ -728,7 +728,7 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   refused. `P2`: a key authorised for a remembered agent is shown, before signing, as replacing the old key by
   name, and nothing changes until it is signed; then only the new key is listed, stored and renewed; reviewed again
   the notice is gone; an old key written back into storage is not read back; a worker forgotten at one audience
-  stays at its other. Twins (6 of the 88): the old key kept, or kept at its other audiences; two keys renewed;
+  stays at its other. Twins (6 of the 98): the old key kept, or kept at its other audiences; two keys renewed;
   the replacement unsaid, or said when there is none; one audience's Forget forgetting every audience.
 - **Found by an independent review of the renewal page:** a review waits for the witness before it shows anything,
   and a change made meanwhile did not withdraw it. `P2`, with the witness's answer held: a field edited, a box
@@ -738,7 +738,7 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   is dropped, so it is not listed and never named in the replacement notice. A worker unticked stays unticked when
   the list is drawn again, is not renewed, and comes back ticked only as a new entry. Another tab forgetting one of
   two workers withdraws an open review while the list stays shown (the earlier test hid the whole section, so
-  proved nothing). Twins (7 of the 88): either review going on after a change while it waited; withdrawals not
+  proved nothing). Twins (7 of the 98): either review going on after a change while it waited; withdrawals not
   counted; a redrawn list ticking everything, or an untick outliving its entry; a stored key unchecked; another
   tab's change of the workers leaving a review signable.
 - **Found by review of the pull request:** `P2`, with a tab's storage notifications held so that it is not told: the
@@ -748,7 +748,7 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   remembered. With storage refusing writes: a new key is not handed over, the page says it could not be saved, the
   review stays to be signed again, the list stays as storage holds it, a Forget likewise, and a reload shows the same. With the witness's answer held:
   an added passkey's review edited while it waits shows and signs nothing, and a refusal of what was withdrawn is
-  not shown, for all three reviews. Twins (10 of the 88): a stale list written; an unsaved change shown as made;
+  not shown, for all three reviews. Twins (10 of the 98): a stale list written; an unsaved change shown as made;
   either stale review signed, or handed over after a change during signing; the added passkey's review going on; a
   late refusal shown, for each review. (Two tabs writing in the same instant were not covered then: see the page
   on the storage adapter, below.)
@@ -757,7 +757,7 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   the passkey is asked is not handed over or remembered; a second before expiry it is signed and handed over; a
   renewal the same, at the expiry of its shortest-lived delegation. With the witness's answer to a submission held:
   an added passkey's change, signed and then withdrawn by an edit, is still submitted but its hand-off is not
-  shown. Twins (7 of the 88): an expired review signed, or handed over, for a worker and for a renewal; expiry
+  shown. Twins (7 of the 98): an expired review signed, or handed over, for a worker and for a renewal; expiry
   judged by the longest-lived; an unsaved worker handed over; the withdrawn hand-off shown. That draft's harness
   (2,116 generated two-tab histories against the page module) reported seven broken contracts on the reviewed
   commit and none on this one; it is not part of this change.
@@ -771,7 +771,7 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   type-checked; a closed store and a failing request throw, never reported as an absent key. A write is asked for
   with `strict` durability; another tab is told of each committed change, in order, and not of one that changed
   nothing or failed; the tab that made the change is not told, nor a store of another name, nor a watcher that was
-  stopped. Twins (6 of the 88): the read and the write in separate transactions (the lost update: the increments
+  stopped. Twins (6 of the 98): the read and the write in separate transactions (the lost update: the increments
   then fall short); a failure reported as absence; no durability asked; the answer unchecked; other tabs told of
   nothing, or of everything. Mutation: `stryker.id-store.config.json`, in the every-run job. Not proved here, but
   taken from the standard: that a transaction interrupted by a crash leaves nothing half-written.
@@ -787,7 +787,25 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   API (`localStorage`, `sessionStorage`, `indexedDB`, `IDB…`, `caches`, cookies), and checks itself against each.
   Twins: twenty retargeted to the new lines with the same faults; one dropped (a change to any `localStorage` key
   withdrawing a review: the store has only the page's keys); two added (a root stored over another tab's; the page
-  acting without storage). 88 in all.
+  acting without storage). 88 at that point.
+- **The counted state, the row forgotten, and the checks before hand-off** (the contract of SPEC §8: commit order):
+  `P2`: a list replaced and put back as it was between review and signing is a change, and the worker reviewed
+  before it is not saved or handed over; a Forget pressed in a tab not yet told that the row's key was replaced
+  removes nothing and the new key stays; a worker that expires, or is withdrawn, while its saving is on its way is
+  not handed over; a renewal withdrawn while storage is read after the passkey answers is not handed over. `ST1`: an
+  update whose request succeeded and whose transaction then aborts is reported as failed, and nothing is stored.
+  Twins (6 of the 98): the store reporting at the request's success; the count not
+  advanced; a Forget by agent and audience alone; a worker handed over expired, or withdrawn, after its saving; a
+  renewal handed over withdrawn after its read.
+- **Found by the model of the page (TLC, before it was complete):** within one tab, a review opened while the tab's
+  own Forget, or an earlier review's saving, was still on its way stayed open when that landed, and could be signed
+  with a notice that no longer said what saving would do. `P2`, with the write held: each such review is withdrawn
+  when the operation lands, and a review's own saving still hands it over. `ST1`: a database that cannot be opened
+  rejects, and a closed store tells its watchers nothing. Twins (4 of the 98): a review left open when the tab's
+  copy changes; any saving, not only its own, leaving a review open; an unopenable database left waiting; a closed
+  store still telling. Under mutation, the page in each tab hands its coverage back through `tests/id/mutant.mjs`
+  (without it the store's first mutation run measured nothing).
+- The id twins' time limit is two hours: 81 took over an hour on a loaded machine.
 - The membership twins' time limit is 30 minutes: they take 6 to 9 in CI, and at 10 one run was cut off.
 
 ## 4l. The two-application demo (`demo/`, not core)
