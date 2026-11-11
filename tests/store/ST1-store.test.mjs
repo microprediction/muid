@@ -175,7 +175,12 @@ test('an update that fails changes nothing and says so; a read that fails is not
     const later = fresh()
     assert.deepEqual(await t.page.evaluate((name) => new Promise((resolve) => {
       const made = indexedDB.open(name, 2)
-      made.onsuccess = async () => { made.result.close(); try { await globalThis.openStore(name); resolve('opened') } catch (e) { resolve(e.name) } }
+      made.onsuccess = async () => {
+        made.result.close()
+        // Five seconds without an answer is a hang, and fails here rather than running into the test's time limit.
+        const hung = new Promise((resolve) => setTimeout(() => resolve('hung'), 5000))
+        try { resolve(await Promise.race([globalThis.openStore(name).then(() => 'opened'), hung])) } catch (e) { resolve(e.name) }
+      }
     }), later), 'VersionError')
     // A closed store tells its watchers nothing more.
     const quiet = await other.evaluate(async (db) => {

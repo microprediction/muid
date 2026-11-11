@@ -813,6 +813,11 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   answer (a surviving mutant). Twins (6 more, 104 in all): the losing Create registering; a registration, or a
   co-signature, marking whatever root the tab then holds; either said to be done when it was not; a co-signature
   sent unkept.
+- **Found by the first complete run of the 104 twins:** four were not caught, each by a weak test, not a fault of
+  the page. The three late-refusal twins differ from the page only when the witness itself fails after a withdrawal
+  (a review that would be refused returns before it is refused): `P2` now has the witness answer 503 after each of
+  the three reviews is withdrawn (nothing shown), and once unwithdrawn (shown). An opening that hangs made its test
+  run out of time, which the harness does not count as caught: `ST1` now fails it after five seconds.
 - The id twins' time limit is two hours: 81 took over an hour on a loaded machine.
 - The membership twins' time limit is 30 minutes: they take 6 to 9 in CI, and at 10 one run was cut off.
 

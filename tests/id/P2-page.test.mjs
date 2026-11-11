@@ -1822,10 +1822,13 @@ test('a new passkey\'s review edited while it waits for the witness is withdrawn
     let held = null
     let asked
     let release
+    let down = false
     await t.page.route('**/v1/identities/*/records', async (route) => {
       if (held !== null) { asked(); await held }
-      await route.continue()
+      if (down) await route.fulfill({ status: 503, json: { ok: false, reason: 'unavailable' } })
+      else await route.continue()
     })
+    const unavailable = /^Failed to load resource: the server responded with a status of 503/
     const hold = () => { const seen = new Promise((resolve) => { asked = resolve }); held = new Promise((resolve) => { release = resolve }); return seen }
     const settled = async () => { release(); held = null; await t.page.waitForLoadState('networkidle'); await t.page.waitForTimeout(300) }
     // Reviewed for one root, the field then names another while the witness is asked: nothing is shown or signable.
@@ -1863,6 +1866,35 @@ test('a new passkey\'s review edited while it waits for the witness is withdrawn
     await t.page.locator('#workers input').nth(0).uncheck()
     await settled()
     assert.equal(await t.page.textContent('#error'), '')
+    // The witness itself failing to answer a review since withdrawn: not shown, for each review; unwithdrawn, shown.
+    down = true
+    seen = hold()
+    await t.page.fill('#new-root', roots[0])
+    await t.page.click('#add-review')
+    await seen
+    await t.page.fill('#new-root', roots[1])
+    await settled()
+    assert.equal(await t.page.textContent('#error'), '', 'a new passkey')
+    seen = hold()
+    await authorise(t.page, { agent: 'w2', subject: workerPub(2), scopes: 'post' })
+    await seen
+    await t.page.fill('#agent', 'w3')
+    await settled()
+    assert.equal(await t.page.textContent('#error'), '', 'a worker')
+    await t.page.locator('#workers input').nth(0).check()
+    seen = hold()
+    await t.page.click('#renew-review')
+    await seen
+    await t.page.locator('#workers input').nth(0).uncheck()
+    await settled()
+    assert.equal(await t.page.textContent('#error'), '', 'a renewal')
+    await t.page.locator('#workers input').nth(0).check()
+    seen = hold()
+    await t.page.click('#renew-review')
+    await seen
+    await settled()
+    assert.notEqual(await t.page.textContent('#error'), '', 'one not withdrawn says so')
+    down = false
     // Unedited, the review is of the root in the field when Review was pressed.
     seen = hold()
     await t.page.fill('#new-root', roots[0])
@@ -1870,7 +1902,7 @@ test('a new passkey\'s review edited while it waits for the witness is withdrawn
     await seen
     await settled()
     assert.equal(await t.page.isHidden('#add-panel'), false)
-    assert.deepEqual(t.problems, [])
+    assert.deepEqual(t.problems.filter((p) => !unavailable.test(p)), [])
   } finally {
     await t.close()
   }
