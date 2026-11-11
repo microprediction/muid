@@ -33,11 +33,16 @@ const workersOf = (held) => storedWorkers(held.absent ? null : held.value?.worke
 const revOf = (held) => Number.isSafeInteger(held.value?.rev) ? held.value.rev : 0
 // `seen` is what is stored for the workers as this tab last read it: storage that differs was changed since.
 let seen
-async function refresh () {
-  root = rootOf(await store.get(KEY))
-  const held = await store.get(WORKERS)
+// The tab's copy of the workers is brought to what storage holds. Whatever the tab has open was reviewed against
+// the copy as it was: if the copy changes, that is withdrawn, unless the open review's own saving made the change.
+function adopt (held, own) {
+  if (text(held) !== seen && !own) withdraw()
   seen = text(held)
   workers = workersOf(held)
+}
+async function refresh () {
+  root = rootOf(await store.get(KEY))
+  adopt(await store.get(WORKERS), false)
 }
 const pending = { delegation: null, change: null, cosign: null, renewal: null }
 
@@ -56,21 +61,20 @@ async function keepRoot (change) {
 // A change to the remembered workers, made to what storage holds at that moment. Given `reviewed` (the workers as
 // they were when the user reviewed what this change follows from), it is made only if storage still holds exactly
 // that. 'saved'; or 'changed' (another tab changed them: this one is brought up to date, with nothing left to sign);
-// or 'unsaved' (the browser could not keep it: said, and the list stays as storage holds it).
-async function keepWorkers (change, reviewed) {
+// or 'unsaved' (the browser could not keep it: said, and the list stays as storage holds it). `open()` says
+// whether the review this change follows from is still the one open, when the change has been made.
+async function keepWorkers (change, reviewed, open) {
   let outcome = 'saved'
   try {
     const held = await store.update(WORKERS, (now) => {
       if (reviewed !== undefined && text(now) !== reviewed) { outcome = 'changed'; return undefined }
       return { value: { rev: revOf(now) + 1, workers: change(workersOf(now)) } }
     })
-    seen = text(held)
-    workers = workersOf(held)
+    adopt(held, outcome === 'saved' && reviewed !== undefined && open())
   } catch {
     outcome = 'unsaved'
     await refresh()
   }
-  if (outcome === 'changed') withdraw()
   show()
   if (outcome === 'changed') fail(new Error('The remembered workers were changed in another tab: review again.'))
   if (outcome === 'unsaved') fail(new Error('This browser could not save the change to the remembered workers: they are listed as it holds them.'))
@@ -172,9 +176,7 @@ async function sign (covers) {
 async function changedElsewhere () {
   const held = await store.get(WORKERS)
   if (text(held) === seen) return false
-  seen = text(held)
-  workers = workersOf(held)
-  withdraw()
+  adopt(held, false)
   show()
   fail(new Error('The remembered workers were changed in another tab: review again.'))
   return true
@@ -276,7 +278,7 @@ $('sign').addEventListener('click', async () => {
     // if the workers are still as they were reviewed: a worker is handed nothing if the change (which may retire
     // its agent's old key) was not saved.
     const { agent, subject, aud, scopes, nbf, exp } = d.body
-    if (await keepWorkers((list) => remember(list, { agent, subject, aud, scopes, lifetime: exp - nbf }), seen) !== 'saved') return
+    if (await keepWorkers((list) => remember(list, { agent, subject, aud, scopes, lifetime: exp - nbf }), seen, () => pending.delegation === d) !== 'saved') return
     if (pending.delegation !== d || lapsed([d])) return // withdrawn, or expired, while it was saved
     $('handoff').value = handOff(d.payload, a)
     $('handoff').hidden = false

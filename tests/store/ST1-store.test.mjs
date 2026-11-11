@@ -171,6 +171,23 @@ test('an update that fails changes nothing and says so; a read that fails is not
     await update(t.page, db, 'after', 'return { value: 1 }')
     await other.waitForFunction(() => globalThis.told.length >= 1)
     assert.deepEqual(await other.evaluate(() => globalThis.told), ['after'], 'not told of the write that was not made')
+    // A database that cannot be opened (here, one already at a later version) fails the opening: it does not hang.
+    const later = fresh()
+    assert.deepEqual(await t.page.evaluate((name) => new Promise((resolve) => {
+      const made = indexedDB.open(name, 2)
+      made.onsuccess = async () => { made.result.close(); try { await globalThis.openStore(name); resolve('opened') } catch (e) { resolve(e.name) } }
+    }), later), 'VersionError')
+    // A closed store tells its watchers nothing more.
+    const quiet = await other.evaluate(async (db) => {
+      const s = await globalThis.openStore(db)
+      globalThis.afterClose = []
+      s.watch((key) => globalThis.afterClose.push(key))
+      s.close()
+    }, db)
+    assert.equal(quiet, undefined)
+    await update(t.page, db, 'closed', 'return { value: 1 }')
+    await other.waitForFunction(() => globalThis.told.includes('closed'))
+    assert.deepEqual(await other.evaluate(() => globalThis.afterClose), [])
     // A failing request inside a read: the transaction's failure is the get's.
     const failed = await t.page.evaluate(async (db) => {
       const s = await globalThis.openStore(db)

@@ -134,6 +134,21 @@ const change = (page, key, value) => page.evaluate(async ([key, value]) => {
   await s.update(key, () => value === null ? { absent: true } : { value })
   s.close()
 }, [key, value])
+// A tab holds a read-write transaction open on the store, so every other operation on it waits, until freed.
+const holdStoreIn = (page) => page.evaluate(() => new Promise((resolve, reject) => {
+  const opening = indexedDB.open('muid', 1)
+  opening.onerror = () => reject(opening.error)
+  opening.onsuccess = () => {
+    const tx = opening.result.transaction('values', 'readwrite')
+    const values = tx.objectStore('values')
+    globalThis.holding = true
+    globalThis.freed = new Promise((resolve) => { tx.oncomplete = () => { opening.result.close(); resolve() } })
+    const spin = () => { if (globalThis.holding) values.get('workers').onsuccess = spin }
+    spin()
+    resolve()
+  }
+}))
+const freeStoreIn = (page) => page.evaluate(() => { globalThis.holding = false; return globalThis.freed })
 // Tells every tab's page that a key changed, whether or not it did.
 const tell = (page, key) => page.evaluate((key) => { const c = new BroadcastChannel('muid-store:muid'); c.postMessage(key); c.close() }, key)
 
@@ -1454,20 +1469,8 @@ test('a review that has expired is not signed, and one that expires while the pa
     // anything is handed over. Another tab holds a transaction open on the store, so this tab's save (or its read
     // for a renewal) waits; what happens while it waits decides.
     const other = await t.tab(t.context)
-    const holdStore = () => other.evaluate(() => new Promise((resolve, reject) => {
-      const opening = indexedDB.open('muid', 1)
-      opening.onerror = () => reject(opening.error)
-      opening.onsuccess = () => {
-        const tx = opening.result.transaction('values', 'readwrite')
-        const values = tx.objectStore('values')
-        globalThis.holding = true
-        globalThis.freed = new Promise((resolve) => { tx.oncomplete = () => { opening.result.close(); resolve() } })
-        const spin = () => { if (globalThis.holding) values.get('workers').onsuccess = spin }
-        spin()
-        resolve()
-      }
-    }))
-    const freeStore = () => other.evaluate(() => { globalThis.holding = false; return globalThis.freed })
+    const holdStore = () => holdStoreIn(other)
+    const freeStore = () => freeStoreIn(other)
     const base = Math.min(...exps)
     const signedWhileHeld = async (button) => {
       await slowPasskey()
@@ -1528,6 +1531,61 @@ test('a review that has expired is not signed, and one that expires while the pa
     await freeStore()
     await t.page.waitForSelector('#renew-handoffs:not([hidden])')
     assert.equal(await t.page.locator('#renew-handoffs textarea').count(), 4)
+    assert.deepEqual(t.problems, [])
+  } finally {
+    await t.close()
+  }
+})
+
+// Found by the model (model/tla/IdPage.tla), in one tab: a review is made against the tab's copy of the workers, and
+// the tab's own slow operations change that copy later. Whenever the copy changes, what is open is withdrawn, unless
+// the change is the open review's own saving.
+test('renewal: a review opened while this tab\'s own Forget or saving is still on its way is withdrawn when it lands', { timeout: 180_000 }, async () => {
+  const t = await open()
+  try {
+    await createIdentity(t.page)
+    await authoriseAndSign(t.page, { agent: 'forecaster', subject: workerPub(1), scopes: 'post' })
+    await authoriseAndSign(t.page, { agent: 'other', subject: workerPub(3), scopes: 'post' })
+    const other = await t.tab(t.context)
+    await other.waitForSelector('#renew:not([hidden])')
+    // Forget pressed on forecaster's row; before the store has answered, a new key for forecaster is reviewed, and
+    // the review says it replaces the key just forgotten. When the Forget lands, that review is withdrawn.
+    await holdStoreIn(other)
+    await t.page.locator('#workers button').nth(0).click()
+    await authorise(t.page, { agent: 'forecaster', subject: workerPub(2), scopes: 'post' })
+    await t.page.waitForSelector('#review-panel:not([hidden])')
+    assert.match(await t.page.textContent('#show-retires'), new RegExp(workerPub(1)))
+    await freeStoreIn(other)
+    await t.page.waitForSelector('#review-panel', { state: 'hidden' })
+    assert.deepEqual(await keys(t.page), [workerPub(3)])
+    // Reviewed again, it replaces nothing, and is signed.
+    await authorise(t.page, { agent: 'forecaster', subject: workerPub(2), scopes: 'post' })
+    await t.page.waitForSelector('#review-panel:not([hidden])')
+    assert.equal(await t.page.textContent('#show-retires'), '')
+    // The passkey has answered and the saving waits for the store; meanwhile forecaster's first key is reviewed
+    // again, against the list as it still is here (which says it replaces nothing). When the saving lands, the
+    // list has forecaster under its second key, and that review is withdrawn; the saved worker is remembered.
+    await t.page.evaluate(() => {
+      const get = navigator.credentials.get.bind(navigator.credentials)
+      globalThis.asked = new Promise((resolve) => { globalThis.asking = resolve })
+      navigator.credentials.get = async (o) => { globalThis.asking(); await new Promise((resolve) => { globalThis.answer = resolve }); navigator.credentials.get = get; return get(o) }
+    })
+    await t.page.click('#sign')
+    await t.page.evaluate(() => globalThis.asked)
+    await holdStoreIn(other)
+    await t.page.evaluate(() => globalThis.answer())
+    await t.page.waitForTimeout(400) // the passkey has answered, and the page waits for the store
+    await authorise(t.page, { agent: 'forecaster', subject: workerPub(1), scopes: 'post' })
+    await t.page.waitForSelector('#review-panel:not([hidden])')
+    assert.equal(await t.page.textContent('#show-retires'), '')
+    await freeStoreIn(other)
+    await t.page.waitForSelector('#review-panel', { state: 'hidden' })
+    assert.deepEqual(await keys(t.page), [workerPub(3), workerPub(2)])
+    assert.equal(await t.page.isHidden('#handoff'), true, 'the saved worker\'s review was withdrawn: not handed over')
+    assert.equal(await t.page.textContent('#error'), '')
+    // An open review is left alone by an operation that changes nothing here: its own saving hands it over.
+    await authoriseAndSign(t.page, { agent: 'w5', subject: workerPub(5), scopes: 'post' })
+    assert.equal(await t.page.isHidden('#handoff'), false)
     assert.deepEqual(t.problems, [])
   } finally {
     await t.close()
