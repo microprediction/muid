@@ -1026,7 +1026,7 @@ never afterwards. Details and thresholds: `TESTING.md`; sources: [`assurance.md`
 | Semgrep (`.semgrep/core.yml`, image pinned by digest) | any match in `src/`, or a rule that stops firing on its own cases (`semgrep --test`) |
 | Secret scanning (gitleaks, checksum-verified) | a secret in any commit, except findings reviewed in `.gitleaksignore` |
 | Duplication (jscpd) | a clone in `src/` not in the reviewed `.jscpd-baseline.json` |
-| TLA+ models (`model/tla/`, TLC, exhaustive) | a model whose invariant TLC finds violated, or a negative control it no longer violates |
+| TLA+ models (`model/tla/`, TLC, exhaustive within stated bounds: the adapter, the id page's remembered workers, its stored root) | a model whose invariant TLC finds violated, or a negative control it no longer violates; a model fault with no broken twin of the code |
 | Tamarin theories (`model/tamarin/`) | a lemma not verified, or a negative control whose result changes |
 | SimpleWebAuthn differential | a root assertion accepted here and refused by SimpleWebAuthn; a known difference (where only it accepts) that changes |
 | Release-age cooldown | a locked package published less than seven days ago (`.npmrc` `min-release-age` holds new choices to the same) |
@@ -1045,6 +1045,11 @@ never afterwards. Details and thresholds: `TESTING.md`; sources: [`assurance.md`
   of `decode`, W1's `clientDataJSON` check and `verifyDelegation`/`verifyClaim` on spliced records, each from its
   committed seeds; every seed is also run on every pull request. A finding fails the job with its input, and becomes
   a pinned test.
+- On a change to a model or to the id page's code, and weekly (`model.yml`): TLC, exhaustively, over the model
+  configurations too large for every pull request. On a pull request this one does gate. Weekly and no oftener: an exhaustive search of an unchanged
+  model answers the same each time, so the weekly run guards only against drift in the tools.
+- Nightly (`model.yml`): TLC's random walks, a new seed each night, over the bounds no exhaustive run has finished.
+  A walk that breaks an invariant fails the run with its trace; walks that break none are not a result.
 
 Not yet scheduled:
 - An adversarial review agent against the core. Its findings go to a **private** security advisory, never a public

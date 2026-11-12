@@ -1,0 +1,73 @@
+name: model
+
+# SPEC §12: the model checks too long for every pull request (.github/scripts/tlc.sh says which).
+# - exhaustive: when a model, or the code a model describes, changes; and weekly, against drift in the tools or the
+#   runner. TLC's exhaustive search of an unchanged model gives the same answer each time, so no oftener.
+# - sample: nightly, random walks over the bounds no exhaustive run has finished, a new seed each night. Repetition
+#   helps there. No violation found is not a result about those bounds.
+# A scheduled failure is reported by GitHub's own notification of a failed scheduled run; nothing is written.
+on:
+  pull_request:
+    paths:
+      - model/tla/**
+      - id/page.js
+      - id/store.js
+      - .github/scripts/tlc.sh
+      - .github/workflows/model.yml
+  push:
+    branches: [master]
+    paths:
+      - model/tla/**
+      - id/page.js
+      - id/store.js
+      - .github/scripts/tlc.sh
+      - .github/workflows/model.yml
+  schedule:
+    - cron: '41 7 * * 0'
+    - cron: '41 8 * * *'
+  workflow_dispatch:
+    inputs:
+      seconds:
+        description: seconds of random walks for each sampled configuration
+        default: '1200'
+
+# Read-only token; nothing is uploaded.
+permissions:
+  contents: read
+
+concurrency:
+  group: model-${{ github.event_name }}-${{ github.event.schedule || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  exhaustive:
+    if: github.event.schedule != '41 8 * * *'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: TLC, exhaustively, over the configurations too large for every pull request
+        run: bash .github/scripts/tlc.sh long
+
+  sample:
+    if: github.event.schedule == '41 8 * * *' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: TLC, random walks, over the configurations no exhaustive run has finished
+        env:
+          SECONDS_EACH: ${{ inputs.seconds || '1200' }}
+        run: bash .github/scripts/tlc.sh sample "$SECONDS_EACH"
