@@ -151,7 +151,9 @@ function generate (name, edits, file = 'witness.js') {
   return dir
 }
 
-test('witness broken twins', { timeout: 1_800_000 }, async (t) => {
+// Ninety minutes: at 83 twins, one at a time on a CI runner of four cores, a nightly run was cut off at thirty with
+// none reported. The suite starts no browser, so twins run on half the cores.
+test('witness broken twins', { timeout: 5_400_000 }, async (t) => {
   try {
     await t.test('control: an unmodified copy, run from outside the repository, passes', async () => {
       const r = await run(generate('control', []))
@@ -162,7 +164,7 @@ test('witness broken twins', { timeout: 1_800_000 }, async (t) => {
     assert.equal(jobs.length, 87, 'twin count')
     const results = []
     const queue = [...jobs]
-    const workers = Math.max(1, Math.floor(availableParallelism() / 4))
+    const workers = Math.max(1, Math.floor(availableParallelism() / 2))
     await Promise.all(Array.from({ length: workers }, async () => {
       for (let job = queue.shift(); job; job = queue.shift()) {
         const [name, why, dir] = job

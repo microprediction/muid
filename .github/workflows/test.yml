@@ -83,7 +83,7 @@ jobs:
   twins-nightly:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
-    timeout-minutes: 60 # a hang fails the job instead of holding it for six hours
+    timeout-minutes: 120 # the twins' own limits are within it; a hang fails the job instead of holding it for six hours
     strategy:
       fail-fast: false
       matrix:

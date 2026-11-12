@@ -872,6 +872,10 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   decisions.
 - The id twins' time limit is two hours: 81 took over an hour on a loaded machine.
 - The membership twins' time limit is 30 minutes: they take 6 to 9 in CI, and at 10 one run was cut off.
+- The witness twins' time limit is 90 minutes, and they run on half the cores (their suite starts no browser):
+  one at a time under a 30-minute limit they took 19, then 29 minutes in CI as twins were added, and at 83 twins
+  a nightly run was cut off with none reported. A cut-off run reports every twin as not caught; it is the limit
+  that failed, not the twins.
 
 ## 4l. The two-application demo (`demo/`, not core)
 
