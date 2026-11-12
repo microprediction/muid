@@ -2100,8 +2100,12 @@ test('histories: two tabs, steps drawn at random, each judged by what the model 
     // which is silence) the review's panel is gone.
     const settled = (page, shown, panel = shown) => page.waitForFunction(([shown, panel]) => !document.getElementById(shown).hidden || document.getElementById('error').textContent !== '' || document.getElementById(panel).hidden, [shown, panel])
     let signed = 0
+    // Under mutation testing and the twins a test has 60 s whatever count FC_RUNS sets: histories drawn after 30 s
+    // are not run.
+    const stop = performance.now() + 30_000
 
     await fc.assert(fc.asyncProperty(commands, fc.tuple(fc.boolean(), fc.boolean()), async (history, deaf) => {
+      if (FAIL_FAST && performance.now() > stop) return
       // Each history starts from nothing remembered, both tabs loaded afresh, each hearing or deaf as drawn.
       await change(t.page, 'workers', null)
       for (const page of pages) { await page.reload(); await page.waitForSelector('#authorise:not([hidden])') }

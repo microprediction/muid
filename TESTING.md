@@ -845,7 +845,8 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   retired keys as the review said; every hearing tab lists what storage holds. So that a page refusing everything
   does not pass, a review nothing made stale must be signed when asked, and some worker must be saved in the run.
   Ten histories of 8 to 16 steps on every run (a few seconds), scaled nightly by `FC_SCALE`; `FC_SEED` replays
-  one. What it is worth, measured once by hand against 23 twins of the page whose fault a history could show, at
+  one. Under mutation testing and the twins, where a page test has 60 seconds whatever count is set, histories
+  drawn after 30 seconds are not run (at the mutation job's count of 60, a CI runner ran out of time). What it is worth, measured once by hand against 23 twins of the page whose fault a history could show, at
   40 to 150 histories each: 9 failed it (among them a stale tab writing its list over another's change, tabs not
   followed, a worker not remembered, a replaced key kept); 14 did not, either because the step order needed is
   rare or because the fault shows only in what the passkey was asked, which this does not watch. Those twins are
