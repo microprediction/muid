@@ -87,13 +87,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # The id twins take a runner about two hours one at a time, so they run as four parts side by side.
-        include:
-          - { suite: tests/meta/id-twins.test.mjs, shard: 1/4 }
-          - { suite: tests/meta/id-twins.test.mjs, shard: 2/4 }
-          - { suite: tests/meta/id-twins.test.mjs, shard: 3/4 }
-          - { suite: tests/meta/id-twins.test.mjs, shard: 4/4 }
-          - { suite: tests/meta/witness-twins.test.mjs, shard: '' }
+        suite:
+          - tests/meta/id-twins.test.mjs
+          - tests/meta/witness-twins.test.mjs
+        # Each harness in four parts side by side: one runner did not finish the id twins inside two hours.
+        shard: [1/4, 2/4, 3/4, 4/4]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
