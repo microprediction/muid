@@ -2076,7 +2076,7 @@ const commands = fc.array(fc.oneof(
   { weight: 1, arbitrary: fc.record({ do: fc.constant('reload'), tab: fc.nat(1) }) },
   { weight: 3, arbitrary: fc.record({ do: fc.constant('deafen'), tab: fc.nat(1) }) },
   { weight: 2, arbitrary: fc.record({ do: fc.constant('hear'), tab: fc.nat(1) }) },
-), { minLength: FAIL_FAST ? 4 : 8, maxLength: FAIL_FAST ? 8 : 16, size: 'max' })
+), { minLength: 8, maxLength: 16, size: 'max' })
 
 test('histories: two tabs, steps drawn at random, each judged by what the model states of every state', { timeout: 3_600_000 }, async () => {
   const t = await open({ init: HOLD_STORAGE })
@@ -2220,8 +2220,8 @@ test('histories: two tabs, steps drawn at random, each judged by what the model 
           }
         }
       }
-    }), { numRuns: FAIL_FAST ? 2 : runs(10), endOnFailure: true, ...(process.env.FC_SEED === undefined ? {} : { seed: Number(process.env.FC_SEED) }) })
-    assert.ok(FAIL_FAST || signed > 0, 'some worker was saved: the histories reach the page\'s changes')
+    }), { numRuns: runs(10), endOnFailure: true, ...(process.env.FC_SEED === undefined ? {} : { seed: Number(process.env.FC_SEED) }) })
+    assert.ok(signed > 0, 'some worker was saved: the histories reach the page\'s changes')
     assert.deepEqual(t.problems, [])
   } finally {
     await t.close()
