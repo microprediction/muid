@@ -20,7 +20,7 @@ test('the nightly run takes every job; a push the quick job whole; a pull reques
   assert.deepEqual(plan(null), [EVERY_RUN.join(' ')])
   assert.deepEqual(plan(['README.md']), [])
   assert.deepEqual(plan(['src/bytes.js']), [EVERY_RUN.join(' ')])
-  assert.deepEqual(plan(['id/page.js']), ['stryker.id-records.config.json'])
+  assert.deepEqual(plan(['id/page.js']), ['stryker.id-records.config.json stryker.id-store.config.json'])
   assert.deepEqual(plan(['stryker.id-page.config.json']), [])
   assert.deepEqual(JOBS, [...NIGHTLY, EVERY_RUN])
 })
@@ -38,16 +38,22 @@ test('selection: a change to package files, the workflow or the plan selects eve
   for (const f of ['package.json', 'package-lock.json', '.github/workflows/test.yml', 'tests/mutation-plan.mjs']) assert.deepEqual(select([f]), ALL, f)
 })
 
-test('selection: a core module is read by every suite (through tests/impl.mjs), so a change to one selects every job', () => {
-  assert.deepEqual(select(['src/bytes.js']), ALL)
-  assert.deepEqual(select(['tests/impl.mjs']), ALL)
+test('selection: a core module is read by every suite but the storage adapter\'s, so a change to one selects every other config', () => {
+  // The adapter's tests are served src/ with the page but import nothing of the core (tests/impl.mjs).
+  const others = ALL.map((j) => j.split(' ').filter((c) => c !== 'stryker.id-store.config.json').join(' '))
+  assert.deepEqual(select(['tests/impl.mjs']), others)
+  assert.deepEqual(select(['src/bytes.js']), ALL, 'served to the adapter\'s tests with the page')
 })
 
 test('selection: a change to the id page selects the configs whose tests load it, and only those', () => {
   const ids = ['stryker.id-page.config.json', 'stryker.id-records.config.json']
-  // The demo's tests load id/ too (tests/id/impl.mjs), but not the page tests or their server.
-  for (const f of ['id/page.js', 'id/index.html', 'id/page.css', 'id/new.js']) assert.deepEqual(configs(select([f])), only(...ids, 'stryker.demo.config.json'), f)
-  for (const f of ['tests/id/P2-page.test.mjs', 'tests/id/serve.mjs']) assert.deepEqual(configs(select([f])), only(...ids), f)
+  const store = 'stryker.id-store.config.json'
+  // The demo's tests load id/ too (tests/id/impl.mjs), but not the page tests or their server. The storage adapter's
+  // tests are served id/ by the page tests' server, and read none of the page's tests.
+  for (const f of ['id/page.js', 'id/store.js', 'id/index.html', 'id/page.css', 'id/new.js']) assert.deepEqual(configs(select([f])), only(...ids, store, 'stryker.demo.config.json'), f)
+  assert.deepEqual(configs(select(['tests/id/P2-page.test.mjs'])), only(...ids))
+  assert.deepEqual(configs(select(['tests/id/serve.mjs'])), only(...ids, store))
+  assert.deepEqual(configs(select(['tests/store/ST1-store.test.mjs'])), [store])
   assert.deepEqual(configs(select(['stryker.id-page.config.json'])), ['stryker.id-page.config.json'])
 })
 
@@ -85,7 +91,7 @@ test('the command prints the jobs: the quick job, the quick configs the listed c
     assert.deepEqual(run(), [EVERY_RUN.join(' ')])
     assert.deepEqual(run('--nightly'), ALL)
     writeFileSync(join(dir, 'changed.txt'), 'README.md\nid/page.js\n')
-    assert.deepEqual(run(join(dir, 'changed.txt')), ['stryker.id-records.config.json'])
+    assert.deepEqual(run(join(dir, 'changed.txt')), ['stryker.id-records.config.json stryker.id-store.config.json'])
     writeFileSync(join(dir, 'changed.txt'), 'README.md\n')
     assert.deepEqual(run(join(dir, 'changed.txt')), [])
   } finally {

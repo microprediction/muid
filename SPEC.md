@@ -677,10 +677,30 @@ client_data_json, signature }`; WebAuthn fields base64url):
 
 Research: [`webauthn.md`](research/webauthn.md).
 
-## 7. Storage interface (later step)
+## 7. Storage interface
 
 `get(key)` returns `{ value }` or `{ absent: true }`, or throws. A failed read is never reported as absence. A guard
 test fails the build on any direct `indexedDB` or `localStorage` use outside the one adapter.
+
+**The browser's adapter (`id/store.js`).** Values by key in one IndexedDB object store. `update(key, change)` reads
+the key, gives what it holds to `change`, and stores its answer (`{ value }`, `{ absent: true }`, or `undefined` to
+leave it) in one read-write transaction, asked to be durable (`strict`) before it is reported. What this rests on is
+stated by the Indexed Database standard, not by this code: read-write transactions whose scopes overlap do not run at
+the same time, the one made first goes first, and a transaction's changes are written all or not at all; the
+database is shared by the origin's pages and workers. So an update is never made from a value another update has
+since replaced, in whatever tabs the two are made. `change` is called once and may not wait, since a transaction ends
+with its task: a decision that takes a passkey or the witness is made before the update, and the update checks that
+what it finds is still what was decided on. Other holders of the store are told, by a broadcast channel, which key a
+committed update changed; that message is a prompt to read again, and nothing depends on its arriving. A store can be
+lost while it is open: a page of a later version raises the database's version (a change of stored form must), on
+which the standard sends every open connection `versionchange` and holds the upgrade until each has closed; or the
+browser closes the connection itself (its storage cleared). The store then closes, says so once, and changes nothing
+more; the page withdraws what is open, offers nothing, and says to reload. A database of a later version cannot be
+opened at an earlier one (the standard's `VersionError`), so the reloaded older page has no storage: code of an
+older version never writes to data of a newer form, by the standard's rule and not by a check of this code's. Web storage
+(`localStorage`) is not used for anything read and then written: its standard defines no locking between a
+multi-process browser's tabs, and a lock taken beside it (Web Locks) orders the tabs without making one see what
+another just wrote. Research: [`browser-storage.md`](research/browser-storage.md).
 
 **Relying-party adapter (`adapter/`, not core).** The verifier is pure; the state a relying party keeps around it is
 replay and head memory, and the adapter makes both atomic with the established mechanism for each. `acceptClaim`
@@ -749,12 +769,21 @@ what it was given expires, unless it is revoked. A review waits for the witness'
 withdraws a review (an edit, a change of selection, a forgotten worker, another tab's change) withdraws one still
 waiting, which then shows and signs nothing. A stored entry whose key is not a key is no worker, so nothing from
 storage but a key is shown beside what the passkey signs. A worker unticked stays unticked while it is listed. The remembered workers are
-one list shared by this browser's tabs: a change is made to what storage holds at that moment, never to what a tab
-last drew, so a tab not yet told of another's change does not undo it; a review made before such a change is not
-signed, nor a signature that returns after one handed over; and the list shown is what storage holds, so a change
-the browser could not save is said, not shown as made. This is a guarantee about this browser's remembered choices,
-without a lock across tabs: two changes written in the same instant can still lose one, and what is forgotten or
-replaced here is not thereby revoked. The review of an added passkey waits for the witness in the same way as a
+one list shared by this browser's tabs, kept through the storage adapter (§7): each change is one transaction, made
+to what storage holds at that moment, so no tab undoes another's change, whenever the two are made. The list is stored
+with a count, one more with every committed change, so that a list changed and put back as it was is still a change.
+A signed worker is remembered only if the stored list and its count are exactly as they were when the user reviewed
+it (the check and the write are that one transaction), and is handed over only once that transaction has committed
+and only if it is still open and unexpired then. A renewal takes effect at its read of storage after the passkey has
+answered: it is handed over only if nothing was committed between the state reviewed and that read, and it is still
+open and unexpired; a change committed after that read is after the renewal, and no promise is made about the moment
+the hand-off appears, which no transaction can cover. Otherwise nothing is signed or handed over and the tab is
+brought up to date. A Forget removes the row shown (its agent, audience and key) and no other: pressed in a tab not
+yet told that the agent's key was replaced, it removes nothing. Whenever a tab's copy of the list changes (its own
+Forget landing, another review's saving, another tab's change), whatever it has open is withdrawn; only a review's
+own saving leaves it open, to be handed over. The list shown is what storage holds, so a change the browser could
+not save is said, not shown as made. This is a guarantee about this browser's remembered choices: what is forgotten
+or replaced here is not thereby revoked. The review of an added passkey waits for the witness in the same way as a
 worker's. A worker is handed its delegation only once the change is saved, so none is handed over on a
 promise (an old key retired) that was not kept. What was reviewed is signed only while unexpired, and handed over
 only if still unexpired when the passkey answers. An added passkey's change, once signed, is submitted; its hand-off
@@ -780,10 +809,15 @@ the I1–I3 window protocol for apps.
   groups of four hex digits), and the device that adds it shows the fingerprint of the root it is about to sign in,
   for the user to compare, as Bluetooth pairing's numeric comparison and Signal's safety numbers have users compare a
   short code: a root record swapped on its way between devices shows another.
-- **STORED STATE IS UNTRUSTED:** what the page keeps in `localStorage` is read back as untrusted (anything on the
-  origin may have written it) — a root of its form for this `rp_id`, its id taken from its own record, or none — and
-  read again before a new root is made: a page open in another tab follows what is stored (`storage` events), and
-  never makes a root over one that exists. What the page sends the witness is kept first and sent again on load
+- **STORED STATE IS UNTRUSTED:** what the page keeps (through the storage adapter, §7) is read back as untrusted
+  (anything on the origin may have written it) — a root of its form for this `rp_id`, its id taken from its own
+  record, or none — and read again before a new root is made: a page open in another tab follows what is stored
+  (the adapter's notice), and never makes a root over one that exists: a root is written only while storage holds
+  the root the change was decided for, or none when one is created, checked in the transaction that writes it. What
+follows a write follows the root that was stored, not what the tab set out to do: a Create that finds another tab's
+root there registers nothing (that root may be joining, and a joining root is never registered as an identity of
+its own), and a registration or a co-signature the witness took marks only the root that was sent. Without
+  storage the page offers nothing, and says so. What the page sends the witness is kept first and sent again on load
   until taken (an outbox, as the witness keeps for its log): a new root's registration, and a joining root's
   co-signature, kept only if it is that root's own signature of a change that adds it. The witness takes the same
   record and signer again unchanged.

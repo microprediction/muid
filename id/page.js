@@ -4,6 +4,7 @@
 // payload (I4); changing any input withdraws it, and a signature that returns after an edit is discarded. The root
 // record and the credential id are kept in this browser only. The workers it authorised are remembered here too, so
 // that one assertion renews up to eight of them at once (decision 3).
+import { openStore } from './store.js'
 import { rootRecord, challenge, assertion, delegation, handOff, b64u, fromB64u, currentMembership, addRoot, rootSigned, changeToSign, fingerprint, storedRoot, cosignedIdentity, storedWorkers, remember, retired, renewals } from './records.js'
 
 const $ = (id) => document.getElementById(id)
@@ -12,42 +13,80 @@ const meta = (name) => document.querySelector(`meta[name="${name}"]`).content
 // origin (a hosting platform's default domain, an alias), the page would make roots for the wrong rp ID: it does nothing.
 const rpId = meta('muid-rp-id')
 const ORIGIN = meta('muid-origin')
-const KEY = 'muid.root'
-const WORKERS = 'muid.workers'
+const KEY = 'root'
+const WORKERS = 'workers'
 const WITNESS = meta('muid-witness')
 const WITNESS_KEYS = JSON.parse(meta('muid-witness-keys'))
 
-// The stored root, as storage holds it now: none is null; unreadable, or not of a root's form, forgotten.
-function load () {
-  try { return storedRoot(JSON.parse(localStorage.getItem(KEY)), rpId) } catch { return null }
-}
-let root = load()
-// The remembered workers, as storage holds them now: read as untrusted, as the root is.
-// `seen` is the stored text this tab last read: storage that differs from it was changed by another tab, which this
-// one may not have been told of yet.
-const stored = () => { try { return localStorage.getItem(WORKERS) } catch { return null } }
+// SPEC §7: what the page keeps (the root with its credential id, and the remembered workers) it keeps through the
+// storage adapter alone. Every change is one transaction there, made to what storage holds at that moment, so no tab
+// writes back a value another tab has since replaced. What is read back is untrusted: anything on the origin may
+// have written it. The page's own copies are never ahead of storage: a change that was not saved is not shown as made.
+let store
+let root = null
+// Stryker disable next-line ArrayDeclaration: equivalent; read from storage before anything is listed
+let workers = []
+const text = (held) => JSON.stringify(held)
+const rootOf = (held) => held.absent ? null : storedRoot(held.value, rpId)
+// The workers are stored as { rev, workers }: `rev` is one more with every change, so that the list a review was
+// made against is told apart from an equal list reached by later changes (a key replaced and then put back).
+const workersOf = (held) => storedWorkers(held.absent ? null : held.value?.workers)
+const revOf = (held) => Number.isSafeInteger(held.value?.rev) ? held.value.rev : 0
+// `seen` is what is stored for the workers as this tab last read it: storage that differs was changed since.
 let seen
-function loadWorkers () {
-  seen = stored()
-  try { return storedWorkers(JSON.parse(seen)) } catch { return [] }
+// The tab's copy of the workers is brought to what storage holds. Whatever the tab has open was reviewed against
+// the copy as it was: if the copy changes, that is withdrawn, unless the open review's own saving made the change.
+function adopt (held, own) {
+  if (text(held) !== seen && !own) withdraw()
+  seen = text(held)
+  workers = workersOf(held)
 }
-let workers = loadWorkers()
+async function refresh () {
+  root = rootOf(await store.get(KEY))
+  // Stryker disable next-line BooleanLiteral: equivalent; nothing is open when this runs at load, a notice withdraws
+  // whatever it finds, and a saving that failed was a Forget's, which withdrew when pressed
+  adopt(await store.get(WORKERS), false)
+}
+// Stryker disable next-line ObjectLiteral: nothing shown differs; without the nulls a signing button (hidden) pressed
+// before any review throws where it would return, and does nothing either way
 const pending = { delegation: null, change: null, cosign: null, renewal: null }
 
-function save () {
-  try { localStorage.setItem(KEY, JSON.stringify(root)) } catch { /* kept for this visit only */ }
-}
-// A change to the remembered workers is made to what storage holds now, not to what this tab last drew, so it never
-// undoes another tab's change; and the list is then what storage holds, never ahead of it: a change that could not be
-// saved is said, not shown as made. Returns whether it was saved.
-function keepWorkers (change) {
-  const next = change(loadWorkers())
-  try { localStorage.setItem(WORKERS, JSON.stringify(next)) } catch { /* said below */ }
-  workers = loadWorkers()
+// A change to the stored root, made only while storage holds the root it was decided for (`mine`, its id: null
+// when one is being created): another's root is adopted, never overwritten. Whether the change was made.
+async function keepRoot (mine, change) {
+  // Stryker disable next-line BooleanLiteral: equivalent; set by every update that returns
+  let made = false
+  const held = await store.update(KEY, (now) => {
+    const r = rootOf(now)
+    made = (r === null ? null : r.id) === mine
+    return made ? { value: change(r) } : undefined
+  })
+  root = rootOf(held)
   show()
-  const saved = JSON.stringify(workers) === JSON.stringify(next)
-  if (!saved) fail(new Error('This browser could not save the change to the remembered workers: they are listed as it holds them.'))
-  return saved
+  return made
+}
+
+// A change to the remembered workers, made to what storage holds at that moment. Given `reviewed` (the workers as
+// they were when the user reviewed what this change follows from), it is made only if storage still holds exactly
+// that. 'saved'; or 'changed' (another tab changed them: this one is brought up to date, with nothing left to sign);
+// or 'unsaved' (the browser could not keep it: said, and the list stays as storage holds it). `open()` says
+// whether the review this change follows from is still the one open, when the change has been made.
+async function keepWorkers (change, reviewed, open) {
+  let outcome = 'saved'
+  try {
+    const held = await store.update(WORKERS, (now) => {
+      if (reviewed !== undefined && text(now) !== reviewed) { outcome = 'changed'; return undefined }
+      return { value: { rev: revOf(now) + 1, workers: change(workersOf(now)) } }
+    })
+    adopt(held, outcome === 'saved' && reviewed !== undefined && open())
+  } catch {
+    outcome = 'unsaved'
+    await refresh()
+  }
+  show()
+  if (outcome === 'changed') fail(new Error('The remembered workers were changed in another tab: review again.'))
+  if (outcome === 'unsaved') fail(new Error('This browser could not save the change to the remembered workers: they are listed as it holds them.'))
+  return outcome
 }
 
 const element = (tag, ...children) => {
@@ -75,7 +114,7 @@ function listWorkers () {
     box.addEventListener('change', () => { if (box.checked) unticked.delete(slot(w)); else unticked.add(slot(w)); withdraw() })
     const forget = element('button', 'Forget')
     forget.type = 'button'
-    forget.addEventListener('click', () => { withdraw(); keepWorkers((list) => list.filter((x) => x.agent !== w.agent || x.aud !== w.aud)) })
+    forget.addEventListener('click', () => { withdraw(); keepWorkers((list) => list.filter((x) => x.agent !== w.agent || x.aud !== w.aud || x.subject !== w.subject)) })
     return element('li', element('label', box, ` ${w.agent} at ${w.aud}: ${w.scopes.join(' ')} `, element('code', w.subject)), forget)
   }))
 }
@@ -83,7 +122,7 @@ function listWorkers () {
 // SPEC §8: root registration and every root-signed action happen in a top-level window. The deployment's headers
 // refuse framing; framed anyway, the page shows nothing to act on.
 const FRAMED = window.top !== window.self
-const REFUSAL = FRAMED ? 'This page acts only in its own window: open it directly.'
+let REFUSAL = FRAMED ? 'This page acts only in its own window: open it directly.'
   : location.origin !== ORIGIN ? `This page acts only at ${ORIGIN}: open it there.` : undefined
 
 function show () {
@@ -139,12 +178,13 @@ async function sign (covers) {
   return assertion(covers, a.response)
 }
 
-// Whether another tab changed the remembered workers and this one was not yet told: if so, it is brought up to date
-// with nothing left to sign, since what was reviewed was reviewed against the list as it was.
-function changedElsewhere () {
-  if (stored() === seen) return false
-  workers = loadWorkers()
-  withdraw()
+// Whether another tab changed the remembered workers since this one last read them (it may not have been told yet):
+// if so, it is brought up to date with nothing left to sign, since what was reviewed was reviewed against the list
+// as it was.
+async function changedElsewhere () {
+  const held = await store.get(WORKERS)
+  if (text(held) === seen) return false
+  adopt(held, false)
   show()
   fail(new Error('The remembered workers were changed in another tab: review again.'))
   return true
@@ -161,6 +201,7 @@ function lapsed (delegations) {
 // Counts withdrawals: a review that waited for the witness goes on only if nothing was withdrawn meanwhile.
 let withdrawals = 0
 function withdraw () {
+  // Stryker disable next-line UpdateOperator: equivalent; only compared with what it was
   withdrawals++
   pending.delegation = null
   pending.change = null
@@ -173,7 +214,7 @@ function withdraw () {
 async function create (joining) {
   withdraw()
   // Another tab may have made one since this page loaded: it is adopted, never overwritten.
-  const now = load()
+  const now = rootOf(await store.get(KEY))
   if (now !== null) { root = now; show(); return }
   try {
     const name = $('name').value.trim() || 'muid identity'
@@ -190,9 +231,8 @@ async function create (joining) {
     } })
     const r = rootRecord(c.response.getPublicKey(), c.response.getPublicKeyAlgorithm(), rpId)
     // Kept before the witness is asked, so that a failed registration is retried with this root, not a new passkey.
-    root = { ...r, credential: b64u(c.rawId), joining, registered: false }
-    save()
-    show()
+    // If another tab's root is there instead, it is that tab's to register, or not: it may be joining.
+    if (!await keepRoot(null, () => ({ ...r, credential: b64u(c.rawId), joining, registered: false }))) return
   } catch (e) { fail(e); return }
   if (!joining) await register()
 }
@@ -202,12 +242,10 @@ async function create (joining) {
 const unregistered = () => root !== null && root.joining !== true && root.registered !== true
 
 async function register () {
+  const r = root // the root sent: only it is marked, whatever this tab holds by the time the witness answers
   try {
-    await submit(root.identity, 'root', root.text)
-    root = { ...root, registered: true }
-    save()
-    show()
-    $('status').textContent = 'Registered with the witness.'
+    await submit(r.identity, 'root', r.text)
+    if (await keepRoot(r.id, (kept) => ({ ...kept, registered: true }))) $('status').textContent = 'Registered with the witness.'
   } catch (e) { fail(e) }
 }
 
@@ -241,15 +279,17 @@ $('review').addEventListener('click', async () => {
 
 $('sign').addEventListener('click', async () => {
   const d = pending.delegation
-  if (d === null || changedElsewhere() || lapsed([d])) return
+  if (d === null || lapsed([d]) || await changedElsewhere()) return
   $('error').textContent = ''
   try {
     const a = await sign([d.id])
-    if (pending.delegation !== d || changedElsewhere() || lapsed([d])) return // withdrawn while the passkey was asked
-    // Remembered for renewal: what was signed, with its lifetime, never the signature. Remembered first: a worker
-    // is handed nothing if the change (which may retire its agent's old key) could not be saved.
+    if (pending.delegation !== d || lapsed([d])) return // withdrawn while the passkey was asked
+    // Remembered for renewal: what was signed, with its lifetime, never the signature. Remembered first, and only
+    // if the workers are still as they were reviewed: a worker is handed nothing if the change (which may retire
+    // its agent's old key) was not saved.
     const { agent, subject, aud, scopes, nbf, exp } = d.body
-    if (!keepWorkers((list) => remember(list, { agent, subject, aud, scopes, lifetime: exp - nbf }))) return
+    if (await keepWorkers((list) => remember(list, { agent, subject, aud, scopes, lifetime: exp - nbf }), seen, () => pending.delegation === d) !== 'saved') return
+    if (pending.delegation !== d || lapsed([d])) return // withdrawn, or expired, while it was saved
     $('handoff').value = handOff(d.payload, a)
     $('handoff').hidden = false
   } catch (e) { fail(e) }
@@ -274,11 +314,13 @@ $('renew-review').addEventListener('click', async () => {
 
 $('renew-sign').addEventListener('click', async () => {
   const r = pending.renewal
-  if (r === null || changedElsewhere() || lapsed(r.delegations)) return
+  if (r === null || lapsed(r.delegations) || await changedElsewhere()) return
   $('error').textContent = ''
   try {
     const a = await sign(r.covers)
-    if (pending.renewal !== r || changedElsewhere() || lapsed(r.delegations)) return // withdrawn while the passkey was asked
+    // A renewal takes effect at this read of storage: a change committed after it is after the renewal.
+    if (pending.renewal !== r) return // withdrawn while the passkey was asked
+    if (await changedElsewhere() || pending.renewal !== r || lapsed(r.delegations)) return
     $('renew-handoffs').replaceChildren(...r.delegations.map((d) => {
       const t = element('textarea')
       t.readOnly = true
@@ -339,13 +381,12 @@ $('cosign-sign').addEventListener('click', async () => {
   const c = pending.cosign
   if (c === null) return
   $('error').textContent = ''
+  const mine = root.id // the root whose passkey signs
   try {
     const a = await sign([c.id])
     if (pending.cosign !== c) return
     // Kept before the witness is asked, as a registration is, so that a lost answer is sent again, not lost.
-    root = { ...root, cosigned: rootSigned(c.payload, root.id, a) }
-    save()
-    show()
+    if (!await keepRoot(mine, (kept) => ({ ...kept, cosigned: rootSigned(c.payload, mine, a) }))) return
   } catch (e) { fail(e); return }
   await cosign()
 })
@@ -353,25 +394,36 @@ $('cosign-sign').addEventListener('click', async () => {
 // The kept co-signature, sent (again: the witness accepts one it already holds); once taken, this root is the
 // identity's.
 async function cosign () {
+  const r = root // the root whose co-signature is sent: only it becomes the identity's
   try {
-    const identity = cosignedIdentity(root.cosigned, root.id)
-    await submit(identity, 'membership', root.cosigned)
-    const { cosigned, ...rest } = root
-    root = { ...rest, identity, joining: false, registered: true }
-    save()
-    show()
-    $('status').textContent = 'Co-signed. The change settles once its contest window has passed.'
+    const identity = cosignedIdentity(r.cosigned, r.id)
+    await submit(identity, 'membership', r.cosigned)
+    if (await keepRoot(r.id, ({ cosigned, ...rest }) => ({ ...rest, identity, joining: false, registered: true }))) {
+      $('status').textContent = 'Co-signed. The change settles once its contest window has passed.'
+    }
   } catch (e) { fail(e) }
 }
 $('cosign-retry').addEventListener('click', () => { $('error').textContent = ''; cosign() })
 
-// What another tab of this origin stores is followed here, so a page open since before cannot act on a stale root.
-window.addEventListener('storage', (e) => {
-  if (e.key === KEY || e.key === WORKERS || e.key === null) { root = load(); workers = loadWorkers(); withdraw(); show() }
-})
-show()
-// What is kept to be sent (an outbox) is sent again on load, never where the page refuses to act.
+// SPEC §7: without its storage the page offers nothing. What another tab of this origin stores is followed here, so
+// a page open since before cannot act on a stale root or a stale list.
 if (REFUSAL === undefined) {
-  if (unregistered()) register()
-  if (root?.cosigned !== undefined) cosign()
+  try {
+    // A store lost while the page is open (model/STATE.md: a later version of the page took it, or the browser
+    // cleared it): whatever is open is withdrawn, and the page offers nothing more until it is loaded again.
+    store = await openStore('muid', () => {
+      withdraw()
+      for (const id of ['create', 'identity', 'authorise', 'renew', 'add-root', 'joining', 'pending']) $(id).hidden = true
+      REFUSAL = 'A newer version of this page has taken its storage, or the browser has cleared it: reload this page.'
+      show()
+    })
+    await refresh()
+    store.watch(() => refresh().then(() => { withdraw(); show() }, fail))
+  } catch {
+    REFUSAL = 'This browser gave the page no storage: it can do nothing here.'
+  }
 }
+show()
+// What is kept to be sent (an outbox) is sent again on load. Where the page refuses to act it has read no root.
+if (unregistered()) register()
+if (root?.cosigned !== undefined) cosign()
