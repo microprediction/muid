@@ -96,6 +96,13 @@ IdRoot IdRootNoCas NeverOverwritten
 IdRoot IdRootLoserRegisters JoiningNeverRegistered
 IdRoot IdRootMarksHeld MarkedIsTaken
 IdRoot IdRootMarksHeldMember MemberIsCosigned
+WitnessOutbox WitnessOutbox pass
+WitnessOutbox WitnessOutboxNoSettleFirst NoRival
+WitnessOutbox WitnessOutboxNoAppendOutbox HeldIsLogged
+WitnessOutbox WitnessOutboxNoStageFirst NoRival
+WitnessOutbox WitnessOutboxNoAnswerAfterLogged ServedIsLogged
+WitnessOutbox WitnessOutboxNoServeSettled HeldIsLogged
+WitnessOutbox WitnessOutboxNoSerialised NoRival
 MODELS
   ;;
 *) echo "unknown mode $MODE"; exit 1;;
