@@ -9,6 +9,16 @@ import { tmpdir, availableParallelism } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+// MUID_TWIN_SHARD=k/n runs the k-th of n parts of the twins (and the control): the nightly job runs the parts side
+// by side, each on a runner of its own, since one runner takes the twins one at a time.
+const SHARD = (() => {
+  const text = process.env.MUID_TWIN_SHARD ?? ''
+  if (text === '') return null
+  const m = /^([1-9]\d*)\/([1-9]\d*)$/.exec(text)
+  if (m === null || Number(m[1]) > Number(m[2])) throw new RangeError('MUID_TWIN_SHARD is k/n, with 1 <= k <= n')
+  return { k: Number(m[1]), n: Number(m[2]) }
+})()
+
 // A test that never ends under a twin fails (the twin is caught) instead of holding the harness open.
 const TEST_TIMEOUT = 300_000
 
@@ -180,7 +190,8 @@ test('id page broken twins', { timeout: 7_200_000 }, async (t) => {
     const jobs = TWINS.map(([name, why, edits, file]) => [name, why, generate(name, edits, file)])
     assert.equal(jobs.length, 111, 'twin count')
     const results = []
-    const queue = [...jobs]
+    const queue = jobs.filter((_, i) => SHARD === null || i % SHARD.n === SHARD.k - 1)
+    assert.ok(queue.length > 0, 'this part has twins')
     const workers = Math.max(1, Math.floor(availableParallelism() / 4))
     await Promise.all(Array.from({ length: workers }, async () => {
       for (let job = queue.shift(); job; job = queue.shift()) {

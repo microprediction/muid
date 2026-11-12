@@ -87,9 +87,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        suite:
-          - tests/meta/id-twins.test.mjs
-          - tests/meta/witness-twins.test.mjs
+        # The id twins take a runner about two hours one at a time, so they run as four parts side by side.
+        include:
+          - { suite: tests/meta/id-twins.test.mjs, shard: 1/4 }
+          - { suite: tests/meta/id-twins.test.mjs, shard: 2/4 }
+          - { suite: tests/meta/id-twins.test.mjs, shard: 3/4 }
+          - { suite: tests/meta/id-twins.test.mjs, shard: 4/4 }
+          - { suite: tests/meta/witness-twins.test.mjs, shard: '' }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -100,6 +104,8 @@ jobs:
       - name: Install (no install scripts)
         run: npm ci --ignore-scripts
       - name: Broken twins (each must make its suite fail)
+        env:
+          MUID_TWIN_SHARD: ${{ matrix.shard }}
         run: node --test --test-concurrency=1 ${{ matrix.suite }}
 
   # A pull request runs the quick mutation configs whose inputs it changes (tests/mutation-plan.mjs), a push to master

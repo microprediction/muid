@@ -870,7 +870,10 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   `commit` turned off and the invariant it then breaks named in `tlc.sh`; the same guard ties each to a broken twin
   of `service.js` (four added, 87 in all). Not shown: that anything is ever logged, or anything about `witness.js`'s
   decisions.
-- The id twins' time limit is two hours: 81 took over an hour on a loaded machine.
+- The id twins' time limit is two hours: 81 took over an hour on a loaded machine. In CI a runner takes them one at
+  a time, and 111 did not finish in two hours (run 43147178257, cut off): the nightly job runs them as four parts
+  side by side (`MUID_TWIN_SHARD=k/n`: every n-th twin from the k-th, and the control in each part). Without it,
+  as on a developer's machine, all run.
 - The membership twins' time limit is 30 minutes: they take 6 to 9 in CI, and at 10 one run was cut off.
 - The witness twins' time limit is 90 minutes, and they run on half the cores (their suite starts no browser):
   one at a time under a 30-minute limit they took 19, then 29 minutes in CI as twins were added, and at 83 twins
