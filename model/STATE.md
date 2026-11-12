@@ -45,3 +45,38 @@ Two tabs of the id origin may run different versions of `id/page.js`: one opened
    kept whole when it ends or not at all) is true of something; chosen by the same rule as the adapter's (the
    database's own transaction).
 3. The demo's limit stated in SPEC §8a, or its state kept through the same store.
+
+## 4. Boundaries raised by the review of the web-storage page (#72)
+
+That review generated histories against the page as it was on web storage and found seven faults; each is now
+ruled out on IndexedDB by a rule of the page, a test in Chrome (`P2`) and, where the model has the step, an
+invariant of `IdPage.tla`:
+
+| Fault found | Rule now | Model |
+|---|---|---|
+| a stale tab's Forget restores a replaced key; two Forgets undo each other | every change is one read-write transaction on what storage holds, of the row shown | NoLostUpdate, NoResurrection |
+| a hand-off shown though its save failed | handed over only after the transaction completes | SavedBeforeHandover |
+| a withdrawn add-passkey review returns with the witness's answer | a reply for a withdrawn review is dropped | NoRevival |
+| a forgotten worker renewed by a late signature | a renewal takes effect at its read of storage after the passkey answers | ReviewedStateIsCurrent |
+| an expired delegation handed over | expiry checked again after the passkey answers | Unexpired |
+| a withdrawn add-passkey hand-off restored by a late POST answer | as above: dropped | none: the add-passkey flow is not modelled, tests only |
+| a withdrawn request's failure written over newer state | as above: dropped | none: tests only |
+
+Its harness simulated web storage, which the page no longer uses, so it is not kept. The boundaries its audit
+listed, and where each stands:
+
+| Boundary | Standing |
+|---|---|
+| read and write atomic across tabs | the Indexed Database standard's; §2, browser store |
+| root creation and registration across tabs | `IdRoot.tla`; §2 |
+| mixed versions | §1 |
+| a page frozen and resumed (the back/forward cache) with its state kept | by the model a resumed page is a tab not yet told of a change, which is covered: nothing it does depends on a notice, and every save is against what storage holds. Seen in Chrome by a probe, not by a test of the suite: a cached page that a notice, a raised version or a deletion of the database would reach is discarded and loaded afresh; one that nothing reached, or that another connection wrote beside without a notice, is resumed with its state and its database open. Other browsers **not seen** |
+| the model's host against a real browser | the tests run in Chrome only; other browsers are not run |
+| clocks | `Adapter.tla` has differing clocks per instance; `IdPage.tla` has one clock, the page's own |
+| the protected action after a claim is consumed | at most once, not exactly once; §2, relying party |
+| a durable store restored to an older state | **not covered** for any store |
+| witness and log commit | `WitnessOutbox.tla`; no durable holdings store exists (§3, 2) |
+| capacity: 32 remembered workers, 8 to a renewal | each limit has its test (`P1`, `P2`); rotation, Forget and expiry together at the limit are **not covered**, and the models have two agents |
+| a valid but old witness answer delivered late | the page's replies are any answer at any time in `IdPage.tla`; across a membership settlement, **not covered** |
+| one agent name authorised on two devices | one key per agent is a rule of one browser's remembered list, not of the protocol: two devices may each authorise a key for the same name, and both delegations verify |
+| the verifier judged by tests that use the verifier | independent vectors and differential checks of the core, in `TESTING.md` |
