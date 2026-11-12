@@ -10,6 +10,8 @@ import { root as rootModule, delegation as delegationModule, assertion as assert
 import { witness, witnessService, memoryHoldings, memoryLog } from '../witness/impl.mjs'
 import { serve } from './serve.mjs'
 import { activate, handBack } from './mutant.mjs'
+import fc from 'fast-check'
+import { runs } from '../runs.mjs'
 
 const hex = (b) => Buffer.from(b).toString('hex')
 const WORKER = Uint8Array.from({ length: 32 }, (_, i) => 77 + i)
@@ -2042,6 +2044,184 @@ test('renewal: a worker another tab remembers or forgets is followed here; a joi
     await d.page.reload()
     await d.page.waitForSelector('#joining:not([hidden])')
     assert.equal(await d.page.isHidden('#renew'), true)
+    assert.deepEqual(t.problems, [])
+  } finally {
+    await t.close()
+  }
+})
+
+// Histories (model/STATE.md §4): sequences of what a user does in two tabs of one browser, drawn at random, run
+// against the page in Chrome, and judged after every step by what model/tla/IdPage.tla states of every reachable
+// state. Storage is read directly after each step, so the judge knows each committed change and its order.
+//   OneKeyPerAgent, NoLostUpdate, NoResurrection   storage after a step is exactly storage before it with that
+//                                                  step's one change, or as it was;
+//   ReviewedStateIsCurrent   a worker is saved, and a renewal handed over, only if nothing was committed since its
+//                            review began;
+//   ShownIsSaved             a saving retires exactly the keys its review said;
+//   SavedBeforeHandover      a worker's hand-off is shown only with its row stored;
+//   ViewHonest               a tab that hears lists what storage holds.
+// And, so that a page that refuses everything does not pass: a review made by a tab that was up to date, with
+// nothing committed and no notice reaching it since, is signed when asked.
+// A tab made deaf hears no notices until it is let hear them (a late notice); a reload hears again.
+const HISTORY_AGENTS = ['a', 'b']
+const HISTORY_AUDS = ['https://x.example', 'https://y.example']
+const rowOf = (w) => JSON.stringify([w.agent, w.aud, w.subject])
+const commands = fc.array(fc.oneof(
+  { weight: 6, arbitrary: fc.record({ do: fc.constant('review'), tab: fc.nat(1), agent: fc.nat(1), key: fc.integer({ min: 1, max: 2 }), aud: fc.nat(1) }) },
+  { weight: 8, arbitrary: fc.record({ do: fc.constant('sign'), tab: fc.nat(1) }) },
+  { weight: 2, arbitrary: fc.record({ do: fc.constant('forget'), tab: fc.nat(1), n: fc.nat(3) }) },
+  { weight: 3, arbitrary: fc.record({ do: fc.constant('renew'), tab: fc.nat(1) }) },
+  { weight: 4, arbitrary: fc.record({ do: fc.constant('renew-sign'), tab: fc.nat(1) }) },
+  { weight: 1, arbitrary: fc.record({ do: fc.constant('untick'), tab: fc.nat(1), n: fc.nat(3) }) },
+  { weight: 1, arbitrary: fc.record({ do: fc.constant('reload'), tab: fc.nat(1) }) },
+  { weight: 3, arbitrary: fc.record({ do: fc.constant('deafen'), tab: fc.nat(1) }) },
+  { weight: 2, arbitrary: fc.record({ do: fc.constant('hear'), tab: fc.nat(1) }) },
+), { minLength: FAIL_FAST ? 4 : 8, maxLength: FAIL_FAST ? 8 : 16, size: 'max' })
+
+test('histories: two tabs, steps drawn at random, each judged by what the model states of every state', { timeout: 3_600_000 }, async () => {
+  const t = await open({ init: HOLD_STORAGE })
+  try {
+    await createIdentity(t.page)
+    // The second tab has the same passkey: its own virtual authenticator, given the first one's credential.
+    const second = await t.tab(t.context)
+    const cdp = await t.context.newCDPSession(second)
+    await cdp.send('WebAuthn.enable')
+    const { authenticatorId } = await cdp.send('WebAuthn.addVirtualAuthenticator', { options: { protocol: 'ctap2', transport: 'internal',
+      hasResidentKey: true, hasUserVerification: true, isUserVerified: true, automaticPresenceSimulation: true } })
+    const { credentials } = await t.cdp.send('WebAuthn.getCredentials', { authenticatorId: t.authenticatorId })
+    await cdp.send('WebAuthn.addCredential', { authenticatorId, credential: credentials[0] })
+    const pages = [t.page, second]
+    const storage = async () => (await held(t.page, 'workers')) ?? { rev: 0, workers: [] }
+    const listed = (page) => page.$$eval('#workers li', (lis) => lis.map((li) => {
+      const [, agent, aud] = /^ (.*) at (\S+): /.exec(li.querySelector('label').textContent)
+      return { agent, aud, subject: li.querySelector('code').textContent, ticked: li.querySelector('input').checked }
+    }))
+    // A step has ended when what it would show is shown, or an error is, or (pressed for a review since withdrawn,
+    // which is silence) the review's panel is gone.
+    const settled = (page, shown, panel = shown) => page.waitForFunction(([shown, panel]) => !document.getElementById(shown).hidden || document.getElementById('error').textContent !== '' || document.getElementById(panel).hidden, [shown, panel])
+    let signed = 0
+
+    await fc.assert(fc.asyncProperty(commands, fc.tuple(fc.boolean(), fc.boolean()), async (history, deaf) => {
+      // Each history starts from nothing remembered, both tabs loaded afresh, each hearing or deaf as drawn.
+      await change(t.page, 'workers', null)
+      for (const page of pages) { await page.reload(); await page.waitForSelector('#authorise:not([hidden])') }
+      const tabs = pages.map((page, n) => ({ page, deaf: deaf[n], current: true, review: null }))
+      for (const tab of tabs) if (tab.deaf) await tab.page.evaluate(() => { globalThis.holdStorage = true })
+      let commits = 0
+      const say = (i, c, what) => `step ${i} ${JSON.stringify(c)}: ${what}`
+      for (const [i, c] of history.entries()) {
+        const tab = tabs[c.tab]
+        const { page } = tab
+        // An error left by an earlier step is not this step's.
+        await page.evaluate(() => { document.getElementById('error').textContent = '' })
+        const before = await storage()
+        // What storage must hold after the step: as it was, unless the step says otherwise.
+        let expected = before.workers
+        let committed = false
+        // A review this tab made while up to date, nothing committed and no notice heard since, is honoured.
+        const due = (r) => r.current && r.commits === commits && !r.told
+        if (c.do === 'review') {
+          const w = { agent: HISTORY_AGENTS[c.agent], aud: HISTORY_AUDS[c.aud], subject: workerPub(c.key) }
+          await authorise(page, { ...w, scopes: 'post' })
+          await page.waitForFunction(() => !document.getElementById('review-panel').hidden || document.getElementById('error').textContent !== '')
+          const shown = !(await page.isHidden('#review-panel'))
+          tab.review = shown ? { kind: 'worker', w, commits, current: tab.current, told: false, retires: await page.textContent('#show-retires') } : null
+          assert.equal(shown, true, say(i, c, `a review is shown (${await page.textContent('#error')})`))
+        } else if (c.do === 'sign' && tab.review?.kind === 'worker') {
+          const r = tab.review
+          // A review withdrawn by a notice has no button to press: that is a refusal, and judged as one.
+          const open = !(await page.isHidden('#review-panel'))
+          if (open) { await page.click('#sign'); await settled(page, 'handoff', 'review-panel') }
+          const handed = open && !(await page.isHidden('#handoff'))
+          if (handed) {
+            assert.ok(r.current && r.commits === commits, say(i, c, 'handed over though a change was committed since the state it was reviewed against (ReviewedStateIsCurrent)'))
+            const retired = before.workers.filter((x) => x.agent === r.w.agent && x.subject !== r.w.subject).map((x) => x.subject)
+            for (const k of [1, 2].map(workerPub)) assert.equal(r.retires.includes(k), retired.includes(k), say(i, c, `the review said what it retires (ShownIsSaved): ${r.retires}`))
+            expected = [...before.workers.filter((x) => !(x.agent === r.w.agent && (x.subject !== r.w.subject || x.aud === r.w.aud))), r.w]
+            committed = true
+            tab.current = true
+            signed++
+          } else {
+            assert.equal(due(r), false, say(i, c, `a review that nothing made stale was refused: ${await page.textContent('#error')}`))
+            tab.review = null
+            if (open) tab.current = true // pressed, it read storage to find the change
+          }
+        } else if (c.do === 'forget') {
+          const rows = await listed(page)
+          if (rows.length > 0) {
+            const row = rows[c.n % rows.length]
+            await page.locator('#workers button').nth(c.n % rows.length).click()
+            // The page lists what storage holds once the change is made: the row is no longer listed.
+            await page.waitForFunction((gone) => ![...document.querySelectorAll('#workers code')].some((c) => c.textContent === gone[2] && c.closest('li').querySelector('label').textContent.startsWith(` ${gone[0]} at ${gone[1]}: `)) || document.getElementById('error').textContent !== '', [row.agent, row.aud, row.subject])
+            expected = before.workers.filter((x) => rowOf(x) !== rowOf(row))
+            committed = true
+            tab.review = null
+            tab.current = true
+          }
+        } else if (c.do === 'renew' && !(await page.isHidden('#renew'))) {
+          const rows = (await listed(page)).filter((x) => x.ticked)
+          await page.click('#renew-review')
+          await page.waitForFunction(() => !document.getElementById('renew-panel').hidden || document.getElementById('error').textContent !== '')
+          const shown = !(await page.isHidden('#renew-panel'))
+          tab.review = shown ? { kind: 'renew', rows, commits, current: tab.current, told: false } : null
+          if (rows.length > 0) assert.equal(shown, true, say(i, c, `a renewal is shown (${await page.textContent('#error')})`))
+        } else if (c.do === 'renew-sign' && tab.review?.kind === 'renew') {
+          const r = tab.review
+          const open = !(await page.isHidden('#renew-panel'))
+          if (open) { await page.click('#renew-sign'); await settled(page, 'renew-handoffs', 'renew-panel') }
+          const handed = open && !(await page.isHidden('#renew-handoffs'))
+          if (handed) {
+            assert.ok(r.current && r.commits === commits, say(i, c, 'renewed though a change was committed since the state it was reviewed against (ReviewedStateIsCurrent)'))
+            assert.equal(await page.locator('#renew-handoffs textarea').count(), r.rows.length, say(i, c, 'one hand-off for each worker reviewed'))
+            for (const x of r.rows) assert.ok(before.workers.some((y) => rowOf(y) === rowOf(x)), say(i, c, 'each worker renewed is stored'))
+            tab.review = null
+          } else {
+            assert.equal(due(r), false, say(i, c, `a renewal that nothing made stale was refused: ${await page.textContent('#error')}`))
+            tab.review = null
+            if (open) tab.current = true
+          }
+        } else if (c.do === 'untick') {
+          const boxes = page.locator('#workers input')
+          const n = await boxes.count()
+          if (n > 0) { await boxes.nth(c.n % n).click(); tab.review = null }
+        } else if (c.do === 'reload') {
+          await page.reload()
+          await page.waitForSelector('#authorise:not([hidden])')
+          Object.assign(tab, { deaf: false, current: true, review: null })
+        } else if (c.do === 'deafen') {
+          await page.evaluate(() => { globalThis.holdStorage = true })
+          tab.deaf = true
+        } else if (c.do === 'hear') {
+          const late = await page.evaluate(() => { globalThis.holdStorage = false; const held = globalThis.heldStorage.splice(0); for (const f of held) f(); return held.length })
+          tab.deaf = false
+          if (late > 0 && tab.review !== null) tab.review.told = true
+        }
+
+        const after = await storage()
+        assert.deepEqual(after.workers.map(rowOf), expected.map(rowOf), say(i, c, 'storage holds exactly this step\'s change (NoLostUpdate, NoResurrection)'))
+        assert.equal(after.rev, before.rev + (committed ? 1 : 0), say(i, c, 'the count is one more with a change, and only then'))
+        for (const x of after.workers) assert.equal(after.workers.filter((y) => y.agent === x.agent && y.subject !== x.subject).length, 0, say(i, c, 'one key for each agent (OneKeyPerAgent)'))
+        if (c.do === 'sign' && committed) {
+          assert.ok(after.workers.some((x) => rowOf(x) === rowOf(tab.review.w)), say(i, c, 'handed over with its row stored (SavedBeforeHandover)'))
+          tab.review = null
+        }
+        if (committed) {
+          commits++
+          // Every other tab is sent a notice: one that hears is told, and what it had open is withdrawn.
+          for (const other of tabs) if (other !== tab) { if (other.deaf) other.current = false; else if (other.review !== null) other.review.told = true }
+        }
+        // A tab that hears lists what storage holds (ViewHonest); so does one that has just read it.
+        for (const x of tabs) {
+          if (!x.deaf || x.current) {
+            const want = after.workers.map(rowOf)
+            await x.page.waitForFunction((want) => JSON.stringify([...document.querySelectorAll('#workers li')].map((li) => { const m = /^ (.*) at (\S+): /.exec(li.querySelector('label').textContent); return JSON.stringify([m[1], m[2], li.querySelector('code').textContent]) })) === JSON.stringify(want), want)
+              .catch(() => assert.fail(say(i, c, `tab ${tabs.indexOf(x)} lists what storage holds (ViewHonest)`)))
+            if (!x.deaf) x.current = true
+          }
+        }
+      }
+    }), { numRuns: FAIL_FAST ? 2 : runs(10), endOnFailure: true, ...(process.env.FC_SEED === undefined ? {} : { seed: Number(process.env.FC_SEED) }) })
+    assert.ok(FAIL_FAST || signed > 0, 'some worker was saved: the histories reach the page\'s changes')
     assert.deepEqual(t.problems, [])
   } finally {
     await t.close()

@@ -836,6 +836,20 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   (a review that would be refused returns before it is refused): `P2` now has the witness answer 503 after each of
   the three reviews is withdrawn (nothing shown), and once unwithdrawn (shown). An opening that hangs made its test
   run out of time, which the harness does not count as caught: `ST1` now fails it after five seconds.
+- **Histories of the page (`P2`, the last test):** the models are of the page as read; this runs the page itself.
+  Steps of two tabs of one browser are drawn at random (review a worker, sign, forget, review a renewal, sign it,
+  untick, reload, stop a tab hearing notices, let it hear them late; two agents, two keys, two audiences; each tab
+  starts hearing or deaf as drawn) and run in Chrome. After every step storage is read and judged by what `IdPage`
+  states of every state: storage is as it was or holds exactly that step's one change, the count one more only
+  then; one key for each agent; a hand-off only for a review nothing was committed since, its row stored, its
+  retired keys as the review said; every hearing tab lists what storage holds. So that a page refusing everything
+  does not pass, a review nothing made stale must be signed when asked, and some worker must be saved in the run.
+  Ten histories of 8 to 16 steps on every run (a few seconds), scaled nightly by `FC_SCALE`; `FC_SEED` replays
+  one. What it is worth, measured once by hand against 23 twins of the page whose fault a history could show, at
+  40 to 150 histories each: 9 failed it (among them a stale tab writing its list over another's change, tabs not
+  followed, a worker not remembered, a replaced key kept); 14 did not, either because the step order needed is
+  rare or because the fault shows only in what the passkey was asked, which this does not watch. Those twins are
+  each caught by a test written for them; this test is for the orders nobody thought to write.
 - **Models of the page (`model/tla/IdPage.tla`, `IdRoot.tla`; TLC, exhaustive within their bounds):**
   `IdPage` is the remembered workers across tabs: each tab's copy, its one open review, its requests to the witness
   and the passkey, and its queue of storage operations, with the running of an operation and the tab's hearing of
