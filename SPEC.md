@@ -741,7 +741,24 @@ witness anchors it, and it settles once its contest window has passed; until the
 scopes and lifetime, never a signature — lists them, each ticked until the user unticks or forgets it, builds the
 ticked ones' delegations again from now under the current membership, shows every one (I4), and signs 1 to 8 of them
 with one assertion (W0), handing each worker its payload with that assertion. What it remembered is read back as
-untrusted, as the root is, and every check a new delegation gets is made again. `id/records.js` builds every record
+untrusted, as the root is, and every check a new delegation gets is made again. An agent has one key at a time, as its
+name outlives its keys: authorising a new key for an agent replaces what was remembered under its old key, at every
+audience, and the review says so before the passkey signs; the same key at another audience is kept beside it, and
+one agent under two keys is never renewed. Forgetting or replacing a key only stops its renewal here: it works until
+what it was given expires, unless it is revoked. A review waits for the witness's answer before it shows anything: whatever
+withdraws a review (an edit, a change of selection, a forgotten worker, another tab's change) withdraws one still
+waiting, which then shows and signs nothing. A stored entry whose key is not a key is no worker, so nothing from
+storage but a key is shown beside what the passkey signs. A worker unticked stays unticked while it is listed. The remembered workers are
+one list shared by this browser's tabs: a change is made to what storage holds at that moment, never to what a tab
+last drew, so a tab not yet told of another's change does not undo it; a review made before such a change is not
+signed, nor a signature that returns after one handed over; and the list shown is what storage holds, so a change
+the browser could not save is said, not shown as made. This is a guarantee about this browser's remembered choices,
+without a lock across tabs: two changes written in the same instant can still lose one, and what is forgotten or
+replaced here is not thereby revoked. The review of an added passkey waits for the witness in the same way as a
+worker's. A worker is handed its delegation only once the change is saved, so none is handed over on a
+promise (an old key retired) that was not kept. What was reviewed is signed only while unexpired, and handed over
+only if still unexpired when the passkey answers. An added passkey's change, once signed, is submitted; its hand-off
+is withheld if it was withdrawn meanwhile. `id/records.js` builds every record
 with the core's functions and refuses first what the core would. Not yet: removing a root, freezes and contests, and
 the I1–I3 window protocol for apps.
 

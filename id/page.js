@@ -4,7 +4,7 @@
 // payload (I4); changing any input withdraws it, and a signature that returns after an edit is discarded. The root
 // record and the credential id are kept in this browser only. The workers it authorised are remembered here too, so
 // that one assertion renews up to eight of them at once (decision 3).
-import { rootRecord, challenge, assertion, delegation, handOff, b64u, fromB64u, currentMembership, addRoot, rootSigned, changeToSign, fingerprint, storedRoot, cosignedIdentity, storedWorkers, remember, renewals } from './records.js'
+import { rootRecord, challenge, assertion, delegation, handOff, b64u, fromB64u, currentMembership, addRoot, rootSigned, changeToSign, fingerprint, storedRoot, cosignedIdentity, storedWorkers, remember, retired, renewals } from './records.js'
 
 const $ = (id) => document.getElementById(id)
 const meta = (name) => document.querySelector(`meta[name="${name}"]`).content
@@ -23,8 +23,13 @@ function load () {
 }
 let root = load()
 // The remembered workers, as storage holds them now: read as untrusted, as the root is.
+// `seen` is the stored text this tab last read: storage that differs from it was changed by another tab, which this
+// one may not have been told of yet.
+const stored = () => { try { return localStorage.getItem(WORKERS) } catch { return null } }
+let seen
 function loadWorkers () {
-  try { return storedWorkers(JSON.parse(localStorage.getItem(WORKERS))) } catch { return [] }
+  seen = stored()
+  try { return storedWorkers(JSON.parse(seen)) } catch { return [] }
 }
 let workers = loadWorkers()
 const pending = { delegation: null, change: null, cosign: null, renewal: null }
@@ -32,10 +37,17 @@ const pending = { delegation: null, change: null, cosign: null, renewal: null }
 function save () {
   try { localStorage.setItem(KEY, JSON.stringify(root)) } catch { /* kept for this visit only */ }
 }
+// A change to the remembered workers is made to what storage holds now, not to what this tab last drew, so it never
+// undoes another tab's change; and the list is then what storage holds, never ahead of it: a change that could not be
+// saved is said, not shown as made. Returns whether it was saved.
 function keepWorkers (change) {
-  workers = change(workers)
-  try { localStorage.setItem(WORKERS, JSON.stringify(workers)) } catch { /* kept for this visit only */ }
+  const next = change(loadWorkers())
+  try { localStorage.setItem(WORKERS, JSON.stringify(next)) } catch { /* said below */ }
+  workers = loadWorkers()
   show()
+  const saved = JSON.stringify(workers) === JSON.stringify(next)
+  if (!saved) fail(new Error('This browser could not save the change to the remembered workers: they are listed as it holds them.'))
+  return saved
 }
 
 const element = (tag, ...children) => {
@@ -47,17 +59,23 @@ const element = (tag, ...children) => {
 const fields = (b) => [['Agent', b.agent], ['Audience', b.aud], ['Scopes', b.scopes.join(' ')], ['Expires', new Date(b.exp * 1000).toISOString()],
   ['Worker key', b.subject]]
 
+// A remembered worker's place in the list: its agent at its audience. Those the user unticked, for as long as they
+// are listed, are not renewed.
+const slot = (w) => JSON.stringify([w.agent, w.aud])
+const unticked = new Set()
 // The remembered workers, each selected for renewal until unticked, with a button to forget it. Stored text is shown
 // as text only.
 function listWorkers () {
+  const listed = new Set(workers.map(slot))
+  for (const s of unticked) if (!listed.has(s)) unticked.delete(s)
   $('workers').replaceChildren(...workers.map((w) => {
     const box = element('input')
     box.type = 'checkbox'
-    box.checked = true
-    box.addEventListener('change', withdraw)
+    box.checked = !unticked.has(slot(w))
+    box.addEventListener('change', () => { if (box.checked) unticked.delete(slot(w)); else unticked.add(slot(w)); withdraw() })
     const forget = element('button', 'Forget')
     forget.type = 'button'
-    forget.addEventListener('click', () => { withdraw(); keepWorkers((list) => list.filter((x) => x.agent !== w.agent || x.subject !== w.subject)) })
+    forget.addEventListener('click', () => { withdraw(); keepWorkers((list) => list.filter((x) => x.agent !== w.agent || x.aud !== w.aud)) })
     return element('li', element('label', box, ` ${w.agent} at ${w.aud}: ${w.scopes.join(' ')} `, element('code', w.subject)), forget)
   }))
 }
@@ -121,7 +139,29 @@ async function sign (covers) {
   return assertion(covers, a.response)
 }
 
+// Whether another tab changed the remembered workers and this one was not yet told: if so, it is brought up to date
+// with nothing left to sign, since what was reviewed was reviewed against the list as it was.
+function changedElsewhere () {
+  if (stored() === seen) return false
+  workers = loadWorkers()
+  withdraw()
+  show()
+  fail(new Error('The remembered workers were changed in another tab: review again.'))
+  return true
+}
+
+// Whether any of the delegations reviewed has expired since: if so the review is withdrawn, to be made again from now.
+function lapsed (delegations) {
+  if (delegations.every((d) => Math.floor(Date.now() / 1000) < d.body.exp)) return false
+  withdraw()
+  fail(new Error('What was reviewed has since expired: review again.'))
+  return true
+}
+
+// Counts withdrawals: a review that waited for the witness goes on only if nothing was withdrawn meanwhile.
+let withdrawals = 0
 function withdraw () {
+  withdrawals++
   pending.delegation = null
   pending.change = null
   pending.cosign = null
@@ -178,34 +218,40 @@ for (const id of ['agent', 'subject', 'aud', 'scopes', 'days', 'new-root', 'cosi
 
 $('review').addEventListener('click', async () => {
   withdraw()
+  const asked = withdrawals
   try {
-    const d = delegation({
-      agent: $('agent').value.trim(), identity: root.identity, membership: await membership(), root: root.id, subject: $('subject').value.trim(),
-      aud: $('aud').value.trim(), scopes: $('scopes').value.trim().split(/\s+/),
-      now: Math.floor(Date.now() / 1000), lifetime: Math.round(Number($('days').value) * 86_400),
-    })
+    // Read before the witness is asked: what is shown is what was in the fields when Review was pressed.
+    const entered = { agent: $('agent').value.trim(), subject: $('subject').value.trim(), aud: $('aud').value.trim(),
+      scopes: $('scopes').value.trim().split(/\s+/), lifetime: Math.round(Number($('days').value) * 86_400) }
+    const current = await membership()
+    if (asked !== withdrawals) return // withdrawn while the witness was asked
+    const d = delegation({ ...entered, identity: root.identity, membership: current, root: root.id, now: Math.floor(Date.now() / 1000) })
     pending.delegation = d
     $('show-agent').textContent = d.body.agent
     $('show-aud').textContent = d.body.aud
     $('show-scopes').textContent = d.body.scopes.join(' ')
     $('show-exp').textContent = new Date(d.body.exp * 1000).toISOString()
     $('show-subject').textContent = d.body.subject
+    // An agent has one key at a time (issue #70): signing this replaces the key remembered for it, said here first.
+    const old = retired(workers, d.body)
+    $('show-retires').textContent = old.length === 0 ? '' : `This replaces the key remembered for ${d.body.agent}, ${old.join()}: that key will no longer be renewed here. It keeps working until what it was given expires, unless it is revoked.`
     $('review-panel').hidden = false
-  } catch (e) { fail(e) }
+  } catch (e) { if (asked === withdrawals) fail(e) } // a refusal of what was withdrawn is not shown
 })
 
 $('sign').addEventListener('click', async () => {
   const d = pending.delegation
-  if (d === null) return
+  if (d === null || changedElsewhere() || lapsed([d])) return
   $('error').textContent = ''
   try {
     const a = await sign([d.id])
-    if (pending.delegation !== d) return // withdrawn while the passkey was asked
+    if (pending.delegation !== d || changedElsewhere() || lapsed([d])) return // withdrawn while the passkey was asked
+    // Remembered for renewal: what was signed, with its lifetime, never the signature. Remembered first: a worker
+    // is handed nothing if the change (which may retire its agent's old key) could not be saved.
+    const { agent, subject, aud, scopes, nbf, exp } = d.body
+    if (!keepWorkers((list) => remember(list, { agent, subject, aud, scopes, lifetime: exp - nbf }))) return
     $('handoff').value = handOff(d.payload, a)
     $('handoff').hidden = false
-    // Remembered for renewal: what was signed, with its lifetime, never the signature.
-    const { agent, subject, aud, scopes, nbf, exp } = d.body
-    keepWorkers((list) => remember(list, { agent, subject, aud, scopes, lifetime: exp - nbf }))
   } catch (e) { fail(e) }
 })
 
@@ -213,24 +259,26 @@ $('sign').addEventListener('click', async () => {
 // signed by one assertion over them all (W0).
 $('renew-review').addEventListener('click', async () => {
   withdraw()
+  const asked = withdrawals
   try {
-    const boxes = $('workers').querySelectorAll('input')
-    const chosen = workers.filter((_, i) => boxes[i].checked)
-    const r = renewals(chosen, { identity: root.identity, membership: await membership(), root: root.id, now: Math.floor(Date.now() / 1000) })
+    const chosen = workers.filter((w) => !unticked.has(slot(w)))
+    const current = await membership()
+    if (asked !== withdrawals) return // withdrawn while the witness was asked
+    const r = renewals(chosen, { identity: root.identity, membership: current, root: root.id, now: Math.floor(Date.now() / 1000) })
     pending.renewal = r
     $('renew-list').replaceChildren(...r.delegations.map((d) =>
       element('li', element('dl', ...fields(d.body).flatMap(([name, value]) => [element('dt', name), element('dd', value)])))))
     $('renew-panel').hidden = false
-  } catch (e) { fail(e) }
+  } catch (e) { if (asked === withdrawals) fail(e) } // a refusal of what was withdrawn is not shown
 })
 
 $('renew-sign').addEventListener('click', async () => {
   const r = pending.renewal
-  if (r === null) return
+  if (r === null || changedElsewhere() || lapsed(r.delegations)) return
   $('error').textContent = ''
   try {
     const a = await sign(r.covers)
-    if (pending.renewal !== r) return // withdrawn while the passkey was asked
+    if (pending.renewal !== r || changedElsewhere() || lapsed(r.delegations)) return // withdrawn while the passkey was asked
     $('renew-handoffs').replaceChildren(...r.delegations.map((d) => {
       const t = element('textarea')
       t.readOnly = true
@@ -244,14 +292,18 @@ $('renew-sign').addEventListener('click', async () => {
 
 $('add-review').addEventListener('click', async () => {
   withdraw()
+  const asked = withdrawals
   try {
-    const c = addRoot({ identity: root.identity, state: await state(), root: $('new-root').value.trim(), rpId })
-    pending.change = { ...c, rootText: $('new-root').value.trim() }
+    const rootText = $('new-root').value.trim()
+    const current = await state()
+    if (asked !== withdrawals) return // withdrawn while the witness was asked
+    const c = addRoot({ identity: root.identity, state: current, root: rootText, rpId })
+    pending.change = { ...c, rootText }
     $('add-added').textContent = c.added
     $('add-fingerprint').textContent = fingerprint(c.added)
     $('add-epoch').textContent = String(c.body.epoch)
     $('add-panel').hidden = false
-  } catch (e) { fail(e) }
+  } catch (e) { if (asked === withdrawals) fail(e) } // a refusal of what was withdrawn is not shown
 })
 
 $('add-sign').addEventListener('click', async () => {
@@ -261,8 +313,10 @@ $('add-sign').addEventListener('click', async () => {
   try {
     const a = await sign([c.id])
     if (pending.change !== c) return
+    // Once signed, the change is submitted whatever follows; only its hand-off is withheld if it was withdrawn.
     await submit(root.identity, 'membership', rootSigned(c.payload, root.id, a))
     await submit(root.identity, 'root', c.rootText)
+    if (pending.change !== c) return
     $('add-handoff').value = c.payload
     $('add-handoff').hidden = false
     $('status').textContent = 'Signed. The other device co-signs this change.'

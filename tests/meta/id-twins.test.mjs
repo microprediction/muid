@@ -28,7 +28,7 @@ const TWINS = [
   ['rename-keeps-review', 'renaming the agent leaves the reviewed delegation signable', [["for (const id of ['agent', 'subject',", "for (const id of ['subject',"]], 'page.js'],
   ['agent-not-shown', 'the agent is signed but not shown in the review (I4)', [["    $('show-agent').textContent = d.body.agent\n", '']], 'page.js'],
   ['edit-keeps-review', 'an edit leaves the reviewed delegation signable', [["for (const id of ['agent', 'subject', 'aud', 'scopes', 'days', 'new-root', 'cosign-payload']) $(id).addEventListener('input', withdraw)", "for (const id of ['new-root', 'cosign-payload']) $(id).addEventListener('input', withdraw)"]], 'page.js'],
-  ['late-signature-kept', 'a signature that returns after an edit is handed over', [['    if (pending.delegation !== d) return // withdrawn while the passkey was asked\n', '']], 'page.js'],
+  ['late-signature-kept', 'a signature that returns after an edit is handed over', [['    if (pending.delegation !== d || changedElsewhere() || lapsed([d])) return // withdrawn', '    if (changedElsewhere() || lapsed([d])) return // withdrawn']], 'page.js'],
   ['uv-preferred', 'the assertion does not require user verification', [["rpId, challenge: challenge(covers), userVerification: 'required',", "rpId, challenge: challenge(covers), userVerification: 'preferred',"]], 'page.js'],
   ['any-passkey', 'any passkey for the site may sign', [["    allowCredentials: [{ type: 'public-key', id: fromB64u(root.credential) }],\n", '']], 'page.js'],
   ['not-discoverable', 'the passkey is not a resident credential', [["residentKey: 'required', userVerification: 'required'", "userVerification: 'required'"]], 'page.js'],
@@ -61,14 +61,44 @@ const TWINS = [
   ['renew-unbounded', 'more than eight workers are put under one assertion', [['  if (workers.length < 1 || workers.length > MAX_BATCH) throw', '  if (workers.length < 1) throw']], 'records.js'],
   ['renew-covers-unsorted', "a renewal's covers are in the order listed", [['  const covers = delegations.map((d) => d.id).sort()\n', '  const covers = delegations.map((d) => d.id)\n']], 'records.js'],
   ['workers-any-form', 'whatever storage holds is taken as a worker', [['    const w = workerOf(e)\n', '    const w = e ?? undefined\n']], 'records.js'],
-  ['renew-selection-keeps-review', 'a change of selection leaves the reviewed renewal signable', [["    box.addEventListener('change', withdraw)\n", '']], 'page.js'],
-  ['renew-late-signature-kept', 'a renewal signed after a change of selection is handed over', [['    if (pending.renewal !== r) return // withdrawn while the passkey was asked\n', '']], 'page.js'],
-  ['renew-unticked', 'a worker that was unticked is renewed', [['    const chosen = workers.filter((_, i) => boxes[i].checked)\n', '    const chosen = workers\n']], 'page.js'],
+  ['renew-selection-keeps-review', 'a change of selection leaves the reviewed renewal signable', [["else unticked.add(slot(w)); withdraw() })", "else unticked.add(slot(w)) })"]], 'page.js'],
+  ['renew-late-signature-kept', 'a renewal signed after a change of selection is handed over', [['    if (pending.renewal !== r || changedElsewhere() || lapsed(r.delegations)) return // withdrawn', '    if (changedElsewhere() || lapsed(r.delegations)) return // withdrawn']], 'page.js'],
+  ['renew-unticked', 'a worker that was unticked is renewed', [['    const chosen = workers.filter((w) => !unticked.has(slot(w)))\n', '    const chosen = workers\n']], 'page.js'],
+  ['review-wait-keeps', 'a review edited while the witness is asked is shown all the same', [["    if (asked !== withdrawals) return // withdrawn while the witness was asked\n    const d = delegation(", "    const d = delegation("]], 'page.js'],
+  ['renew-wait-keeps', 'a renewal changed while the witness is asked is shown all the same', [["    if (asked !== withdrawals) return // withdrawn while the witness was asked\n    const r = renewals(", "    const r = renewals("]], 'page.js'],
+  ['withdrawals-uncounted', 'a withdrawal is not counted, so a waiting review goes on', [['  withdrawals++\n', '']], 'page.js'],
+  ['reticked', 'a list drawn again ticks what was unticked', [['  for (const s of unticked) if (!listed.has(s)) unticked.delete(s)\n', '  unticked.clear()\n']], 'page.js'],
+  ['untick-outlives-entry', 'a forgotten worker authorised again comes back unticked', [['  for (const s of unticked) if (!listed.has(s)) unticked.delete(s)\n', '']], 'page.js'],
+  ['stored-key-unchecked', 'a stored worker whose key is not a key is kept', [[' || !checkEd25519Key(x.subject).ok) return undefined', ') return undefined']], 'records.js'],
+  ['workers-change-keeps-review', "another tab's change of the workers leaves a review signable", [['workers = loadWorkers(); withdraw(); show() }', 'workers = loadWorkers(); if (e.key !== WORKERS) withdraw(); show() }']], 'page.js'],
   ['renew-partly-shown', 'a renewal signs delegations it does not show (I4)', [["    $('renew-list').replaceChildren(...r.delegations.map((d) =>", "    $('renew-list').replaceChildren(...r.delegations.slice(0, 1).map((d) =>"]], 'page.js'],
   ['renew-partly-signed', 'the assertion does not cover every renewed delegation', [['    const a = await sign(r.covers)\n', '    const a = await sign([r.covers[0]])\n']], 'page.js'],
   ['renew-unauthorised', 'a passkey still joining is offered workers to renew', [["  $('renew').hidden = root === null || joining || workers.length === 0\n", "  $('renew').hidden = root === null || workers.length === 0\n"]], 'page.js'],
-  ['worker-not-remembered', 'an authorised worker is not kept for renewal', [["  try { localStorage.setItem(WORKERS, JSON.stringify(workers)) } catch { /* kept for this visit only */ }\n", '']], 'page.js'],
-  ['forget-keeps', 'a forgotten worker stays listed', [['keepWorkers((list) => list.filter((x) => x.agent !== w.agent || x.subject !== w.subject))', 'keepWorkers((list) => list)']], 'page.js'],
+  ['worker-not-remembered', 'an authorised worker is not kept for renewal', [["  try { localStorage.setItem(WORKERS, JSON.stringify(next)) } catch { /* said below */ }\n", '']], 'page.js'],
+  ['stale-list-written', "a tab not yet told of another's change writes its own list over it", [['  const next = change(loadWorkers())\n', '  const next = change(workers)\n']], 'page.js'],
+  ['unsaved-unsaid', 'a change that could not be saved is shown as made', [['  workers = loadWorkers()\n  show()\n  const saved = JSON.stringify(workers) === JSON.stringify(next)\n', '  workers = next\n  show()\n  const saved = true\n']], 'page.js'],
+  ['stale-review-signed', 'a worker reviewed before another tab changed the workers is signed', [['  if (d === null || changedElsewhere() || lapsed([d])) return\n', '  if (d === null || lapsed([d])) return\n']], 'page.js'],
+  ['stale-renewal-signed', 'a renewal reviewed before another tab changed the workers is signed', [['  if (r === null || changedElsewhere() || lapsed(r.delegations)) return\n', '  if (r === null || lapsed(r.delegations)) return\n']], 'page.js'],
+  ['change-while-signing-kept', 'a worker signed while another tab changed the workers is handed over', [['    if (pending.delegation !== d || changedElsewhere() || lapsed([d])) return // withdrawn', '    if (pending.delegation !== d || lapsed([d])) return // withdrawn']], 'page.js'],
+  ['renew-change-while-signing-kept', 'a renewal signed while another tab changed the workers is handed over', [['    if (pending.renewal !== r || changedElsewhere() || lapsed(r.delegations)) return // withdrawn', '    if (pending.renewal !== r || lapsed(r.delegations)) return // withdrawn']], 'page.js'],
+  ['expired-signed', 'a worker whose review has expired is signed', [['  if (d === null || changedElsewhere() || lapsed([d])) return\n', '  if (d === null || changedElsewhere()) return\n']], 'page.js'],
+  ['expired-handed-over', 'a worker whose review expired while the passkey was asked is handed over', [['    if (pending.delegation !== d || changedElsewhere() || lapsed([d])) return // withdrawn', '    if (pending.delegation !== d || changedElsewhere()) return // withdrawn']], 'page.js'],
+  ['renew-expired-signed', 'a renewal whose review has expired is signed', [['  if (r === null || changedElsewhere() || lapsed(r.delegations)) return\n', '  if (r === null || changedElsewhere()) return\n']], 'page.js'],
+  ['renew-expired-handed-over', 'a renewal that expired while the passkey was asked is handed over', [['    if (pending.renewal !== r || changedElsewhere() || lapsed(r.delegations)) return // withdrawn', '    if (pending.renewal !== r || changedElsewhere()) return // withdrawn']], 'page.js'],
+  ['expiry-of-the-longest', 'a renewal is signed while any one of its delegations is unexpired', [['  if (delegations.every((d) => Math.floor(Date.now() / 1000) < d.body.exp)) return false\n', '  if (delegations.some((d) => Math.floor(Date.now() / 1000) < d.body.exp)) return false\n']], 'page.js'],
+  ['unsaved-handed-over', 'a worker whose remembering could not be saved is handed over', [['    if (!keepWorkers((list) => remember(list, { agent, subject, aud, scopes, lifetime: exp - nbf }))) return\n', '    keepWorkers((list) => remember(list, { agent, subject, aud, scopes, lifetime: exp - nbf }))\n']], 'page.js'],
+  ['add-handoff-restored', "an added passkey's hand-off is shown after it was withdrawn", [["    if (pending.change !== c) return\n    $('add-handoff').value", "    $('add-handoff').value"]], 'page.js'],
+  ['add-wait-keeps', "a new passkey's review edited while the witness is asked is shown all the same", [["    if (asked !== withdrawals) return // withdrawn while the witness was asked\n    const c = addRoot(", "    const c = addRoot("]], 'page.js'],
+  ['late-refusal-shown', "a refusal of a worker's review already withdrawn is shown", [["    $('review-panel').hidden = false\n  } catch (e) { if (asked === withdrawals) fail(e) }", "    $('review-panel').hidden = false\n  } catch (e) { fail(e) }"]], 'page.js'],
+  ['renew-late-refusal-shown', "a refusal of a renewal already withdrawn is shown", [["    $('renew-panel').hidden = false\n  } catch (e) { if (asked === withdrawals) fail(e) }", "    $('renew-panel').hidden = false\n  } catch (e) { fail(e) }"]], 'page.js'],
+  ['add-late-refusal-shown', "a refusal of a new passkey's review already withdrawn is shown", [["    $('add-panel').hidden = false\n  } catch (e) { if (asked === withdrawals) fail(e) }", "    $('add-panel').hidden = false\n  } catch (e) { fail(e) }"]], 'page.js'],
+  ['forget-keeps', 'a forgotten worker stays listed', [['keepWorkers((list) => list.filter((x) => x.agent !== w.agent || x.aud !== w.aud))', 'keepWorkers((list) => list)']], 'page.js'],
+  ['forget-every-audience', "forgetting a worker at one audience forgets it at the others", [['list.filter((x) => x.agent !== w.agent || x.aud !== w.aud)', 'list.filter((x) => x.agent !== w.agent)']], 'page.js'],
+  ['old-key-renewable', "an agent's replaced key stays remembered for renewal (issue #70)", [['(old.subject !== worker.subject || old.aud === worker.aud)', '(old.subject === worker.subject && old.aud === worker.aud)']], 'records.js'],
+  ['old-key-elsewhere', "an agent's replaced key stays remembered at its other audiences", [['(old.subject !== worker.subject || old.aud === worker.aud)', 'old.aud === worker.aud']], 'records.js'],
+  ['two-keys-renewed', 'a renewal signs one agent under two keys', [["  if (workers.some((w) => workers.some((v) => v.agent === w.agent && v.subject !== w.subject))) throw new Error('an agent is listed with two keys')\n", '']], 'records.js'],
+  ['retires-unsaid', 'a review does not say that it replaces a remembered key', [["    $('show-retires').textContent = old.length === 0 ? '' : `", "    $('show-retires').textContent = true ? '' : `"]], 'page.js'],
+  ['retires-left-over', 'a review says a key is replaced when none is', [["    $('show-retires').textContent = old.length === 0 ? '' : `", "    if (old.length > 0) $('show-retires').textContent = `"]], 'page.js'],
   ['registered-not-saved', 'a registration that succeeded is not saved, so it is sent again', [['    root = { ...root, registered: true }\n    save()\n', '    root = { ...root, registered: true }\n']], 'page.js'],
 ]
 
@@ -118,7 +148,7 @@ test('id page broken twins', { timeout: 3_600_000 }, async (t) => {
       assert.ok(r.pass >= 14, `control: only ${r.pass} tests ran`)
     })
     const jobs = TWINS.map(([name, why, edits, file]) => [name, why, generate(name, edits, file)])
-    assert.equal(jobs.length, 51, 'twin count')
+    assert.equal(jobs.length, 81, 'twin count')
     const results = []
     const queue = [...jobs]
     const workers = Math.max(1, Math.floor(availableParallelism() / 4))
