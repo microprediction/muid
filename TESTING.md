@@ -763,7 +763,9 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   judged by the longest-lived; an unsaved worker handed over; the withdrawn hand-off shown. That draft's harness
   (2,116 generated two-tab histories against the page module) reported seven broken contracts on the reviewed
   commit and none on this one; it is not part of this change.
-- **The storage adapter (`id/store.js`, `tests/store/ST1`), in Chrome with two tabs:** a key is absent until set, then replaced,
+- **The storage adapter (`id/store.js`, `tests/store/ST1`), with two tabs, in Chrome and (the CI job
+  `store-browsers`, `MUID_BROWSER`) in Playwright's builds of Firefox and WebKit, where one test is skipped: a
+  store closed by the browser clearing its storage, which is asked of Chrome through its DevTools protocol:** a key is absent until set, then replaced,
   removed, or left (an `undefined` answer); a stored `undefined` is a value, not an absence; another tab and a
   reload read what was committed; databases of different names are separate. 150 increments from each of two tabs,
   all begun before any finishes, total 300. With one tab holding a read-write transaction of its own open on the
