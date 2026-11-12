@@ -71,7 +71,7 @@ listed, and where each stands:
 | root creation and registration across tabs | `IdRoot.tla`; §2 |
 | mixed versions | §1 |
 | a page frozen and resumed (the back/forward cache) with its state kept | by the model a resumed page is a tab not yet told of a change, which is covered: nothing it does depends on a notice, and every save is against what storage holds. Seen in Chrome by a probe, not by a test of the suite: a cached page that a notice, a raised version or a deletion of the database would reach is discarded and loaded afresh; one that nothing reached, or that another connection wrote beside without a notice, is resumed with its state and its database open. Other browsers **not seen** |
-| the model's host against a real browser | the tests run in Chrome only; other browsers are not run |
+| the model's host against a real browser | the store's tests run in Chrome, Firefox and WebKit; the page's in Chrome only |
 | clocks | `Adapter.tla` has differing clocks per instance; `IdPage.tla` has one clock, the page's own |
 | the protected action after a claim is consumed | at most once, not exactly once; §2, relying party |
 | a durable store restored to an older state | **not covered** for any store |
