@@ -977,7 +977,7 @@ is the demo's limit, by design, and no property of the core or the adapter depen
    depth two by type as D3 is depth one. Each task delegation names, in what is signed, the id of the one renewal
    delegation it is made under, so its limits and the revocations that reach it are never inferred from a key. Light identities stay linkable to their identity (§10). Details, and why
    other designs do not cover it, in [`research/light-identities.md`](research/light-identities.md).
-14. **What version 1 leaves out — decided.** The first and last are built on the records above, outside this repository,
+14. **What version 1 leaves out — decided.** The first two are built on the records above, outside this repository,
    and change none of them; the other two would add to the record set, and so wait for a later version:
    - a durable store for the witness service's holdings (the supplied one is in memory and stands in for tests, §5);
    - any policy over the verified facts of §10: reputation, limits for each identity, or a cost to make one;
