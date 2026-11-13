@@ -642,3 +642,103 @@ test('an adapter without a clock is a programming error', () => {
     assert.throws(() => relyingParty({ verifier: verifier(), store: memoryStore(), clock }), { name: 'TypeError', message: "the adapter needs clock(): this instance's time in seconds" }, String(clock))
   }
 })
+
+// R10: a revocation a relying party has seen holds whatever a later head says. Found by a probe: the adapter kept
+// only the last head, so a later head without the revocation was refused once (against the head before it) and then
+// became the memory, and the revoked delegation was accepted from the next request on. The store now keeps what
+// heads revoked, each target until `revocationMemory` seconds after the newest head that carried it.
+for (const [name, open] of [['memory', () => memoryStore()], ['sqlite', () => sqliteStore(join(tmp(), 'rp.db'))]]) {
+  test(`${name}: a revocation once seen is not forgotten when later heads leave it out`, async () => {
+    const store = open()
+    const rp = relyingParty({ clock: () => NOW, verifier: verifier(), store })
+    let runs = 0
+    const go = (c, h) => rp.acceptClaim(records(c, h), CALL, () => runs++)
+    assert.deepEqual(await go(claim(NOW - 9), head(NOW - 100, { revoked: [DELEGATION_ID] })), refused('revoked'))
+    for (const [n, at] of [[8, NOW - 50], [7, NOW - 50], [6, NOW - 40], [5, NOW - 30]]) {
+      assert.deepEqual(await go(claim(NOW - n), head(at)), refused('revoked'), `the head of ${at - NOW} leaves it out`)
+    }
+    assert.equal((await store.lastHead(IDENTITY)).at, NOW - 30, 'the heads themselves are remembered as before')
+    assert.equal(runs, 0)
+  })
+
+  test(`${name}: a revocation in a head older than the memory is kept too; the head itself is stale`, async () => {
+    const store = open()
+    const rp = relyingParty({ clock: () => NOW, verifier: verifier(), store })
+    assert.equal((await rp.acceptClaim(records(claim(NOW - 9), head(NOW - 40)), CALL, () => 1)).ok, true)
+    // Another relying party hands over an older head that revokes: what this party was shown since left it out.
+    assert.deepEqual(await rp.acceptHead({ head: head(NOW - 80, { revoked: [DELEGATION_ID] }) }, CALL), refused('stale'))
+    assert.equal((await store.lastHead(IDENTITY)).at, NOW - 40)
+    assert.deepEqual(await rp.acceptClaim(records(claim(NOW - 8), head(NOW - 40)), CALL, () => 1), refused('revoked'))
+    assert.deepEqual(await rp.acceptClaim(records(claim(NOW - 7), head(NOW - 20)), CALL, () => 1), refused('revoked'))
+  })
+
+  test(`${name}: a revocation is kept revocationMemory seconds past the newest head that carried it, and no longer`, async () => {
+    const store = open()
+    let clock = NOW
+    const rp = relyingParty({ clock: () => clock, verifier: verifier(), store, revocationMemory: 300 })
+    const go = (at) => rp.acceptClaim(records(claim(at - 5), head(at - 10)), { ...CALL, now: at }, () => 1)
+    await rp.acceptHead({ head: head(NOW - 100, { revoked: [DELEGATION_ID] }) }, CALL)
+    clock = NOW + 199
+    assert.deepEqual(await go(clock), refused('revoked'), 'one second before it lapses')
+    // Seen again in a later head: kept from that head's time.
+    await rp.acceptHead({ head: head(NOW + 150, { revoked: [DELEGATION_ID] }) }, { ...CALL, now: clock })
+    // An older head that carries it does not shorten it.
+    await rp.acceptHead({ head: head(NOW + 120, { revoked: [DELEGATION_ID] }) }, { ...CALL, now: clock })
+    clock = NOW + 449
+    assert.deepEqual(await go(clock), refused('revoked'))
+    clock = NOW + 450
+    assert.equal((await go(clock)).ok, true, 'lapsed: 300 s after the head of NOW + 150')
+    // What lapsed is dropped by the cleanup, and what has not is not.
+    await rp.acceptHead({ head: head(clock - 1, { revoked: ['7'.repeat(64)] }) }, { ...CALL, now: clock })
+    await store.expire(clock)
+    assert.deepEqual(await store.transaction((tx) => tx.revocations(IDENTITY, 0)), ['7'.repeat(64)])
+  })
+}
+
+test('revocation memory in the stores: by identity, the later time kept, at most 256 for an identity (those kept longest), sorted', async () => {
+  const id = (n) => n.toString(16).padStart(64, '0')
+  for (const store of [memoryStore(), sqliteStore(join(tmp(), 'rp.db'))]) {
+    await store.transaction((tx) => {
+      assert.deepEqual(tx.revocations('a'.repeat(64), 0), [])
+      tx.revoke('a'.repeat(64), [id(2), id(1)], 100)
+      tx.revoke('b'.repeat(64), [id(3)], 100)
+      tx.revoke('a'.repeat(64), [id(1)], 50) // an earlier time does not shorten it
+      tx.revoke('a'.repeat(64), [id(2)], 200)
+      tx.revoke('a'.repeat(64), [], 900)
+    })
+    await store.transaction((tx) => {
+      assert.deepEqual(tx.revocations('a'.repeat(64), 99), [id(1), id(2)])
+      assert.deepEqual(tx.revocations('a'.repeat(64), 100), [id(2)], 'kept until its time, not at it')
+      assert.deepEqual(tx.revocations('a'.repeat(64), 200), [])
+      assert.deepEqual(tx.revocations('b'.repeat(64), 0), [id(3)])
+      assert.deepEqual(tx.revocations('c'.repeat(64), 0), [])
+    })
+    // A witness key that signs heads without end cannot fill the store: 256 for an identity, as the witness keeps.
+    await store.transaction((tx) => { for (let n = 10; n < 310; n++) tx.revoke('d'.repeat(64), [id(n)], 1000 + n) })
+    const kept = await store.transaction((tx) => tx.revocations('d'.repeat(64), 0))
+    assert.equal(kept.length, 256)
+    assert.deepEqual([kept[0], kept[255]], [id(54), id(309)], 'the 44 that would lapse first were dropped')
+    assert.deepEqual(await store.transaction((tx) => tx.revocations('a'.repeat(64), 0)), [id(1), id(2)], 'other identities keep theirs')
+  }
+})
+
+test('revocation memory: joined to the call\'s own list; a store that cannot give it is refused as storage; its length is an option checked', async () => {
+  const store = memoryStore()
+  const seen = []
+  const v = verifier()
+  const spy = { ...v, verifyClaim: (g, c) => { seen.push([...c.revoked]); return v.verifyClaim(g, c) } }
+  const rp = relyingParty({ clock: () => NOW, verifier: spy, store })
+  const other = '9'.repeat(64)
+  await store.transaction((tx) => tx.revoke(IDENTITY, ['8'.repeat(64)], NOW + 10))
+  assert.equal((await rp.acceptClaim(records(), { ...CALL, revoked: [other] }, () => 1)).ok, true)
+  assert.deepEqual(seen.at(-1), [other, '8'.repeat(64)], 'in the transaction: the call\'s, then the store\'s')
+  assert.deepEqual(seen[0], [other], 'before it: the call\'s alone')
+  const failing = { ...store, transaction: (fn) => store.transaction((tx) => fn({ ...tx, revocations () { throw new Error('disk') } })) }
+  let runs = 0
+  assert.deepEqual(await relyingParty({ clock: () => NOW, verifier: v, store: failing }).acceptClaim(records(claim(NOW - 3)), CALL, () => runs++), refused('storage'))
+  assert.equal(runs, 0)
+  for (const bad of [-1, 1.5, '300', null, 2 ** 53]) {
+    assert.throws(() => relyingParty({ clock: () => NOW, verifier: v, store, revocationMemory: bad }), { name: 'TypeError', message: /revocationMemory/ }, String(bad))
+  }
+  assert.doesNotThrow(() => relyingParty({ clock: () => NOW, verifier: v, store, revocationMemory: 0 }))
+})

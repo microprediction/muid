@@ -33,9 +33,9 @@ const CALL = Object.freeze({ now: NOW, scope: 'post', revoked: [] })
 const plain = (r) => ({ ...r })
 
 test('a head that verifies gives its identity and time, whatever else a request would carry', () => {
-  assert.deepEqual(plain(v.verifyHead(head(NOW - 100), CALL)), { ok: true, identity: IDENTITY, at: NOW - 100 })
+  assert.deepEqual(plain(v.verifyHead(head(NOW - 100), CALL)), { ok: true, identity: IDENTITY, at: NOW - 100, revoked: [] })
   const revoking = head(NOW - 50, { revoked: [del.id] })
-  assert.deepEqual(plain(v.verifyHead(revoking, CALL)), { ok: true, identity: IDENTITY, at: NOW - 50 }, 'one that revokes the delegation')
+  assert.deepEqual(plain(v.verifyHead(revoking, CALL)), { ok: true, identity: IDENTITY, at: NOW - 50, revoked: [del.id] }, 'one that revokes the delegation: what it revokes is given')
   assert.deepEqual(plain(v.verifyDelegation({ delegation, root, logged, head: revoking }, CALL)), { ok: false, reason: 'revoked' })
 })
 
