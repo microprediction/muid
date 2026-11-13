@@ -479,6 +479,17 @@ test('acceptHead: a head from elsewhere is remembered if it follows the memory, 
   }
 })
 
+// SPEC §7: the records of a call are read by name, so a later version's records pass an older verifier unread.
+test('a record the verifier does not name is not read: the same answer with it as without, from the verifier and the adapter', async () => {
+  const given = records(claim(NOW - 5))
+  const more = { ...given, headProof: { checkpoint: 'x', index: 1, proof: [] }, bundle: 2 }
+  Object.defineProperty(more, 'later', { enumerable: true, get () { throw new Error('read') } })
+  assert.deepEqual(verifier().verifyClaim(more, CALL), verifier().verifyClaim(given, CALL))
+  assert.equal(verifier().verifyClaim(more, CALL).ok, true)
+  const rp = relyingParty({ clock: () => NOW, verifier: verifier(), store: memoryStore() })
+  assert.equal((await rp.acceptClaim(more, CALL, () => 1)).ok, true)
+})
+
 test('acceptHead: what cannot be read is refused as a head, storage that fails as storage, and a call is checked as for a request', async () => {
   const store = memoryStore()
   const rp = relyingParty({ clock: () => NOW, verifier: verifier(), store })

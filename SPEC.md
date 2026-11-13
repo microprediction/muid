@@ -555,6 +555,10 @@ deployments) are the values of decisions 1, 3 and 7. Per call,
 identity. `scope` is the one scope the request needs; `revoked` lists further revoked record ids, subject keys or light identity ids (D8) the
 relying party holds; `minHeadAt` (optional) refuses heads older than one it has already seen; `lastHead` (optional)
 is the text of the newest head the relying party has accepted for the identity, which it keeps (decision 10).
+The records of a call are read by name, and a member the verifier does not name is not read. A later version may
+name more (a proof that the head is logged, for one), so a delegate may send records that an older verifier passes
+over, and whatever carries records from a delegate to a relying party should carry them as a set that can grow.
+Inside a record nothing is passed over (F2).
 
 - **F1 SYNCHRONOUS AND PURE:** no `await`, no clock, no storage, no network inside a decision.
 - **F2 DENY BY DEFAULT:** every branch that is not an explicit accept is a reject. An unknown field is a reject.
@@ -726,6 +730,13 @@ verifies the request against the same memory and consumes the claim id; only the
 once. Heads of one second may arrive in either order (F5): of two, the memory keeps the one the verifier ranks later
 (decision 10 orders any two that differ, so a new head accepted after the stored one of its second replaces it). Anyone holding a fresh head can move the memory forward;
 that only obliges delegates to present heads at least as fresh, which the witness serves.
+`acceptHead` takes a head alone (F6) and judges and remembers it in the same way, with no delegation or claim.
+Decision 10's rule sees a split only within what one relying party has seen; parties that keep separate stores may
+therefore hand each other the newest head each has accepted for an identity. The head received is always the one
+judged, against the receiver's own memory, never given as memory: if the witness showed the two parties memberships
+that cannot both be true, one of them refuses the other's head as `equivocation` and holds both signed heads. This
+does not show a later head that leaves out a revocation an earlier one carried (decision 10 orders revocations only
+within a second).
 Consumption is an insert-if-absent (a unique key, as DPoP's `jti` store), the head moves only to a later `at` (a
 conditional update, as TUF's stored metadata), and the transaction serialises requests (`BEGIN IMMEDIATE` for the
 database store, which holds its write lock for one verification), so of any number of instances receiving one claim
