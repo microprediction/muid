@@ -3,7 +3,10 @@
 // - replay: a claim id is consumed by one atomic insert-if-absent, before the protected action runs (as a DPoP
 //   server's jti store, RFC 9449 §11.1);
 // - head memory: the last head accepted for an identity is passed to the verifier and only ever moves forward (as a
-//   TUF client's stored metadata).
+//   TUF client's stored metadata);
+// - revocation memory: what any head that verified revoked is kept, and passed to the verifier with the call's own
+//   list, for `revocationMemory` seconds past the newest head that carried it (R10: a revocation seen holds whatever
+//   a later head says). Set it to the verifier's maxLifetime or more: no delegation a kept target named outlives it.
 // The records are verified inside one store transaction, against the memory as it stands there, which then advances
 // the head and consumes the claim: a database store holds its write lock for one verification. Storage that fails is
 // refused as `storage`, and the protected action does not run.
@@ -33,8 +36,9 @@ function readGiven (given) {
   return undefined
 }
 
-export function relyingParty ({ verifier, store, clock }) {
+export function relyingParty ({ verifier, store, clock, revocationMemory = 2592000 }) {
   if (typeof clock !== 'function') throw new TypeError('the adapter needs clock(): this instance\'s time in seconds')
+  if (!Number.isSafeInteger(revocationMemory) || revocationMemory < 0) throw new TypeError('revocationMemory must be a number of seconds')
   // `check(call)` under the remembered { head, at }, if any. A stored head the verifier cannot read (corrupt, or
   // signed by a witness key since removed from its configuration) still bounds rollback: its time becomes
   // minHeadAt. A malformed call has already thrown in the checks before the transaction; anything the verifier throws
@@ -75,11 +79,20 @@ export function relyingParty ({ verifier, store, clock }) {
     try {
       outcome = await store.transaction((tx) => {
         const stored = tx.lastHead(seen.identity) // the store's: a failure here is refused as storage
+        let now
+        try {
+          now = clock()
+        } catch (e) {
+          return { thrown: e } // the clock's: rethrown below, as the verifier's is
+        }
+        if (!Number.isSafeInteger(now) || now < 0) return { thrown: new TypeError('clock() must give a time in seconds') }
+        // What the presented head revokes is kept whether or not the head may follow the memory: it verified alone,
+        // so the witness signed it. The request is then judged with everything kept for the identity. Both are the
+        // store's, as the memory's read is.
+        tx.revoke(seen.identity, Array.from(seen.revoked), seen.at + revocationMemory)
+        const current = { ...call, now, revoked: [...call.revoked, ...tx.revocations(seen.identity, now)] }
         let head, r
         try {
-          const now = clock()
-          if (!Number.isSafeInteger(now) || now < 0) throw new TypeError('clock() must give a time in seconds')
-          const current = { ...call, now }
           head = withMemory((c) => verifier.verifyHead(given.head, c), current, stored)
           r = withMemory((c) => verify(given, c), current, stored)
         } catch (e) {

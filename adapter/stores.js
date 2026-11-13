@@ -1,7 +1,9 @@
 // Stores for the relying-party adapter. `transaction(fn)` runs fn atomically with synchronous operations: lastHead
 // reads { head, at }; advanceHead replaces an identity's head only with a later one; replaceHead replaces it with
 // another of the same time only if it is still the one given (compare-and-set); consume inserts a claim id only if
-// absent, returning whether it did. Each is the database's own guarantee (a unique key, a conditional upsert,
+// absent, returning whether it did; revoke keeps each target for an identity until the later of the time given and
+// the time it had, and at most MAX_REVOKED targets for an identity (those kept longest); revocations lists the
+// targets kept past a time, sorted. Each is the database's own guarantee (a unique key, a conditional upsert,
 // a serialising transaction), not read-then-write in the adapter.
 import { DatabaseSync } from 'node:sqlite'
 import { performance } from 'node:perf_hooks'
@@ -9,10 +11,14 @@ import { performance } from 'node:perf_hooks'
 // A claim id is kept `grace` seconds past its `until`, so an instance whose clock is behind the one expiring it (by
 // up to the verifier's skew) still refuses a replay. 60 s by default: set it to the largest clock difference allowed.
 
+// As many as a witness keeps for one identity (SPEC R10): a witness key cannot fill a store by signing heads.
+const MAX_REVOKED = 256
+
 // One process: JavaScript runs fn to completion, with no await inside it.
 export function memoryStore ({ grace = 60 } = {}) {
   const consumed = new Map()
   const heads = new Map()
+  const revoked = new Map() // identity -> Map(target -> until)
   const tx = {
     lastHead: (identity) => heads.get(identity),
     advanceHead (identity, head, at) {
@@ -28,12 +34,25 @@ export function memoryStore ({ grace = 60 } = {}) {
       consumed.set(id, until)
       return true
     },
+    revoke (identity, targets, until) {
+      const kept = revoked.get(identity) ?? new Map()
+      for (const t of targets) kept.set(t, Math.max(until, kept.get(t) ?? 0))
+      // Those kept longest; of two kept as long, the one whose target sorts first, as the database store orders them.
+      // Stryker disable next-line EqualityOperator: equivalent; targets are one map's keys, so no two are equal
+      revoked.set(identity, new Map([...kept].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1)).slice(0, MAX_REVOKED)))
+    },
+    revocations (identity, now) {
+      return [...revoked.get(identity) ?? new Map()].filter(([, until]) => until > now).map(([t]) => t).sort()
+    },
   }
   return {
     async lastHead (identity) { return tx.lastHead(identity) },
     async transaction (fn) { return fn(tx) },
     async expire (now) {
       for (const [id, until] of consumed) if (until + grace <= now) consumed.delete(id)
+      for (const kept of revoked.values()) {
+        for (const [t, until] of kept) if (until <= now) kept.delete(t)
+      }
     },
   }
 }
@@ -51,7 +70,9 @@ export function sqliteStore (file, { grace = 60, busy = 10000 } = {}) {
     try {
       db.exec(`PRAGMA busy_timeout = ${busy}; PRAGMA journal_mode = WAL;
         CREATE TABLE IF NOT EXISTS consumed (id TEXT PRIMARY KEY, until INTEGER NOT NULL);
-        CREATE TABLE IF NOT EXISTS heads (identity TEXT PRIMARY KEY, head TEXT NOT NULL, at INTEGER NOT NULL);`)
+        CREATE TABLE IF NOT EXISTS heads (identity TEXT PRIMARY KEY, head TEXT NOT NULL, at INTEGER NOT NULL);
+        CREATE TABLE IF NOT EXISTS revoked (identity TEXT NOT NULL, target TEXT NOT NULL, until INTEGER NOT NULL,
+          PRIMARY KEY (identity, target));`)
       made = true
     } catch (e) {
       // Stryker disable next-line EqualityOperator: equivalent; at the very millisecond, one more try or none
@@ -65,6 +86,12 @@ export function sqliteStore (file, { grace = 60, busy = 10000 } = {}) {
   const replace = db.prepare('UPDATE heads SET head = ? WHERE identity = ? AND at = ? AND head = ?')
   const insert = db.prepare('INSERT INTO consumed (id, until) VALUES (?, ?) ON CONFLICT (id) DO NOTHING')
   const remove = db.prepare('DELETE FROM consumed WHERE until <= ?')
+  const keep = db.prepare(`INSERT INTO revoked (identity, target, until) VALUES (?, ?, ?)
+    ON CONFLICT (identity, target) DO UPDATE SET until = excluded.until WHERE excluded.until > revoked.until`)
+  const trim = db.prepare(`DELETE FROM revoked WHERE identity = ?1 AND target NOT IN
+    (SELECT target FROM revoked WHERE identity = ?1 ORDER BY until DESC, target LIMIT ${MAX_REVOKED})`)
+  const kept = db.prepare('SELECT target FROM revoked WHERE identity = ? AND until > ? ORDER BY target')
+  const lapse = db.prepare('DELETE FROM revoked WHERE until <= ?')
   const read = (identity) => {
     const row = get.get(identity)
     return row === undefined ? undefined : { head: row.head, at: row.at }
@@ -74,6 +101,11 @@ export function sqliteStore (file, { grace = 60, busy = 10000 } = {}) {
     advanceHead (identity, head, at) { advance.run(identity, head, at) },
     replaceHead (identity, head, at, was) { replace.run(head, identity, at, was) },
     consume: (id, until) => insert.run(id, until).changes === 1,
+    revoke (identity, targets, until) {
+      for (const t of targets) keep.run(identity, t, until)
+      trim.run(identity)
+    },
+    revocations: (identity, now) => kept.all(identity, now).map((row) => row.target),
   }
   return {
     async lastHead (identity) { return read(identity) },
@@ -88,7 +120,10 @@ export function sqliteStore (file, { grace = 60, busy = 10000 } = {}) {
         throw e
       }
     },
-    async expire (now) { remove.run(now - grace) },
+    async expire (now) {
+      remove.run(now - grace)
+      lapse.run(now)
+    },
     close () { db.close() },
   }
 }
