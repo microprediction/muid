@@ -20,6 +20,7 @@
     "./adapter/stores": "./adapter/stores.js",
     "./witness": "./witness/witness.js",
     "./witness/service": "./witness/service.js",
+    "./witness/holdings": "./witness/holdings.js",
     "./witness/log": "./witness/log.js"
   },
   "scripts": {

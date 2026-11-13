@@ -18,7 +18,8 @@ const SURFACE = {
   './adapter': ['relyingParty'],
   './adapter/stores': ['memoryStore', 'sqliteStore'],
   './witness': ['witness'],
-  './witness/service': ['memoryHoldings', 'memoryLog', 'witnessService'],
+  './witness/service': ['memoryHoldings', 'memoryLog', 'serial', 'witnessService'],
+  './witness/holdings': ['sqliteHoldings'],
   './witness/log': ['tesseraLog', 'tileIndex'],
 }
 
