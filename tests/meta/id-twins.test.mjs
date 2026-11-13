@@ -58,6 +58,8 @@ const TWINS = [
   ['outbox-sent-framed', 'framed, the page still sends what it kept', [["if (REFUSAL === undefined) {\n  try {\n", "if (true) {\n  try {\n"]], 'page.js'],
   ['cosign-kept-after', 'a co-signature the witness took stays in the outbox', [["keepRoot(r.id, ({ cosigned, ...rest }) => ({ ...rest, identity, joining: false, registered: true }))", "keepRoot(r.id, (rest) => ({ ...rest, identity, joining: false, registered: true }))"]], 'page.js'],
   ['cosigned-trusted', 'a stored co-signature is sent whatever it is', [["  if (x.cosigned !== undefined && (x.joining !== true || cosignedIdentity(x.cosigned, r.id) === undefined)) return null\n", '']], 'records.js'],
+  ['remember-unbounded', 'the remembered list grows without limit', [['worker].slice(-MAX_WORKERS)', 'worker]']], 'records.js'],
+  ['remember-drops-newest', 'past its limit the list drops the worker just remembered, not the oldest', [['worker].slice(-MAX_WORKERS)', 'worker].slice(0, MAX_WORKERS)']], 'records.js'],
   ['renew-unbounded', 'more than eight workers are put under one assertion', [['  if (workers.length < 1 || workers.length > MAX_BATCH) throw', '  if (workers.length < 1) throw']], 'records.js'],
   ['renew-covers-unsorted', "a renewal's covers are in the order listed", [['  const covers = delegations.map((d) => d.id).sort()\n', '  const covers = delegations.map((d) => d.id)\n']], 'records.js'],
   ['workers-any-form', 'whatever storage holds is taken as a worker', [['    const w = workerOf(e)\n', '    const w = e ?? undefined\n']], 'records.js'],
@@ -179,7 +181,7 @@ test('id page broken twins', { timeout: 7_200_000 }, async (t) => {
       assert.ok(r.pass >= 14, `control: only ${r.pass} tests ran`)
     })
     const jobs = TWINS.map(([name, why, edits, file]) => [name, why, generate(name, edits, file)])
-    assert.equal(jobs.length, 111, 'twin count')
+    assert.equal(jobs.length, 113, 'twin count')
     const results = []
     const queue = part(jobs)
     assert.ok(queue.length > 0, 'this part has twins')

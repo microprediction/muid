@@ -3,9 +3,13 @@
 // transactions on one object store run one at a time, in the order made, and each commits whole or not at all.
 import { test, after } from 'node:test'
 import assert from 'node:assert/strict'
-import { chromium } from 'playwright-core'
+import { chromium, firefox, webkit } from 'playwright-core'
 import { serve } from '../id/serve.mjs'
 import { activate, handBack } from '../id/mutant.mjs'
+
+// The browser: Chrome unless MUID_BROWSER names Playwright's build of Firefox or WebKit.
+const ENGINE = process.env.MUID_BROWSER ?? 'chrome'
+const launch = () => ENGINE === 'chrome' ? chromium.launch({ channel: 'chrome', headless: true }) : { firefox, webkit }[ENGINE].launch({ headless: true })
 
 const opened = new Set()
 after(async () => { await Promise.all([...opened].map((end) => end())) })
@@ -13,7 +17,7 @@ after(async () => { await Promise.all([...opened].map((end) => end())) })
 // A site serving id/, and a browser with one tab on it; `tab()` opens another, sharing its storage.
 async function open () {
   const site = await serve()
-  const browser = await chromium.launch({ channel: 'chrome', headless: true })
+  const browser = await launch()
   const pages = []
   const end = async () => { opened.delete(end); await handBack(pages); await browser.close(); site.close() }
   opened.add(end)
@@ -249,25 +253,27 @@ test('writes are asked to be durable before they are reported; another tab is to
 // the Indexed Database standard an open connection is then sent `versionchange`, and the upgrade waits until it
 // closes; a database of a later version cannot be opened at an earlier one. So the store closes when asked, says it
 // was lost, and code of the older version never writes to a database of the newer form.
-test('a store is given up when a newer page raises the database version, or the browser closes it: said once, and nothing more is changed', { timeout: 120_000 }, async () => {
+// A store held with a listener for its loss and for notices; and its use afterwards.
+const hold = (page, name) => page.evaluate(async (name) => {
+  globalThis.lost = 0
+  globalThis.heard = []
+  globalThis.mine = await globalThis.openStore(name, () => { globalThis.lost++ })
+  globalThis.mine.watch((key) => globalThis.heard.push(key))
+  return globalThis.mine.update('k', () => ({ value: 'older' }))
+}, name)
+const use = (page) => page.evaluate(async () => {
+  const out = []
+  for (const act of [() => globalThis.mine.update('k', () => ({ value: 'written by older code' })), () => globalThis.mine.get('k')]) {
+    try { out.push(await act()) } catch (e) { out.push(e.name) }
+  }
+  return out
+})
+
+test('a store is given up when a newer page raises the database version: said once, and nothing more is changed', { timeout: 120_000 }, async () => {
   const t = await open()
   try {
     const db = fresh()
     const newer = await t.tab()
-    const hold = (page, name) => page.evaluate(async (name) => {
-      globalThis.lost = 0
-      globalThis.heard = []
-      globalThis.mine = await globalThis.openStore(name, () => { globalThis.lost++ })
-      globalThis.mine.watch((key) => globalThis.heard.push(key))
-      return globalThis.mine.update('k', () => ({ value: 'older' }))
-    }, name)
-    const use = (page) => page.evaluate(async () => {
-      const out = []
-      for (const act of [() => globalThis.mine.update('k', () => ({ value: 'written by older code' })), () => globalThis.mine.get('k')]) {
-        try { out.push(await act()) } catch (e) { out.push(e.name) }
-      }
-      return out
-    })
     assert.deepEqual(await hold(t.page, db), { value: 'older' })
     // The newer page's upgrade is not held up, and finds what was stored.
     const raised = await newer.evaluate((db) => new Promise((resolve) => {
@@ -288,8 +294,19 @@ test('a store is given up when a newer page raises the database version, or the 
     assert.deepEqual(await t.page.evaluate(() => [globalThis.lost, globalThis.heard]), [1, []])
     // Older code opening the raised database is refused by the browser.
     assert.equal(await t.page.evaluate(async (db) => { try { await globalThis.openStore(db); return 'opened' } catch (e) { return e.name } }, db), 'VersionError')
-    // The browser closing the connection itself (its storage cleared) is the same loss. A store opened without a
-    // listener is closed as quietly.
+    assert.deepEqual(t.problems, [])
+  } finally {
+    await t.close()
+  }
+})
+
+// The browser closing the connection itself (its storage cleared) is the same loss. A store opened without a
+// listener is closed as quietly. Chrome is asked to clear storage through its DevTools protocol, which the other
+// browsers have not.
+test('a store is given up when the browser closes it: said once, and nothing more is changed', { timeout: 120_000, skip: ENGINE !== 'chrome' && 'storage is cleared through Chrome\'s DevTools protocol' }, async () => {
+  const t = await open()
+  try {
+    const newer = await t.tab()
     const cleared = fresh()
     await hold(t.page, cleared)
     await newer.evaluate(async (name) => { globalThis.quiet = await globalThis.openStore(name) }, cleared)
