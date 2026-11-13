@@ -5,7 +5,7 @@ import assert from 'node:assert/strict'
 import { ed25519 } from '@noble/curves/ed25519.js'
 import { envelope } from '../impl.mjs'
 import { make } from '../assertion/helpers.mjs'
-import { secretOf } from '../membership/translate.mjs'
+import { secretOf, partySigned, commitmentOf } from '../membership/translate.mjs'
 import { witnessService, memoryHoldings, memoryLog } from './impl.mjs'
 import { w, IDENTITY, BASE, WINDOW, M2, mBody, mId, signed, rootText, rootId } from './fixtures.mjs'
 
@@ -47,7 +47,7 @@ test('records submitted in turn: the anchor is signed, logged and served; the ti
   const held = (await s.call('GET', `/v1/identities/${IDENTITY}/records`)).body
   assert.deepEqual(held.anchors, r.body.signed)
   assert.equal(held.memberships.length, 2)
-  assert.deepEqual(Object.keys(held).sort(), ['anchors', 'contests', 'freezes', 'memberships', 'revocations', 'roots', 'settlements'])
+  assert.deepEqual(Object.keys(held).sort(), ['anchors', 'cancelled', 'contests', 'freezes', 'matured', 'memberships', 'notices', 'revocations', 'roots', 'settlements'])
   s.at(BASE + WINDOW - 1)
   assert.deepEqual(await s.svc.tick(), [])
   s.at(BASE + WINDOW)
@@ -341,4 +341,38 @@ test('memory holdings: an identity\'s queue is dropped once its last update is d
   open()
   await Promise.all([slow, after])
   assert.deepEqual(seen, ['slow', 'after'])
+})
+
+// R11 through the service: a party's signature comes with its root record, a cancel is a submitted record, and what
+// the witness says of a recovery is logged and served with the rest.
+test('a recovery through the service: the notice is logged and served and is in the head; a cancel ends it', async () => {
+  const s = setup({ headInterval: 0 })
+  const D = { parties: [commitmentOf('g')], threshold: 1, window: 259_200 }
+  const m2 = { identity: IDENTITY, prev: IDENTITY, epoch: 2, roots: [rootId('a')], recovery: D }
+  await s.submit('root', rootText('a'))
+  await s.submit('membership', signed('membership', m2, 'a'))
+  s.at(BASE + WINDOW)
+  await s.svc.tick()
+  const R = { identity: IDENTITY, prev: mId(m2), epoch: 3, roots: [rootId('n')] }
+  const party = partySigned('membership', R, 'g')
+  assert.deepEqual((await s.submit('membership', party)).body, { ok: false, reason: 'root-missing' })
+  assert.equal((await s.call('POST', '/v1/records', { identity: IDENTITY, type: 'membership', text: party, root: 7 })).status, 400)
+  assert.deepEqual((await s.call('POST', '/v1/records', { identity: IDENTITY, type: 'membership', text: party, root: rootText('h') })).body, { ok: false, reason: 'root-record' })
+  assert.equal((await s.call('POST', '/v1/records', { identity: IDENTITY, type: 'membership', text: party, root: rootText('g') })).status, 200)
+  await s.submit('root', rootText('n'))
+  const asked = await s.submit('membership', signed('membership', R, 'n'))
+  assert.equal(asked.body.signed.length, 1)
+  assert.deepEqual({ ...bodyOf(asked.body.signed[0], 'notice') }, { at: BASE + WINDOW, identity: IDENTITY, record: mId(R) })
+  assert.ok(s.log.entries().includes(asked.body.signed[0]))
+  const held = (await s.call('GET', `/v1/identities/${IDENTITY}/records`)).body
+  assert.deepEqual([held.notices, held.cancelled, held.matured], [asked.body.signed, [], []])
+  const head = (await s.call('GET', `/v1/identities/${IDENTITY}/head`)).body.head
+  assert.deepEqual({ ...bodyOf(head, 'head').recovering }, { at: BASE + WINDOW, record: mId(R) })
+  s.at(BASE + WINDOW + 50)
+  const cancelled = await s.submit('cancel', signed('cancel', { identity: IDENTITY, record: mId(R) }, 'a'))
+  assert.equal(cancelled.status, 200)
+  assert.deepEqual({ ...bodyOf(cancelled.body.signed[0], 'cancelled') }, { at: BASE + WINDOW + 50, identity: IDENTITY, record: mId(R) })
+  assert.deepEqual((await s.call('GET', `/v1/identities/${IDENTITY}/records`)).body.cancelled, cancelled.body.signed)
+  assert.equal('recovering' in bodyOf((await s.call('GET', `/v1/identities/${IDENTITY}/head`)).body.head, 'head'), false)
+  assert.deepEqual((await s.submit('cancel', signed('cancel', { identity: IDENTITY, record: mId(R) }, 'a'))).body, { ok: true, signed: [] }, 'the same cancel again: held, nothing signed')
 })
