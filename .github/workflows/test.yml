@@ -108,13 +108,15 @@ jobs:
   twins-nightly:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
-    timeout-minutes: 60 # a hang fails the job instead of holding it for six hours
+    timeout-minutes: 120 # the twins' own limits are within it; a hang fails the job instead of holding it for six hours
     strategy:
       fail-fast: false
       matrix:
         suite:
           - tests/meta/id-twins.test.mjs
           - tests/meta/witness-twins.test.mjs
+        # Each harness in four parts side by side: one runner did not finish the id twins inside two hours.
+        shard: [1/4, 2/4, 3/4, 4/4]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -125,6 +127,8 @@ jobs:
       - name: Install (no install scripts)
         run: npm ci --ignore-scripts
       - name: Broken twins (each must make its suite fail)
+        env:
+          MUID_TWIN_SHARD: ${{ matrix.shard }}
         run: node --test --test-concurrency=1 ${{ matrix.suite }}
 
   # A pull request runs the quick mutation configs whose inputs it changes (tests/mutation-plan.mjs), a push to master

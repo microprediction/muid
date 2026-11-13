@@ -5,6 +5,7 @@ import assert from 'node:assert/strict'
 import { readFileSync, writeFileSync, mkdtempSync, mkdirSync, rmSync, readdirSync } from 'node:fs'
 import { spawn } from 'node:child_process'
 import { tmpdir, availableParallelism } from 'node:os'
+import { part } from './shard.mjs'
 import { join } from 'node:path'
 
 // A test that never ends under a twin fails (the twin is caught) instead of holding the harness open.
@@ -151,7 +152,9 @@ function generate (name, edits, file = 'witness.js') {
   return dir
 }
 
-test('witness broken twins', { timeout: 1_800_000 }, async (t) => {
+// Ninety minutes: at 83 twins, one at a time on a CI runner of four cores, a nightly run was cut off at thirty with
+// none reported. The suite starts no browser, so twins run on half the cores.
+test('witness broken twins', { timeout: 5_400_000 }, async (t) => {
   try {
     await t.test('control: an unmodified copy, run from outside the repository, passes', async () => {
       const r = await run(generate('control', []))
@@ -161,8 +164,9 @@ test('witness broken twins', { timeout: 1_800_000 }, async (t) => {
     const jobs = TWINS.map(([name, why, edits, file]) => [name, why, generate(name, edits, file)])
     assert.equal(jobs.length, 87, 'twin count')
     const results = []
-    const queue = [...jobs]
-    const workers = Math.max(1, Math.floor(availableParallelism() / 4))
+    const queue = part(jobs)
+    assert.ok(queue.length > 0, 'this part has twins')
+    const workers = Math.max(1, Math.floor(availableParallelism() / 2))
     await Promise.all(Array.from({ length: workers }, async () => {
       for (let job = queue.shift(); job; job = queue.shift()) {
         const [name, why, dir] = job

@@ -8,6 +8,7 @@ import { spawn } from 'node:child_process'
 import { tmpdir, availableParallelism } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { part } from './shard.mjs'
 
 // A test that never ends under a twin fails (the twin is caught) instead of holding the harness open.
 const TEST_TIMEOUT = 300_000
@@ -182,7 +183,8 @@ test('id page broken twins', { timeout: 7_200_000 }, async (t) => {
     const jobs = TWINS.map(([name, why, edits, file]) => [name, why, generate(name, edits, file)])
     assert.equal(jobs.length, 113, 'twin count')
     const results = []
-    const queue = [...jobs]
+    const queue = part(jobs)
+    assert.ok(queue.length > 0, 'this part has twins')
     const workers = Math.max(1, Math.floor(availableParallelism() / 4))
     await Promise.all(Array.from({ length: workers }, async () => {
       for (let job = queue.shift(); job; job = queue.shift()) {
