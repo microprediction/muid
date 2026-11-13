@@ -868,6 +868,11 @@ once. The demo is not sybil-resistant: identities are free and the Brier score p
 identities can farm it; paying for real needs a scoring rule against stakes (a market scoring rule) or eligibility
 weighted by attestation.
 
+The demo keeps what it accepts (contributions, receipts, questions, what was collected) in the memory of its one
+process, and nowhere else: a restart loses all of it. If the adapter beneath it keeps consumed claims in a database,
+a contribution accepted before a restart is lost while its claim stays consumed, so it cannot be given again. That
+is the demo's limit, by design, and no property of the core or the adapter depends on it.
+
 ## 9. Open decisions
 
 1. **Claims and time — decided: ephemeral in version 1.** A claim a delegate signs is verified on receipt against
