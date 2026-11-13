@@ -719,6 +719,10 @@ test('revocation memory in the stores: by identity, the later time kept, at most
     assert.equal(kept.length, 256)
     assert.deepEqual([kept[0], kept[255]], [id(54), id(309)], 'the 44 that would lapse first were dropped')
     assert.deepEqual(await store.transaction((tx) => tx.revocations('a'.repeat(64), 0)), [id(1), id(2)], 'other identities keep theirs')
+    // Of those kept as long as each other, the ones whose targets sort first stay: the same in both stores.
+    await store.transaction((tx) => { for (let n = 700; n > 400; n--) tx.revoke('e'.repeat(64), [id(n)], 5000) })
+    const tied = await store.transaction((tx) => tx.revocations('e'.repeat(64), 0))
+    assert.deepEqual([tied.length, tied[0], tied[255]], [256, id(401), id(656)])
   }
 })
 
@@ -736,6 +740,9 @@ test('revocation memory: joined to the call\'s own list; a store that cannot giv
   const failing = { ...store, transaction: (fn) => store.transaction((tx) => fn({ ...tx, revocations () { throw new Error('disk') } })) }
   let runs = 0
   assert.deepEqual(await relyingParty({ clock: () => NOW, verifier: v, store: failing }).acceptClaim(records(claim(NOW - 3)), CALL, () => runs++), refused('storage'))
+  assert.equal(runs, 0)
+  // A clock that throws is the caller's fault, not the store's: its error is the one seen.
+  await assert.rejects(relyingParty({ clock: () => { throw new Error('no clock') }, verifier: v, store }).acceptClaim(records(claim(NOW - 2)), CALL, () => runs++), /no clock/)
   assert.equal(runs, 0)
   for (const bad of [-1, 1.5, '300', null, 2 ** 53]) {
     assert.throws(() => relyingParty({ clock: () => NOW, verifier: v, store, revocationMemory: bad }), { name: 'TypeError', message: /revocationMemory/ }, String(bad))
