@@ -87,6 +87,7 @@ export const active = (e) => !e.dead && !e.frozen
 // settled record; while that successor is inside its window it anchors a valid contest; once the window has passed
 // it settles. An ordinary rival, or anything arriving after settlement, is never anchored (R3). Of several valid
 // successors (held while their predecessor was pending), `pick` chooses the one anchored: by default the first id.
+// It chooses likewise among recoveries that could be put under notice.
 export function witness (genesis, items, pick = (ids) => ids[0]) {
   let out = items
   for (;;) {
@@ -124,7 +125,7 @@ export function witness (genesis, items, pick = (ids) => ids[0]) {
       const last = Math.max(-Infinity, ...out.filter((it) => it.kind === 'K').map((it) => it.at))
       const fresh = recoveries.filter((p) => !has('N', p.id)).map((p) => p.id).sort()
       if (fresh.length === 0 || (rule('cool') && t < last + COOL)) return out
-      out = [...out, { kind: 'N', id: fresh[0], at: t }]
+      out = [...out, { kind: 'N', id: pick(fresh), at: t }]
       continue
     }
     const at = Math.min(...out.filter((it) => it.kind === 'A' && it.id === e.record.id).map((it) => it.at))

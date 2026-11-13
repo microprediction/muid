@@ -33,12 +33,21 @@ test('a designation is an ordinary change: a majority of the roots; a party is n
     const s = witness('a', [...items, ...signers.map((signer) => ({ kind: 'M', n: 3, roots: ['a', 'b'], prev: m2, rec, signer }))])
     assert.equal(kinds(s, 'A', membershipId(3, ['a', 'b'], m2, rec)).length, 0, signers.join())
   }
-  // A designation out of form is no membership: a party that is a root, none, too many, k or the window out of range.
-  for (const rec of [{ parties: ['b'], k: 1, w: 2 }, { parties: [], k: 1, w: 2 }, { parties: ['g', 'h', 'i', 'j'], k: 1, w: 2 },
-    { parties: ['g'], k: 2, w: 2 }, { parties: ['g'], k: 0, w: 2 }, { parties: ['g'], k: 1, w: RMIN - 1 }, { parties: ['g'], k: 1, w: RMAX + 1 }]) {
+  // A designation out of form is no membership: no party, too many, k not a majority of them or above their number,
+  // or the window out of range.
+  for (const rec of [{ parties: [], k: 1, w: 2 }, { parties: ['g', 'h', 'i', 'j'], k: 1, w: 2 },
+    { parties: ['g'], k: 2, w: 2 }, { parties: ['g'], k: 0, w: 2 }, { parties: ['g', 'h'], k: 1, w: 2 }, { parties: ['g', 'h', 'i'], k: 1, w: 2 }, { parties: ['g'], k: 1, w: RMIN - 1 }, { parties: ['g'], k: 1, w: RMAX + 1 }]) {
     const s = witness('a', [...items, ...['a', 'b'].map((signer) => ({ kind: 'M', n: 3, roots: ['a', 'b'], prev: m2, rec, signer }))])
     assert.equal(kinds(s, 'A').filter((it) => it.id.startsWith('M3')).length, 0, JSON.stringify(rec))
   }
+  // A root named as its own membership's party is no party (the record names commitments, so it cannot be refused
+  // for it): one root of two starts no recovery by it, alone or with the root it would add.
+  const self = { parties: ['b'], k: 1, w: 2 }
+  const named = base(self)
+  const r = recovery(named.m2, self, ['n'], ['b'])
+  const s = ticks(witness('a', [...named.items, ...r.sign]), RMAX + WINDOW + 1)
+  assert.equal(kinds(s, 'N').length, 0)
+  assert.ok(asItWas(s, named.m2))
 })
 
 test('every root lost: the party recovers the identity, after its window under notice and then the contest window', () => {
