@@ -409,6 +409,9 @@ one envelope each, so its `sig` names the signer: `{ root, assertion }`, where `
     `{ root, salt, assertion }`), and by every root the record adds. The witness does not anchor it. If nothing with
     that `prev` is anchored, no other recovery of it is under notice, and none was cancelled in the last 259,200
     seconds, the witness signs a **notice** `{ identity, record, at }` and appends it to its log.
+    Being a membership record, a recovery states the restored identity's own `recovery` too, or none: those who
+    sign it choose, as they choose its roots. Parties who meet the threshold wrongly could so name themselves again,
+    but by then they hold the identity; a restored owner changes it by an ordinary change.
   - *Under notice.* Nothing changes: the same membership, the same authority. Every head the witness signs while the
     notice stands carries it (`recovering`: `{ record, at }`, otherwise absent), so every relying party and device
     that takes a head can show the owner that a recovery was asked for and when. That is the notification this rule
