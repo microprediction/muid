@@ -450,6 +450,64 @@ test('a head that verifies alone but not against the memory (equivocation) is no
   assert.deepEqual(await store.lastHead(IDENTITY), { head: settled, at: NOW - 100 })
 })
 
+// A head alone, as another relying party hands over the newest it accepted for an identity: judged against this
+// party's memory as any head is, and remembered if it may follow. A split between the two parties' views is then
+// refused as equivocation at whichever of them sees the other's head, with both signed heads in hand.
+test('acceptHead: a head from elsewhere is remembered if it follows the memory, stale if older, equivocation if it cannot follow', async () => {
+  for (const store of [memoryStore(), sqliteStore(join(tmp(), 'rp.db'))]) {
+    const rp = relyingParty({ clock: () => NOW, verifier: verifier(), store })
+    const first = await rp.acceptHead({ head: head(NOW - 100) }, CALL)
+    assert.equal(first.ok, true)
+    assert.deepEqual([first.identity, first.at], [IDENTITY, NOW - 100])
+    assert.deepEqual(await store.lastHead(IDENTITY), { head: head(NOW - 100), at: NOW - 100 }, 'remembered with no delegation or claim')
+    // What it remembered binds the requests that follow.
+    assert.deepEqual(await rp.acceptClaim(records(claim(NOW - 5), head(NOW - 200)), CALL, () => 1), refused('stale'))
+    // An older head from elsewhere moves nothing; a newer one moves the memory.
+    assert.deepEqual(await rp.acceptHead({ head: head(NOW - 150) }, CALL), refused('stale'))
+    assert.equal((await store.lastHead(IDENTITY)).at, NOW - 100)
+    assert.equal((await rp.acceptHead({ head: head(NOW - 40) }, CALL)).ok, true)
+    assert.equal((await store.lastHead(IDENTITY)).at, NOW - 40)
+    // The same head again is accepted and changes nothing.
+    assert.equal((await rp.acceptHead({ head: head(NOW - 40) }, CALL)).ok, true)
+    assert.deepEqual(await store.lastHead(IDENTITY), { head: head(NOW - 40), at: NOW - 40 })
+    // A head that cannot honestly follow the memory: refused, and the memory keeps its own.
+    const forked = head(NOW - 20, { epoch: 2, memberships: ['5'.repeat(64)] })
+    const settled = head(NOW - 30, { epoch: 3, memberships: ['6'.repeat(64)] })
+    assert.equal((await rp.acceptHead({ head: settled }, CALL)).ok, true)
+    assert.deepEqual(await rp.acceptHead({ head: forked }, CALL), refused('equivocation'))
+    assert.deepEqual(await store.lastHead(IDENTITY), { head: settled, at: NOW - 30 })
+  }
+})
+
+// SPEC §7: the records of a call are read by name, so a later version's records pass an older verifier unread.
+test('a record the verifier does not name is not read: the same answer with it as without, from the verifier and the adapter', async () => {
+  const given = records(claim(NOW - 5))
+  const more = { ...given, headProof: { checkpoint: 'x', index: 1, proof: [] }, bundle: 2 }
+  Object.defineProperty(more, 'later', { enumerable: true, get () { throw new Error('read') } })
+  assert.deepEqual(verifier().verifyClaim(more, CALL), verifier().verifyClaim(given, CALL))
+  assert.equal(verifier().verifyClaim(more, CALL).ok, true)
+  const rp = relyingParty({ clock: () => NOW, verifier: verifier(), store: memoryStore() })
+  assert.equal((await rp.acceptClaim(more, CALL, () => 1)).ok, true)
+})
+
+test('acceptHead: what cannot be read is refused as a head, storage that fails as storage, and a call is checked as for a request', async () => {
+  const store = memoryStore()
+  const rp = relyingParty({ clock: () => NOW, verifier: verifier(), store })
+  for (const bad of [undefined, null, 7, {}, { head: 'not a head' }, { head: 7 }]) assert.deepEqual(await rp.acceptHead(bad, CALL), refused('head'), JSON.stringify(bad))
+  assert.equal(await store.lastHead(IDENTITY), undefined)
+  // Other records beside the head are not read: it is the head that is judged.
+  assert.equal((await rp.acceptHead({ ...records(), claim: 'x', delegation: 'x', head: head(NOW - 100) }, CALL)).ok, true)
+  await assert.rejects(rp.acceptHead({ head: head(NOW - 50) }, { ...CALL, lastHead: head(NOW - 100) }), /supplies lastHead/)
+  await assert.rejects(rp.acceptHead({ head: head(NOW - 50) }, { ...CALL, now: -1 }), TypeError)
+  const failing = { ...store, transaction: async () => { throw new Error('disk') } }
+  assert.deepEqual(await relyingParty({ clock: () => NOW, verifier: verifier(), store: failing }).acceptHead({ head: head(NOW - 50) }, CALL), refused('storage'))
+  assert.equal((await store.lastHead(IDENTITY)).at, NOW - 100)
+  // A head too old for this party is refused and not remembered, though it is newer than nothing.
+  const empty = memoryStore()
+  assert.deepEqual(await relyingParty({ clock: () => NOW, verifier: verifier(), store: empty }).acceptHead({ head: head(NOW - 86_500) }, CALL), refused('stale'))
+  assert.equal(await empty.lastHead(IDENTITY), undefined)
+})
+
 // Found by review: heads of one second may come in either order (F5), and the memory kept whichever it saw first. On
 // a tie it now keeps the one the verifier ranks later: the new head if it may follow the stored one and not the
 // reverse.

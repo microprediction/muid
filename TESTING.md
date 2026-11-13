@@ -467,6 +467,11 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   twenty of eight instances together); it waits `busy` milliseconds and no longer, and not at all for a file that is
   not a database. The wait is by the clock that only moves forward: with the wall clock set back an hour, or
   forward, after it began, it is still `busy` milliseconds (#76; by the wall clock it went on until let go).
+- A head alone (`acceptHead`): one handed over by another relying party is remembered if it may follow the memory,
+  `stale` if older, `equivocation` if it cannot follow (the memory keeps its own); what cannot be read is `head`,
+  failing storage is `storage`, and a head too old for this party is not remembered. Twins: judged without the
+  memory and not remembered; consumed as a claim would be (26 in all). A record the verifier does not name is not
+  read, by the verifier or the adapter (a later version's records pass an older one).
 - Memory: the head only moves forward, in both stores and under a late writer; an older head is then refused; a
   stored head the verifier cannot read (corrupt, or signed by a removed witness key) bounds rollback by its time.
 - Failure: a failing transaction or any of its operations is refused as `storage`, and the action does not run; a

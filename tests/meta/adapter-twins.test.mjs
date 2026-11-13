@@ -28,7 +28,7 @@ const TWINS = [
   ['memory-not-read-in-transaction', 'the transaction verifies without the memory as it stands there', 'relying-party.js',
     [['const stored = tx.lastHead(seen.identity)', 'const stored = undefined']]],
   ['consume-ignored', 'a claim already consumed is accepted again', 'relying-party.js',
-    [["if (method === 'verifyClaim' && !tx.consume(r.id, r.until)) return refusal('replay')", "if (method === 'verifyClaim') tx.consume(r.id, r.until)"]]],
+    [["if (claim && !tx.consume(r.id, r.until)) return refusal('replay')", "if (claim) tx.consume(r.id, r.until)"]]],
   ['storage-failure-ignored', 'a failed transaction is taken as success', 'relying-party.js',
     [["      })\n    } catch {\n      return refusal('storage')", "      })\n    } catch {\n      return pre"]]],
   ['no-head-memory', 'the stored head is not passed to the verifier', 'relying-party.js',
@@ -48,9 +48,13 @@ const TWINS = [
   ['tie-keeps-first', 'of two heads of one second, the first seen is kept', 'relying-party.js',
     [['            tx.replaceHead(seen.identity, given.head, seen.at, stored.head)\n', '']]],
   ['reason-without-memory', 'a request refused before the lock gives its reason without the memory', 'relying-party.js',
-    [['        return refusal(withMemory((c) => verifier[method](given, c), call, stored).reason)', '        return refusal(pre.reason)']]],
+    [['        return refusal(withMemory((c) => verify(given, c), call, stored).reason)', '        return refusal(pre.reason)']]],
   ['nonce-dropped', "the request's nonce is not passed to the verifier", 'relying-party.js', [['return { now, scope, method, url, nonce, contentDigest,', 'return { now, scope, method, url, contentDigest,']]],
   ['call-spread', 'the call is copied with a spread, dropping inherited fields', 'relying-party.js', [['const call = readCall(rawCall)', 'const call = { ...rawCall }']]],
+  ['head-alone-unremembered', 'a head handed over alone is judged without the memory, and not remembered', 'relying-party.js',
+    [['const acceptHead = (given, call) => accept((g, c) => verifier.verifyHead(g?.head, c), false, given, call)', 'const acceptHead = async (given, call) => verifier.verifyHead(given?.head, readCall(call))']]],
+  ['head-alone-consumed', 'a head handed over alone is treated as a claim to consume', 'relying-party.js',
+    [['const acceptHead = (given, call) => accept((g, c) => verifier.verifyHead(g?.head, c), false, given, call)', 'const acceptHead = (given, call) => accept((g, c) => verifier.verifyHead(g?.head, c), true, given, call)']]],
   ['memory-head-regresses', 'the memory store replaces a head with an older one', 'stores.js', [['if (old === undefined || at > old.at) heads.set', 'heads.set']]],
   ['sqlite-head-regresses', 'the database store replaces a head with an older one', 'stores.js', [[' WHERE excluded.at > heads.at', '']]],
   ['memory-no-grace', 'the memory store expires claim ids at until', 'stores.js', [['if (until + grace <= now) consumed.delete(id)', 'if (until <= now) consumed.delete(id)']]],
@@ -104,7 +108,7 @@ test('adapter broken twins', { timeout: 900_000 }, async (t) => {
       assert.ok(r.pass >= 20, `control: only ${r.pass} tests ran`)
     })
     const jobs = TWINS.map(([name, why, file, edits]) => [name, why, generate(name, file, edits)])
-    assert.equal(jobs.length, 24, 'twin count')
+    assert.equal(jobs.length, 26, 'twin count')
     const results = []
     const queue = [...jobs]
     const workers = Math.max(1, Math.floor(availableParallelism() / 4))
