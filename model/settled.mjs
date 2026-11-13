@@ -7,10 +7,17 @@
 //   { kind: 'A', id, at }                   the witness's anchor on a membership or contest record
 //   { kind: 'S', prev, outcome, at }        the witness's settlement of the successor of `prev`: a record id or 'contested'
 //   { kind: 'T', k }                        the k-th tick of the witness clock
+// Recovery (R11). An 'M' item may carry `rec` (the membership's designation of recovery parties) and may be signed
+// by a recovery party of its predecessor; such a record with enough of them is a recovery. The witness does not
+// anchor one as it does an ordinary record. It puts it under notice, and anchors it only once it has matured:
+//   { kind: 'N', id, at }                   the witness's notice of recovery `id`: its window began at `at`
+//   { kind: 'X', record, signer }           a root's cancel of recovery `record`
+//   { kind: 'K', id, at }                   the witness's statement that recovery `id` was cancelled
+//   { kind: 'U', id, at }                   the witness's statement that recovery `id` matured: nothing cancelled it
 //
 // The witness is honest here; its own failures are residuals in the spec. Verifiers may hold any subset of the items.
 
-import { membershipId, genesisOf, payloadsOf, validNext, subsets } from './recovery.mjs'
+import { membershipId, genesisOf, payloadsOf, validNext, recoveryOf, subsets, rule, COOL } from './recovery.mjs'
 
 export const WINDOW = 1
 export const contestId = (record) => `C<${record}`
@@ -32,11 +39,14 @@ const validContest = (base, c) => 2 * base.roots.filter((r) => c.signers.has(r))
 
 // What a verifier holding `items` decides. Returns
 //   { dead: true }                                       contested, or the witness contradicted itself
-//   { dead: false, record, base, pending, authority, frozen, chain }
+//   { dead: false, record, base, pending, authority, frozen, chain, notice }
 // `record` is the effective membership; while it is pending, `authority` is only the roots it shares with `base`.
+// `notice` is the recovery of `base` under notice, { id, at }, or null: one the witness gave notice of and has not
+// said was cancelled, and that is not yet anchored. It changes nobody's authority.
 export function evaluate (genesis, items) {
   const payloads = payloadsOf(items)
   const contests = contestsOf(items)
+  const matured = new Set(items.filter((it) => it.kind === 'U').map((it) => it.id))
   const anchors = new Map()
   for (const it of items) if (it.kind === 'A' && !(anchors.get(it.id) <= it.at)) anchors.set(it.id, it.at)
   let cur = genesisOf(genesis)
@@ -47,12 +57,12 @@ export function evaluate (genesis, items) {
     if (settled.size > 1 || settled.has('contested')) return { dead: true }
     if (settled.size === 1) {
       const next = payloads.get([...settled][0])
-      if (!next || next.prev !== cur.id || !validNext(cur, next)) break // stale: the settled record is not held
+      if (!next || next.prev !== cur.id || !validNext(cur, next, matured.has(next.id))) break // stale: the settled record is not held
       cur = next
       chain.push(cur)
       continue
     }
-    const anchored = [...payloads.values()].filter((p) => p.prev === cur.id && anchors.has(p.id) && validNext(cur, p))
+    const anchored = [...payloads.values()].filter((p) => p.prev === cur.id && anchors.has(p.id) && validNext(cur, p, matured.has(p.id)))
     const contest = anchored.length === 1 ? contests.get(contestId(anchored[0].id)) : undefined
     if (anchored.length > 1) return { dead: true }
     if (anchored.length === 1 && contest && anchors.has(contest.id) && validContest(cur, contest)) return { dead: true }
@@ -64,7 +74,11 @@ export function evaluate (genesis, items) {
   // R2: a freeze on the last settled membership still applies while its successor is pending.
   const frozenBy = (m) => items.some((it) => it.kind === 'F' && it.target === m.id && m.roots.includes(it.signer))
   const frozen = frozenBy(record) || (!!pending && frozenBy(cur))
-  return { dead: false, record, base: cur, pending: !!pending, authority, frozen, chain: chain.map((c) => c.id) }
+  const cancelled = new Set(items.filter((it) => it.kind === 'K').map((it) => it.id))
+  const noticed = items.filter((it) => it.kind === 'N' && payloads.get(it.id)?.prev === cur.id && !cancelled.has(it.id) && !anchors.has(it.id))
+    .sort((a, b) => b.at - a.at || (a.id < b.id ? -1 : 1))
+  const notice = noticed.length > 0 ? { id: noticed[0].id, at: noticed[0].at } : null
+  return { dead: false, record, base: cur, pending: !!pending, authority, frozen, chain: chain.map((c) => c.id), notice }
 }
 
 export const active = (e) => !e.dead && !e.frozen
@@ -83,9 +97,34 @@ export function witness (genesis, items, pick = (ids) => ids[0]) {
     const cur = payloadsOf(out).get(e.base.id) ?? genesisOf(genesis)
     const anchoredIds = new Set(out.filter((it) => it.kind === 'A').map((it) => it.id))
     if (!e.pending) {
-      const next = [...payloadsOf(out).values()].filter((p) => p.prev === cur.id && validNext(cur, p)).map((p) => p.id).sort()
-      if (next.length === 0) return out
-      out = [...out, { kind: 'A', id: pick(next), at: t }]
+      const has = (kind, id) => out.some((it) => it.kind === kind && it.id === id)
+      const successors = [...payloadsOf(out).values()].filter((p) => p.prev === cur.id)
+      const next = successors.filter((p) => validNext(cur, p, has('U', p.id))).map((p) => p.id).sort()
+      if (next.length > 0) {
+        out = [...out, { kind: 'A', id: pick(next), at: t }]
+        continue
+      }
+      // R11. No ordinary successor: a recovery of the settled membership. One is under notice at a time. A cancel by
+      // any root of that membership ends it, and the membership is as it was; left alone for its window, it matures,
+      // and is anchored above like any record, its contest window still to come.
+      const recoveries = successors.filter((p) => recoveryOf(cur, p))
+      const under = recoveries.find((p) => has('N', p.id) && !has('K', p.id) && !has('U', p.id))
+      if (under) {
+        const began = Math.min(...out.filter((it) => it.kind === 'N' && it.id === under.id).map((it) => it.at))
+        if (rule('cancel') && out.some((it) => it.kind === 'X' && it.record === under.id && cur.roots.includes(it.signer))) {
+          out = [...out, { kind: 'K', id: under.id, at: t }]
+          continue
+        }
+        if (!rule('mature') || t >= began + cur.rec.w) {
+          out = [...out, { kind: 'U', id: under.id, at: t }]
+          continue
+        }
+        return out
+      }
+      const last = Math.max(-Infinity, ...out.filter((it) => it.kind === 'K').map((it) => it.at))
+      const fresh = recoveries.filter((p) => !has('N', p.id)).map((p) => p.id).sort()
+      if (fresh.length === 0 || (rule('cool') && t < last + COOL)) return out
+      out = [...out, { kind: 'N', id: fresh[0], at: t }]
       continue
     }
     const at = Math.min(...out.filter((it) => it.kind === 'A' && it.id === e.record.id).map((it) => it.at))
@@ -108,11 +147,13 @@ export const tick = (genesis, items) => witness(genesis, [...items, { kind: 'T',
 
 const itemKey = (it) => {
   switch (it.kind) {
-    case 'M': return `${membershipId(it.n, it.roots, it.prev)}/${it.signer}`
+    case 'M': return `${membershipId(it.n, it.roots, it.prev, it.rec ?? null)}/${it.signer}`
     case 'C': return `${contestId(it.record)}/${it.signer}`
     case 'F': return `F${it.target}/${it.signer}`
     case 'A': return `A${it.id}@${it.at}`
     case 'S': return `S${it.prev}=${it.outcome}@${it.at}`
+    case 'N': case 'K': case 'U': return `${it.kind}${it.id}@${it.at}`
+    case 'X': return `X${it.record}/${it.signer}`
     default: return `T${it.k}`
   }
 }
@@ -120,7 +161,10 @@ export const setKey = (items) => items.map(itemKey).sort().join(' ')
 
 // One move by an actor holding `holds`: sign a membership record, a contest or a freeze with every root it holds
 // that could matter. Ticks are separate (see `reach`).
-export function moves (genesis, items, holds, universe, maxEpoch) {
+// `designations` lists the `rec` values an ordinary record may carry besides its predecessor's own (none by default,
+// so explorations without recovery are as they were). A holder of a recovery party's key signs recoveries of every
+// known membership that designates it; a holder of a root of a membership cancels every recovery of it.
+export function moves (genesis, items, holds, universe, maxEpoch, designations = []) {
   const known = [genesisOf(genesis), ...payloadsOf(items).values()]
   const have = new Set(items.map(itemKey))
   const out = []
@@ -129,27 +173,32 @@ export function moves (genesis, items, holds, universe, maxEpoch) {
     const mine = [...holds].filter((r) => q.roots.includes(r)).sort()
     if (q.n + 1 <= maxEpoch) {
       for (const roots of subsets(universe)) {
-        const signers = [...holds].filter((r) => q.roots.includes(r) || roots.includes(r)).sort()
-        fresh(signers.map((signer) => ({ kind: 'M', n: q.n + 1, roots, prev: q.id, signer })))
+        const parties = q.rec ? q.rec.parties : []
+        const signers = [...holds].filter((r) => q.roots.includes(r) || roots.includes(r) || parties.includes(r)).sort()
+        for (const rec of new Set([q.rec, ...designations])) {
+          if (rec && rec.parties.some((g) => roots.includes(g))) continue
+          fresh(signers.map((signer) => (rec ? { kind: 'M', n: q.n + 1, roots, prev: q.id, rec, signer } : { kind: 'M', n: q.n + 1, roots, prev: q.id, signer })))
+        }
       }
     }
     fresh(mine.map((signer) => ({ kind: 'F', target: q.id, signer })))
     // A contest of q is signed by the roots of q's predecessor.
     const base = known.find((x) => x.id === q.prev)
     if (base) fresh([...holds].filter((r) => base.roots.includes(r)).sort().map((signer) => ({ kind: 'C', record: q.id, signer })))
+    if (base && recoveryOf(base, q)) fresh([...holds].filter((r) => base.roots.includes(r)).sort().map((signer) => ({ kind: 'X', record: q.id, signer })))
   }
   return out
 }
 
 // Item sets reachable by at most `depth` moves of one actor, each followed by the witness; with `ticks`, a tick also
 // counts as a move.
-export function reach (genesis, start, holds, universe, maxEpoch, depth, ticks = false) {
+export function reach (genesis, start, holds, universe, maxEpoch, depth, ticks = false, designations = []) {
   const seen = new Map([[setKey(start), start]])
   let frontier = [start]
   for (let d = 0; d < depth; d++) {
     const next = []
     for (const items of frontier) {
-      const succ = moves(genesis, items, holds, universe, maxEpoch).map((add) => witness(genesis, [...items, ...add]))
+      const succ = moves(genesis, items, holds, universe, maxEpoch, designations).map((add) => witness(genesis, [...items, ...add]))
       if (ticks) succ.push(tick(genesis, items))
       for (const s of succ) {
         const k = setKey(s)
@@ -165,12 +214,14 @@ export function reach (genesis, start, holds, universe, maxEpoch, depth, ticks =
 export function history (genesis, epochs) {
   let items = []
   let prev = genesisOf(genesis)
-  for (const roots of epochs) {
-    const sorted = [...roots].sort()
-    for (const signer of new Set([...prev.roots, ...sorted])) items.push({ kind: 'M', n: prev.n + 1, roots: sorted, prev: prev.id, signer })
+  for (const epoch of epochs) {
+    // An epoch is its roots, or { roots, rec } to designate recovery parties with it.
+    const sorted = [...(epoch.roots ?? epoch)].sort()
+    const rec = epoch.rec ?? null
+    for (const signer of new Set([...prev.roots, ...sorted])) items.push(rec ? { kind: 'M', n: prev.n + 1, roots: sorted, prev: prev.id, rec, signer } : { kind: 'M', n: prev.n + 1, roots: sorted, prev: prev.id, signer })
     items = witness(genesis, items)
     for (let i = 0; i <= WINDOW; i++) items = tick(genesis, items)
-    prev = { id: membershipId(prev.n + 1, sorted, prev.id), n: prev.n + 1, roots: sorted }
+    prev = { id: membershipId(prev.n + 1, sorted, prev.id, rec), n: prev.n + 1, roots: sorted, rec }
   }
   for (let i = 0; i <= WINDOW; i++) items = tick(genesis, items)
   return items
@@ -181,7 +232,7 @@ function groups (items) {
   const by = new Map()
   for (const it of items) {
     if (it.kind === 'T') continue
-    const k = it.kind === 'M' ? membershipId(it.n, it.roots, it.prev) : it.kind === 'C' ? contestId(it.record) : itemKey(it)
+    const k = it.kind === 'M' ? membershipId(it.n, it.roots, it.prev, it.rec ?? null) : it.kind === 'C' ? contestId(it.record) : it.kind === 'X' ? `X${it.record}` : itemKey(it)
     if (!by.has(k)) by.set(k, [])
     by.get(k).push(it)
   }

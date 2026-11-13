@@ -19,16 +19,58 @@
 export const MAX_ROOTS = 5
 export const WINDOW = 1
 
-export const membershipId = (n, roots, prev) => `M${n}{${roots.join(',')}}<${prev}`
-export const genesisOf = (root) => ({ id: membershipId(1, [root], '-'), n: 1, roots: [root] })
+// Recovery parties (SPEC §5, R11): a membership may designate up to MAX_PARTIES of them as `rec`: { parties, k, w },
+// the parties (letters, sorted, none a root of that membership), how many must sign a recovery (k), and how long a
+// recovery waits under notice (w, in ticks, RMIN..RMAX). A membership without one has rec null. A recovery party has
+// no authority and no vote.
+export const MAX_PARTIES = 3
+export const RMIN = 2
+export const RMAX = 3
+export const COOL = 2 // after a recovery is cancelled, no other is put under notice for this long
 
-// R1: the next epoch, signed by a strict majority of the previous epoch's roots and every root it adds.
-export function validNext (prev, p) {
+// The rules, each as SPEC states it. A negative control turns one off (withRules) to show what it is for:
+//   cancel      a root's cancel of a recovery under notice is honoured
+//   mature      a recovery is anchored only once its window under notice has passed
+//   threshold   a recovery needs k of the designated parties
+//   noVote      a recovery party's signature counts for nothing in an ordinary change
+//   cool        after a cancel, no recovery is put under notice for COOL
+const AS_SPECIFIED = Object.freeze({ cancel: true, mature: true, threshold: true, noVote: true, cool: true })
+let rules = AS_SPECIFIED
+export const rule = (name) => rules[name]
+export function withRules (changed, fn) {
+  const before = rules
+  rules = Object.freeze({ ...AS_SPECIFIED, ...changed })
+  try { return fn() } finally { rules = before }
+}
+
+const recKey = (rec) => (rec ? `+{${rec.parties.join(',')}}/${rec.k}/${rec.w}` : '')
+export const membershipId = (n, roots, prev, rec = null) => `M${n}{${roots.join(',')}}${recKey(rec)}<${prev}`
+export const genesisOf = (root) => ({ id: membershipId(1, [root], '-'), n: 1, roots: [root], rec: null })
+
+const recOk = (p) => p.rec === null || (p.rec.parties.length >= 1 && p.rec.parties.length <= MAX_PARTIES &&
+  new Set(p.rec.parties).size === p.rec.parties.length && !p.rec.parties.some((g) => p.roots.includes(g)) &&
+  Number.isInteger(p.rec.k) && p.rec.k >= 1 && p.rec.k <= p.rec.parties.length &&
+  Number.isInteger(p.rec.w) && p.rec.w >= RMIN && p.rec.w <= RMAX)
+
+// R11: a recovery of `prev` by its designated parties: enough of them signed it, with every root it adds.
+export function recoveryOf (prev, p) {
+  if (p.n !== prev.n + 1 || !prev.rec || p.roots.length < 1 || p.roots.length > MAX_ROOTS || !recOk(p)) return false
+  const signed = prev.rec.parties.filter((g) => p.signers.has(g)).length
+  if (signed < (rule('threshold') ? prev.rec.k : 1)) return false
+  return p.roots.every((r) => prev.roots.includes(r) || p.signers.has(r))
+}
+
+// R1: the next epoch, signed by a strict majority of the previous epoch's roots and every root it adds. R11: or a
+// recovery of the previous epoch that the witness has said matured.
+export function validNext (prev, p, matured = false) {
   if (p.n !== prev.n + 1) return false
-  if (p.roots.length < 1 || p.roots.length > MAX_ROOTS) return false
+  if (p.roots.length < 1 || p.roots.length > MAX_ROOTS || !recOk(p)) return false
+  if (matured && recoveryOf(prev, p)) return true
   let yes = 0
   for (const r of prev.roots) if (p.signers.has(r)) yes++
-  if (2 * yes <= prev.roots.length) return false
+  let of = prev.roots.length
+  if (!rule('noVote') && prev.rec) { for (const g of prev.rec.parties) if (p.signers.has(g)) yes++; of += prev.rec.parties.length }
+  if (2 * yes <= of) return false
   for (const r of p.roots) if (!prev.roots.includes(r) && !p.signers.has(r)) return false
   return true
 }
@@ -37,9 +79,10 @@ export function payloadsOf (items) {
   const payloads = new Map()
   for (const it of items) {
     if (it.kind !== 'M') continue
-    const id = membershipId(it.n, it.roots, it.prev)
+    const rec = it.rec ?? null
+    const id = membershipId(it.n, it.roots, it.prev, rec)
     let p = payloads.get(id)
-    if (!p) payloads.set(id, (p = { id, n: it.n, roots: it.roots, prev: it.prev, signers: new Set() }))
+    if (!p) payloads.set(id, (p = { id, n: it.n, roots: it.roots, prev: it.prev, rec, signers: new Set() }))
     p.signers.add(it.signer)
   }
   return payloads
