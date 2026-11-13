@@ -890,7 +890,11 @@ is the demo's limit, by design, and no property of the core or the adapter depen
    (`maxLifetime` = 2,592,000 s); the id page gives machines at most 7 days. One passkey prompt renews every delegate
    at once (W0 covers up to 8 records), so expiry keeps doing the revocation work (F4) at the cost of a periodic
    prompt. `skew` is 60 s. Attestations last at most 365 days.
-4. **Machine autonomy:** which scopes a machine may hold without per-action approval, and for how long.
+4. **Machine autonomy — decided for version 1: seven days, and scope policy is the relying party's.** A machine acts
+   without approval for as long as its delegation lasts: at most 7 days from the id page (decision 3), renewed by one
+   passkey prompt. Which scopes are safe to hold unattended is not the core's to say: a scope's meaning belongs to
+   the relying party (the core checks only that the scope asked for is listed), which may refuse a scope to any delegation or ask for a shorter window. Longer unattended
+   running (decision 13, Part B) is left to a later version.
 5. **Boundary parser — decided: hand-written.** Every record type is checked by its own strict, hand-written code over
    the canonical decoder's output; a guard refuses any import other than noble and the core itself.
 6. **`clientDataJSON` parsing — decided: the WebAuthn spec's limited (prefix) verification.** Chrome, Safari and
@@ -968,11 +972,18 @@ is the demo's limit, by design, and no property of the core or the adapter depen
    is a new agent to every service; and every delegation is signed by a root, so a long-running agent needs a passkey
    prompt at least weekly (decision 3). Decided (Part A, D8): a ninth delegation field, `agent`, naming a light
    identity whose id is derived from the identity id and the name, and which a revocation retires for good (as SPIFFE
-   names a workload over rotating keys). Proposed (Part B): a renewal delegation, scoped only to `muid:renew` and lasting at most 90 days, whose key
+   names a workload over rotating keys). Proposed, and not in version 1 (Part B): a renewal delegation, scoped only to `muid:renew` and lasting at most 90 days, whose key
    signs day-long task delegations within its audience and `grants` (OAuth's refresh token, with UCAN's attenuation),
    depth two by type as D3 is depth one. Each task delegation names, in what is signed, the id of the one renewal
    delegation it is made under, so its limits and the revocations that reach it are never inferred from a key. Light identities stay linkable to their identity (§10). Details, and why
    other designs do not cover it, in [`research/light-identities.md`](research/light-identities.md).
+14. **What version 1 leaves out — decided.** The first and last are built on the records above, outside this repository,
+   and change none of them; the other two would add to the record set, and so wait for a later version:
+   - a durable store for the witness service's holdings (the supplied one is in memory and stands in for tests, §5);
+   - any policy over the verified facts of §10: reputation, limits for each identity, or a cost to make one;
+   - a service that issues attestations (A1–A4 and decision 8 state what one must sign; the request record it
+     would name is not specified);
+   - longer unattended running (decision 13, Part B).
 
 ## 10. What the reputation layer consumes (not core)
 
