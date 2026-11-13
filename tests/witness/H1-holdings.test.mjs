@@ -260,7 +260,10 @@ test('the file: made on first use, refused if it is another format or cannot be 
   for (const cache of [0, -1, 1.5, '2', null, 2 ** 53]) {
     assert.throws(() => sqliteHoldings(fresh(), { cache }), { name: 'TypeError', message: 'cache must be a positive number of entries' }, String(cache))
   }
-  assert.throws(() => sqliteHoldings(':memory:'), { message: 'the holdings file cannot be journalled ahead of its writes (WAL)' })
+  // SQLite's names for a database that is no file, and is gone when it is closed (issue #90): none can be journalled.
+  for (const name of [':memory:', '', 'file::memory:', 'file:held?mode=memory', 'file:held?mode=memory&cache=shared', 'file:held?vfs=memdb', Buffer.from(':memory:')]) {
+    assert.throws(() => sqliteHoldings(name), { message: 'the holdings file cannot be journalled ahead of its writes (WAL)' }, String(name))
+  }
   const text = fresh()
   writeFileSync(text, 'not a database, but long enough to be read as one: ' + 'x'.repeat(200))
   assert.throws(() => sqliteHoldings(text))
