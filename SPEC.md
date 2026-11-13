@@ -389,6 +389,39 @@ one envelope each, so its `sig` names the signer: `{ root, assertion }`, where `
   short-lived status record per delegation, re-issued by the witness while the delegation is live and unrevoked and
   required by the verifier, as OCSP must-staple and short-lived certificates do: revocation is then "stop issuing",
   with no list, no per-root accounting and no bucket on the safety path.
+- **R12 LOGGED HEADS (decision 16; proposed, not implemented).** The witness already appends every head it signs to
+  its log (§5), and the core already checks a checkpoint and an inclusion proof (`verifyCheckpoint`,
+  `verifyInclusion`), but only for receipts (C2): a relying party takes a head on the witness's signature alone. So a
+  head shown to one party and withheld from the log leaves no trace, and a witness key that leaks can sign heads,
+  anchors and notices with any time. R12 lets a relying party require that the head it accepts is in the log, as
+  browsers require a certificate's presence in a log (RFC 6962) and Go's checksum database requires a module's.
+  - *Configuration.* The verifier may be given `log`: the log's origin and key, its cosigners and a `quorum`, as
+    `verifyReceipt`'s context has them, with `quorum` more than half the cosigners. Without it nothing changes.
+  - *The proof.* With it, a call's records include `headProof`: `{ checkpoint, index, proof }`, a cosigned
+    checkpoint of the log and the inclusion proof of the head's envelope text at `index`. After F5's `head`, the
+    verifier refuses with `checkpoint` (it does not verify under the configuration with `quorum` cosignatures),
+    `inclusion` (the head is not at `index` in the checkpoint's tree), or `head-time` (the head's `at` is more than
+    `skew` after the quorum's time, the `quorum`-th earliest cosignature: a head cannot be logged before it is
+    signed). F5's other checks follow as now. `verifyHead` gives the quorum's time as `existedBy`.
+  - *No memory of the log.* The relying party keeps no checkpoint and asks for no consistency proof. A cosigner
+    signs a checkpoint only if it extends the last one it signed (tlog-witness), and any two quorums of more than
+    half share a cosigner, so two checkpoints that disagree cannot both be cosigned unless that many cosigners
+    sign both. The split view decision 10 watches for from one party's seat is then visible to anyone who reads the
+    log, and decision 10's memory stays as it is: it needs no cosigner and refuses at once.
+  - *What it gives.* Every head a relying party accepted is in one public, append-only list: a head that left a
+    live revocation out, two heads that cannot both be true, or a head signed with a false time is lasting evidence
+    anyone can find, the owner included. It prevents none of them by itself.
+  - *Time from outside the witness.* With cosigners, R4's contest window and R11's recovery window run from the
+    quorum's time of the first checkpoint that includes the anchor or the notice, not from the witness's `at`, and
+    `settled` and `matured` records are checked against it. That closes decision 8's and decision 10's residual, a
+    leaked witness key backdating an anchor, down to as many cosigners as the quorum lying with it.
+  - *Costs.* A request carries about two kilobytes more. A delegate fetches the proof with its head, and a head is
+    usable only once a cosigned checkpoint holds it, some seconds after it is signed. A relying party that sets
+    `log` depends, for every request, on a quorum of cosigners having been reachable within the head's life: a day
+    by default. That is why it is the relying party's choice, by scope if it likes, and not a rule for all.
+  - *To settle before it is built:* whether window times from cosigned checkpoints are required of every verifier
+    of membership (R8) or only of those configured with a log; which cosigners; and the model: a log that forks is
+    refused by a quorum that shares an honest cosigner, and an honest log never is.
 - **Head lag (residual):** a delegate chooses which head to present, so an anchored change, a freeze or a revocation
   reaches a verifier only once every older head has aged past `maxStaleness` — a day — unless the verifier passes
   `minHeadAt` or `lastHead` (F5), the newest head it has seen for the identity. A relying party that needs faster effect for a scope
@@ -999,6 +1032,11 @@ is the demo's limit, by design, and no property of the core or the adapter depen
    - a service that issues attestations (A1–A4 and decision 8 state what one must sign; the request record it
      would name is not specified);
    - longer unattended running (decision 13, Part B).
+
+16. **Logged heads — proposed (R12).** The transparency-log design (`research/witness-tlog.md`) meant the log's
+   checks to replace decision 10's rule. They are kept beside it instead: decision 10 needs nothing but the relying
+   party's own memory and refuses at once, and R12 adds what it cannot see, at the price of cosigners on the path of
+   every request, so each relying party chooses. Open for the owner: R12's last item.
 
 ## 10. What the reputation layer consumes (not core)
 
