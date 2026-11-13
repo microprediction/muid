@@ -15,6 +15,7 @@ const SURFACE = {
   './encoding': ['EncodingError', 'MAX_BYTES', 'MAX_DEPTH', 'decode', 'encode'],
   './origin': ['isCanonicalOrigin'],
   './root': ['agentIdOf', 'checkRoot', 'identityOf', 'rootIdOf'],
+  './ed25519': ['checkEd25519', 'checkEd25519Key'],
   './adapter': ['relyingParty'],
   './adapter/stores': ['memoryStore', 'sqliteStore'],
   './witness': ['witness'],
