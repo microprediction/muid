@@ -1004,7 +1004,9 @@ ones run nightly (and on demand, from the Actions tab), and a nightly failure is
 
 1. **Tests** on Node 22, 24 and 26, on every run: `npm ci --ignore-scripts`, the registry signature check, then
    every suite outside `tests/meta/` (vector hashes, vectors, properties, adversarial cases, guards) with 100%
-   coverage of `src/`.
+   coverage of `src/`. Among the guards, `public-surface` pins the package's entries (`exports` in `package.json`)
+   and every name each exports, imported by the package's name as a consumer imports them; a path outside the
+   entries does not resolve.
 2. **Twins:** the quick harnesses in `tests/meta/` on every run, in three jobs, each run one after another; the
    slow ones (the id page, the witness) nightly, a job each.
 3. **Mutation testing:** one config per module. Nightly, every config: the slow ones (the id page, membership, the

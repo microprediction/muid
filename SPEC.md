@@ -607,7 +607,7 @@ is the text of the newest head the relying party has accepted for the identity, 
   `data` is decoded data: frozen, with null prototypes. Deviations from DPoP, named: the proof is a muid record, not
   a JWS with a `jwk` header, since its key is the delegation's subject key; and it names a delegation, not an access
   token's hash (`ath`), since there is no access token.
-- **C2 RECEIPTS (proposal; research/witness-tlog.md §5a):** a claim proves authority only while its delegation is
+- **C2 RECEIPTS (research/witness-tlog.md §5a):** a claim proves authority only while its delegation is
   live. A **receipt** `{ service, identity, delegation, claim, at }` makes an accepted claim attributable after that:
   signed by the receiving service's Ed25519 key (`sig = { signature, service }`, `service` that key in hex), it states
   that the service at origin `service` accepted the claim with record id `claim`, made under `delegation` for
@@ -628,7 +628,10 @@ is the text of the newest head the relying party has accepted for the identity, 
   as a Sigstore bundle keeps its own: a checkpoint cosigned after the service key retired cannot vouch for it. It returns `{ service, identity, delegation, claim, at, existedBy }`, where `existedBy` is the
   quorum-th earliest cosignature time: unless the quorum lies, the receipt existed by then. A receipt is the
   service's statement, trusted as far as the caller trusts that service; it is not the identity owner's
-  endorsement (§10).
+  endorsement (§10). A service makes a receipt as every record is made, with the envelope's own functions:
+  `seal('receipt', body)`, its Ed25519 signature over `signedBytes(payload)`, and
+  `wrap(payload, { signature, service })`; a delegate makes a claim the same way. The core holds no key and signs
+  nothing.
 
 The verifier needs no membership records: the head carries their result. The witness makes the head (R9); a delegate
 fetches a fresh one and presents it with its requests, as OCSP stapling does.
@@ -994,6 +997,19 @@ statement that the identity's owner reviewed or endorses what was done. The repu
 **One identity is correlatable.** Every service that verifies an identity's records sees the same identity id, so
 activity under it can be linked across services. For a public contributor history that is the purpose; someone who
 wants activities kept apart uses separate identities.
+
+**What a log makes public.** A transparency log's entries are record texts in the clear. Whoever can read the
+witness's entries reads each identity's anchors, settlements and heads, and so roughly when it was active (a head is
+signed when one is asked for and none is fresh), and each logged delegation's id beside its identity (R10), though
+not its audience, scopes or agent. Whoever can read a service's entries reads each receipt: that service, the
+identity, the delegation, the claim's id and the time, for every accepted claim, for as long as the log is kept. That
+is a lasting record of an identity's activity, and an operator chooses it by publishing entries. No check in the
+core reads an entry from a log: `verifyReceipt` and `verifyInclusion` take the text from its holder and need only a
+cosigned checkpoint and an inclusion proof, which the log's hashes give. An operator may therefore publish
+checkpoints and hashes and keep entries to itself: the holder of a record shows it when it has something to prove.
+What that gives up: nobody else can audit the operator's entries by reading them, and a holder who loses a record
+cannot get it back from the log. A service's receipts need not be in the witness's log; the caller pins the log a
+receipt is checked against.
 
 **Memorable names (outside the core).** A root's key cannot be mined, but a name can be mined over an identity id:
 find a nonce such that SHA-256(`"muid-name\n"` ‖ identity id ‖ nonce) begins with bits that map to a readable name.

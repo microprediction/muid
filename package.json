@@ -7,6 +7,21 @@
   "engines": {
     "node": ">=22"
   },
+  "exports": {
+    "./verifier": "./src/verifier.js",
+    "./receipt": "./src/receipt.js",
+    "./checkpoint": "./src/note.js",
+    "./merkle": "./src/merkle.js",
+    "./envelope": "./src/envelope.js",
+    "./encoding": "./src/encode.js",
+    "./origin": "./src/origin.js",
+    "./root": "./src/root.js",
+    "./adapter": "./adapter/relying-party.js",
+    "./adapter/stores": "./adapter/stores.js",
+    "./witness": "./witness/witness.js",
+    "./witness/service": "./witness/service.js",
+    "./witness/log": "./witness/log.js"
+  },
   "scripts": {
     "test": "node --test --test-timeout=600000 --test-force-exit \"tests/!(meta)/*.test.mjs\"",
     "test:twins": "node --test --test-concurrency=1 \"tests/meta/*.test.mjs\""
