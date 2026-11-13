@@ -493,7 +493,7 @@ and `GET /v1/identities/{id}/head` (a head, reused for `headInterval` seconds wh
 that changes nothing, such as a record already held, leaves it as it is); `tick()`
 advances every identity, settling once windows pass. A holding's R8 state is computed once and kept with it, so a
 flood of submissions decided against one holding replays its history once. Each identity's changes are serialised by
-its store (the in-memory store drops an identity's queue once it is idle), and every
+its store (which drops an identity's queue once it is idle), and every
 record the witness signs is appended to the log before the holding that contains it is kept, so nothing is served
 that the log did not take. A failing log is 503: what was decided waits in the outbox and takes effect once the log
 has it, so a retry may answer with nothing new signed; a failing store is 503 and nothing is kept. Refusals are 422 with the witness's
@@ -505,6 +505,19 @@ cosigner in tests is transparency-dev's omniwitness, pinned in the same module;
 `witness/log.js` appends to it and builds RFC 9162 inclusion proofs from its tiles for any entry against any
 checkpoint, which the core's `verifyCheckpoint` and `verifyInclusion` then check. Anyone can read the tiles; only the
 witness service appends (the server listens on a private address). An in-memory log and store stand in for tests.
+
+**The holdings (`witness/holdings.js`, not core)** are one SQLite file, held by one process. The service asks three
+things of its store, and `WitnessOutbox.tla` assumes them: an identity's updates run one at a time (the process's
+own queue, and no second process: the file is locked for as long as it is open, and another witness opening it is
+refused at once); an update is kept whole when it ends or not at all (an entry is written by one statement, which
+is one transaction); and what was kept is there after a restart (the transaction is in the write-ahead log and
+synced to disk before the update answers). An entry is the JSON of the holding, a cached head and the outbox; one
+that cannot be read is a failure, answered 503, never an absent identity, and nothing is written over it. A file of
+another format is refused. Up to a set number of entries are also held in memory, as the objects kept, so a
+holding's R8 state is still computed once. Limits: the file is on the witness's own disk, not a network share; the
+guarantee after power loss is SQLite's for `synchronous = FULL` on the host's `fsync`; and a file restored from an
+older copy makes the witness forget records it signed since (their texts are in the log, and it does not read them
+back), so a restore is an operator's decision, not something the service recovers from by itself.
 
 Tested against `model/settled.mjs`'s `witness` on random histories of owner and thief moves and passing time: each
 record goes through admission, the model is given what was admitted, and the anchors and settlements signed are the

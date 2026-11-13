@@ -12,7 +12,7 @@ import { join } from 'node:path'
 const TEST_TIMEOUT = 300_000
 
 const DIR = new URL('../../witness/', import.meta.url)
-const FILES = ['witness.js', 'service.js', 'log.js']
+const FILES = ['witness.js', 'service.js', 'log.js', 'holdings.js']
 const SUITE_DIR = new URL('../witness/', import.meta.url).pathname
 const SUITE = readdirSync(SUITE_DIR).filter((f) => f.endsWith('.test.mjs')).map((f) => join(SUITE_DIR, f))
 // The witness's imports of the core, made absolute because a twin lives outside the repository.
@@ -109,6 +109,15 @@ const TWINS = [
   ['bucket-unrefilled', 'a bucket never refills', [['const days = Math.max(0, Math.floor((now - b.at) / DAY))', 'const days = 0']]],
   ['bucket-unbounded', 'a bucket saves up without limit', [['tokens: Math.min(BURST, b.tokens + days)', 'tokens: b.tokens + days']]],
   ['bucket-backwards', 'a clock that steps back refills the bucket', [['Math.max(0, Math.floor((now - b.at) / DAY))', 'Math.abs(Math.floor((now - b.at) / DAY))']]],
+  ['holdings-shared', 'a second process may open the holdings file while the first has it', [['PRAGMA locking_mode = EXCLUSIVE; PRAGMA synchronous = FULL', 'PRAGMA synchronous = FULL']], 'holdings.js'],
+  ['holdings-unread-is-absent', "a stored holding that is not its identity's is taken for no holding, and written over", [["throw new Error('a stored holding is not its identity\\'s')", 'return undefined']], 'holdings.js'],
+  ['holdings-held-unsaved', 'an entry is held in memory before it is written, so one that cannot be written is served', [['          upsert.run(identity, JSON.stringify(r.entry))\n          hold(identity, r.entry)\n', '          hold(identity, r.entry)\n          upsert.run(identity, JSON.stringify(r.entry))\n']], 'holdings.js'],
+  ['holdings-memory-only', 'an entry is held in memory and never written to the file', [['          upsert.run(identity, JSON.stringify(r.entry))\n', '']], 'holdings.js'],
+  ['holdings-first-entry-only', "an identity's first entry is written and no later one", [['DO UPDATE SET entry = excluded.entry', 'DO NOTHING']], 'holdings.js'],
+  ['holdings-cache-unbounded', 'every entry ever read or kept stays in memory', [['    if (held.size > cache) held.delete(held.keys().next().value)\n', '']], 'holdings.js'],
+  ['holdings-any-format', 'a file of another format is opened as holdings', [['} else if (version !== FORMAT) {', '} else if (version === -1) {']], 'holdings.js'],
+  ['holdings-closed-answers', 'a closed store goes on answering from memory', [['      held.clear()\n', '']], 'holdings.js'],
+  ['holdings-not-journalled', 'a file that cannot be journalled ahead of its writes is used all the same', [["!== 'wal') throw", "=== 'never') throw"]], 'holdings.js'],
 ]
 
 function run (dir) {
@@ -162,7 +171,7 @@ test('witness broken twins', { timeout: 5_400_000 }, async (t) => {
       assert.ok(r.pass >= 25, `control: only ${r.pass} tests ran`)
     })
     const jobs = TWINS.map(([name, why, edits, file]) => [name, why, generate(name, edits, file)])
-    assert.equal(jobs.length, 87, 'twin count')
+    assert.equal(jobs.length, 96, 'twin count')
     const results = []
     const queue = part(jobs)
     assert.ok(queue.length > 0, 'this part has twins')
