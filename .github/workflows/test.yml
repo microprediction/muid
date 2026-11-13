@@ -51,6 +51,31 @@ jobs:
           --test-coverage-lines=100 --test-coverage-branches=100 --test-coverage-functions=100
           "tests/!(meta)/*.test.mjs"
 
+  # The page's storage adapter in the other two browser engines (Playwright's builds, of the version package-lock
+  # pins): what the Indexed Database standard states is checked in each, not taken from Chrome alone.
+  store-browsers:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20 # a hang fails the job instead of holding it for six hours
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [firefox, webkit]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '26'
+      - name: Install (no install scripts)
+        run: npm ci --ignore-scripts
+      - name: The browser, and the system libraries it needs
+        run: npx --no-install playwright-core install --with-deps ${{ matrix.browser }}
+      - name: Store tests
+        env:
+          MUID_BROWSER: ${{ matrix.browser }}
+        run: node --test --test-timeout=600000 --test-force-exit tests/store/ST1-store.test.mjs
+
   # Every pull request and push: the quick harnesses, in three jobs, each run one after another.
   twins:
     runs-on: ubuntu-24.04

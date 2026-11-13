@@ -4,7 +4,9 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { p256 } from '@noble/curves/nist.js'
 import { ed25519 } from '@noble/curves/ed25519.js'
+import fc from 'fast-check'
 import { records } from './impl.mjs'
+import { runs } from '../runs.mjs'
 import * as wf from '../witness/fixtures.mjs'
 import { root as rootModule, assertion as assertionModule, delegation as delegationModule, envelope } from '../impl.mjs'
 import { challengeFor, authData, clientData, signOver, sha256 } from '../assertion/helpers.mjs'
@@ -266,6 +268,52 @@ test('remember: a worker added, or replaced in place of its older entry, the old
   assert.deepEqual(remember([W(1), W(2)], W(1, { lifetime: 60 })), [W(2), W(1, { lifetime: 60 })])
   const full = Array.from({ length: MAX_WORKERS }, (_, i) => W(i))
   assert.deepEqual(remember(full, W(99)), [...full.slice(1), W(99)])
+})
+
+// The list at its limit (model/STATE.md §4): many agents, each rotating keys and audiences, with workers forgotten
+// between, in any order. After every step: never more than MAX_WORKERS; one key for each agent and one entry for
+// each agent at an audience; the worker just remembered is last; nothing is listed that the step did not put there
+// or find there (nothing comes back); what stays keeps its order; and a worker leaves the list only by giving way
+// to the one remembered, by being forgotten, or, only when the list would pass its limit, by being the oldest.
+test('remember and forget at the limit: one key per agent, nothing comes back, and only the oldest are dropped', () => {
+  const key = (i) => hex(ed25519.getPublicKey(Uint8Array.from({ length: 32 }, (_, j) => i + j)))
+  const KEYS = [1, 2, 3].map(key)
+  const worker = fc.record({ agent: fc.nat(MAX_WORKERS + 15).map((i) => `w${i}`), subject: fc.constantFrom(...KEYS), aud: fc.constantFrom('https://a.example', 'https://b.example'),
+    scopes: fc.constant(['post']), lifetime: fc.constant(3600) }).map((w) => ({ ...w, scopes: [...w.scopes] }))
+  const step = fc.oneof({ weight: 8, arbitrary: worker.map((w) => ({ remember: w })) }, { weight: 1, arbitrary: fc.nat(MAX_WORKERS).map((n) => ({ forget: n })) })
+  const same = (a, b) => a.agent === b.agent && a.aud === b.aud && a.subject === b.subject
+  let full = 0
+  fc.assert(fc.property(fc.array(step, { minLength: 1, maxLength: 60 }), (steps) => {
+    // Each history starts with the list full: w0 to w31, each under the first key at the first audience.
+    let list = Array.from({ length: MAX_WORKERS }, (_, i) => ({ agent: `w${i}`, subject: KEYS[0], aud: 'https://a.example', scopes: ['post'], lifetime: 3600 }))
+    for (const s of steps) {
+      const before = list
+      if (s.remember !== undefined) {
+        const w = s.remember
+        list = remember(before, w)
+        assert.deepEqual(list.at(-1), w, 'the worker remembered is last')
+        const gaveWay = before.filter((x) => x.agent === w.agent && (x.subject !== w.subject || x.aud === w.aud))
+        const stays = before.filter((x) => !gaveWay.includes(x))
+        const dropped = Math.max(0, stays.length + 1 - MAX_WORKERS)
+        assert.deepEqual(list.slice(0, -1), stays.slice(dropped), 'what stays keeps its order; only the oldest are dropped, and only past the limit')
+        if (dropped > 0) full++
+      } else if (before.length > 0) {
+        // Forget, as the page does it: the exact row.
+        const gone = before[s.forget % before.length]
+        list = before.filter((x) => !same(x, gone))
+        assert.equal(list.length, before.length - 1, 'a row is listed once, so forgetting it removes one')
+      }
+      assert.ok(list.length <= MAX_WORKERS)
+      for (const x of list) {
+        assert.equal(list.filter((y) => y.agent === x.agent && y.subject !== x.subject).length, 0, 'one key for each agent')
+        assert.equal(list.filter((y) => y.agent === x.agent && y.aud === x.aud).length, 1, 'one entry for each agent at an audience')
+        assert.ok(before.some((y) => same(x, y)) || (s.remember !== undefined && same(x, s.remember)), 'nothing comes back')
+      }
+      // What is stored is read back as it was: reading drops nothing of a list the page itself made.
+      assert.deepEqual(storedWorkers(JSON.parse(JSON.stringify(list))), list)
+    }
+  }), { numRuns: runs(300) })
+  assert.ok(full > 0, 'the histories reach the limit')
 })
 
 // Issue #70: an agent's name outlives its keys. A new key authorised for an agent retires the keys remembered for it,
