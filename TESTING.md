@@ -698,7 +698,7 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   wait is cut to 15 s and every test to 60 s, and once one test fails or times out, the rest fail at once. Without
   this, a broken page made each test wait out its limits in turn, and the mutant was counted only when Stryker's
   own timeout ran out.
-- Twins (`tests/meta/id-twins.test.mjs`, 111 in all): the challenge's domain, any algorithm, unsorted scopes, an unbounded
+- Twins (`tests/meta/id-twins.test.mjs`, 113 in all): the challenge's domain, any algorithm, unsorted scopes, an unbounded
   lifetime, an unchecked audience, an edit that keeps the review, a late signature kept, verification preferred,
   any passkey, a credential that is not resident, inline scripts allowed, hidden parts shown; attest granted; a change co-signed that does not add
   this passkey, an edit of the new root kept, authority unchecked, delegations under the first membership, the root
@@ -763,7 +763,9 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   judged by the longest-lived; an unsaved worker handed over; the withdrawn hand-off shown. That draft's harness
   (2,116 generated two-tab histories against the page module) reported seven broken contracts on the reviewed
   commit and none on this one; it is not part of this change.
-- **The storage adapter (`id/store.js`, `tests/store/ST1`), in Chrome with two tabs:** a key is absent until set, then replaced,
+- **The storage adapter (`id/store.js`, `tests/store/ST1`), with two tabs, in Chrome and (the CI job
+  `store-browsers`, `MUID_BROWSER`) in Playwright's builds of Firefox and WebKit, where one test is skipped: a
+  store closed by the browser clearing its storage, which is asked of Chrome through its DevTools protocol:** a key is absent until set, then replaced,
   removed, or left (an `undefined` answer); a stored `undefined` is a value, not an absence; another tab and a
   reload read what was committed; databases of different names are separate. 150 increments from each of two tabs,
   all begun before any finishes, total 300. With one tab holding a read-write transaction of its own open on the
@@ -831,6 +833,12 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   each is a step of the page's model (`Forget`, `SignReply`), so they stay, and are now pinned. Five are equivalent
   and marked so with their reasons. Twins (2 more, 111 in all): a Forget leaving the review; a withdrawn renewal
   reading storage.
+- **The remembered list at its limit** (`P1`): a property over histories of up to 60 steps from a full list of 32,
+  with 48 agents, three keys and two audiences, workers remembered and forgotten in any order. After every step:
+  at most 32; one key for each agent; one entry for each agent at an audience; the worker remembered is last;
+  nothing listed that the step did not put or find there; what stays keeps its order; only the oldest are dropped,
+  and only past the limit; and what is stored reads back as it was. The test fails unless its histories reach the
+  limit. Twins (2 more, 113 in all): the list growing without limit; the newest dropped in place of the oldest.
 - **Found by the first complete run of the 104 twins:** four were not caught, each by a weak test, not a fault of
   the page. The three late-refusal twins differ from the page only when the witness itself fails after a withdrawal
   (a review that would be refused returns before it is refused): `P2` now has the witness answer 503 after each of
