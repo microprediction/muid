@@ -27,6 +27,7 @@ test('runs(): the file\'s count, scaled by FC_SCALE, overridden by FC_RUNS', () 
 // measured at, whatever FC_RUNS a mutation run or a twin sets.
 const FIXED = new Map([
   ['membership/R8-walks.test.mjs', 'the walk generator, run through the model alone, must reach every kind of state'],
+  ['membership/R11-recovery.test.mjs', 'the recovery walk generator, run through the model alone, must reach every kind of state'],
   ['verifier/F-time-model.test.mjs', 'the call and trace generators, decided by the model alone, must reach every reason'],
 ])
 

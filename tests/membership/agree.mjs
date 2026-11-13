@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict'
 import { membership } from '../impl.mjs'
 import { evaluate } from '../../model/settled.mjs'
-import { translate, identityFor, letterOf, CTX_BASE } from './translate.mjs'
+import { translate, identityFor, letterOf, designation, CTX_BASE, BASE } from './translate.mjs'
 
 const { membershipState } = membership
 
@@ -11,7 +11,8 @@ function modelAnswer (genesis, items, real) {
   const e = evaluate(genesis, items)
   if (e.dead) return { dead: true }
   return { dead: false, membership: real(e.record.id), settled: real(e.base.id), roots: [...e.record.roots].sort(), pending: e.pending,
-    authority: [...e.authority].sort(), frozen: e.frozen }
+    authority: [...e.authority].sort(), frozen: e.frozen, recovery: designation(e.base.rec) ?? null,
+    recovering: e.notice ? { record: real(e.notice.id), at: BASE + e.notice.at } : null }
 }
 
 function implAnswer (genesis, items) {
@@ -21,7 +22,7 @@ function implAnswer (genesis, items) {
   if (r.dead) return { answer: { dead: true }, real }
   const letters = (ids) => ids.map(letterOf).sort()
   return { answer: { dead: false, membership: r.membership, settled: r.settled, roots: letters(r.roots), pending: r.pending,
-    authority: letters(r.authority), frozen: r.frozen }, real }
+    authority: letters(r.authority), frozen: r.frozen, recovery: JSON.parse(JSON.stringify(r.recovery)), recovering: r.recovering && { ...r.recovering } }, real }
 }
 
 export function agree (genesis, items, label) {

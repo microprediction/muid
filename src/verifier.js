@@ -19,6 +19,15 @@ const { isRefusal } = EnvelopeError
 const ID = /^[0-9a-f]{64}$/
 const SCOPE = /^[a-z][a-z0-9_.:-]{0,63}$/
 const HEAD_KEYS = freeze(['at', 'authority', 'epoch', 'identity', 'memberships', 'revoked'])
+// R11: a head signed while a recovery is under notice says so.
+const HEAD_KEYS_RECOVERING = freeze(['at', 'authority', 'epoch', 'identity', 'memberships', 'recovering', 'revoked'])
+const headKeys = (b) => (b.recovering === undefined ? HEAD_KEYS : HEAD_KEYS_RECOVERING)
+// The notice a head carries: { at, record } and no more (the decoder gives each key once, sorted).
+function noticeOk (x) {
+  if (typeof x !== 'object' || x === null || isArray(x)) return false
+  for (const k in x) if (k !== 'at' && k !== 'record') return false
+  return isTime(x.at) && isId(x.record)
+}
 const LOGGED_KEYS = freeze(['at', 'delegation', 'identity'])
 const MAX_REVOKED = 64
 const isId = (x) => typeof x === 'string' && apply(exec, ID, [x]) !== null
@@ -60,13 +69,15 @@ function allIds (list) {
 }
 
 // A record of `type` whose body's keys are among `keys`, in their order (the decoder gives them sorted), or undefined.
-function shaped (text, type, keys) {
+// `keys` may be chosen by the body.
+function shaped (text, type, keysOf) {
   let r
   try {
     r = open(text, type)
   } catch {
     return undefined
   }
+  const keys = typeof keysOf === 'function' ? keysOf(r.body) : keysOf
   let i = 0
   for (const k in r.body) if (k !== keys[i++]) return undefined
   return r
@@ -83,12 +94,13 @@ function loggedBody (text, cfg) {
 // R9: the head's body if it is a head of its form, signed by a pinned witness key whose window holds its `at` and now
 // (its `at` alone when `now` is undefined, as for a relying party's last head: undefined compares false either way).
 function headBody (text, cfg, now) {
-  const r = shaped(text, 'head', HEAD_KEYS)
+  const r = shaped(text, 'head', headKeys)
   if (r === undefined) return undefined
   const b = r.body
   if (!isId(b.identity) || !ids(b.memberships, 1, 2, false) || !ids(b.authority, 1, 5, true) || !isTime(b.at) ||
     !ids(b.revoked, 0, MAX_REVOKED, true) || !(isTime(b.epoch) && b.epoch > 0 && b.epoch < 2 ** 32) ||
-    (b.epoch === 1) !== (b.memberships[0] === b.identity) || b.memberships[1] === b.identity) return undefined
+    (b.epoch === 1) !== (b.memberships[0] === b.identity) || b.memberships[1] === b.identity ||
+    (b.recovering !== undefined && !noticeOk(b.recovering))) return undefined
   // The key's window must hold both the head's time and now, whichever comes first.
   // Stryker disable next-line EqualityOperator: equivalent; at now === at both branches give the same value
   const from = now < b.at ? now : b.at
@@ -205,11 +217,14 @@ export function verifier (config) {
     return accept({ id: d.id, body: b, agent })
   }
 
-  // F6: a head alone, under the same call: { ok, identity, at }, or F5's head refusal. A relying party may remember
-  // any head that verifies, whatever else a request carries.
+  // F6: a head alone, under the same call: { ok, identity, at, recovering }, or F5's head refusal. A relying party
+  // may remember any head that verifies, whatever else a request carries. `recovering` is the recovery under notice
+  // the head carries (R11), { record, at }, or null: it changes nobody's authority, and is there to be shown.
   function verifyHead (head, call) {
     const h = checkHead(head, readCall(call, false, cfg))
-    return h.ok === false ? h : accept({ identity: h.identity, at: h.at })
+    if (h.ok === false) return h
+    const n = h.recovering
+    return accept({ identity: h.identity, at: h.at, recovering: n === undefined ? null : freeze({ record: n.record, at: n.at }) })
   }
 
   function verifyDelegation (records, call) {
