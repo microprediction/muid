@@ -179,26 +179,38 @@ export function witnessService ({ witness, holdings, log, clock, headInterval })
   return Object.freeze({ handle, tick })
 }
 
-// One process's holdings: changes to one identity run one at a time, in arrival order.
-export function memoryHoldings () {
-  const entries = new Map()
+// Runs each identity's tasks one at a time, in arrival order; other identities do not wait for it.
+export function serial () {
   const queues = new Map()
   return Object.freeze({
-    async get (identity) { return entries.get(identity) },
-    async identities () { return [...entries.keys()] },
-    update (identity, fn) {
-      const run = (queues.get(identity) ?? Promise.resolve()).then(async () => {
-        const r = await fn(entries.get(identity))
-        if (r.entry !== undefined) entries.set(identity, r.entry)
-        return r.value
-      })
-      // The queue is dropped once its last update is done, so identities only named once leave nothing behind.
+    run (identity, task) {
+      const run = (queues.get(identity) ?? Promise.resolve()).then(task)
+      // The queue is dropped once its last task is done, so identities only named once leave nothing behind.
       const tail = run.catch(() => {}).then(() => { if (queues.get(identity) === tail) queues.delete(identity) })
       queues.set(identity, tail)
       return run
     },
-    // Identities with an update queued or running.
-    inFlight () { return queues.size },
+    // Identities with a task queued or running.
+    size () { return queues.size },
+  })
+}
+
+// One process's holdings, gone with it: changes to one identity run one at a time, in arrival order. For tests and
+// demonstrations; witness/holdings.js keeps them in a file.
+export function memoryHoldings () {
+  const entries = new Map()
+  const queue = serial()
+  return Object.freeze({
+    async get (identity) { return entries.get(identity) },
+    async identities () { return [...entries.keys()] },
+    update (identity, fn) {
+      return queue.run(identity, async () => {
+        const r = await fn(entries.get(identity))
+        if (r.entry !== undefined) entries.set(identity, r.entry)
+        return r.value
+      })
+    },
+    inFlight: queue.size,
   })
 }
 

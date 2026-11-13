@@ -656,6 +656,36 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   thirty days later, when the entry has left heads but is still kept; another name is logged. Twins: a revocation
   naming an agent names nothing; a new delegation under a retired name logged.
 
+## 4j2. The witness's durable holdings (`witness/holdings.js`, not core): `H1`
+
+What `WitnessOutbox.tla` assumes of the store is tested of the SQLite one, with the in-memory store as its oracle.
+
+- **Kept after a restart:** records, revocations, a cached head (reused, not signed again) and what the next tick
+  settles are there when the file is opened again.
+- **The outbox after a restart:** a record signed whose log answer was lost is appended again, the same text, by
+  the restarted service before a rival is decided, and the rival is refused.
+- **A killed process** (a child process, killed with SIGKILL): killed inside an update, nothing of that update is
+  kept and the one before it is; killed while the log is asked, the outbox is in the file, nothing unlogged is
+  served, and the next request appends it first.
+- **One process:** a second store on the same file is refused, in the same process and from another, and opens
+  once the first has closed or died.
+- **A stored entry that cannot be read** (not JSON, another identity's, not an entry): every route answers 503, the
+  tick rejects, and the row is left as it was. It is never read as an absent identity.
+- **An update that cannot be saved** keeps nothing in the file or in memory; a closed store fails every call.
+- **One at a time:** the queue test runs over both stores: order, a failure's place, other identities not waiting.
+- **Entries in memory:** the object kept is the object given back; at most `cache` are held; the one kept or read
+  longest ago is dropped and read again equal and frozen.
+- **The file:** made on first use in WAL mode with its format number; a file of another format, or one that cannot
+  be journalled, is refused and left as it was.
+- **Against the oracle (property, 150 runs):** the same requests in the same order to a service over each store,
+  with the same lost log answers, the SQLite store closed and opened again at steps drawn at random: every answer,
+  the log and the holding kept are equal, and the runs are checked to restart and to lose answers.
+- Mutation: `witness/holdings.js` is in the witness config; 79 mutants, all killed. Two checks were removed
+  because they could not be told from the errors that follow without them. Twins: nine of the store's faults
+  (shared file, an unreadable entry taken for none, held before written, never written, only the first entry
+  written, an unbounded cache, any format opened, a closed store answering, an unjournalled file used), 96 in all.
+- Not tested: power loss (the guarantee is SQLite's); a file restored from an older copy.
+
 ## 4k. The id page (`id/`, not core)
 
 - `records.js` in Node (`P1-records.test.mjs`): the root record read by the core, and ES256 on P-256 only; base64url
@@ -891,7 +921,7 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   at any step and the log may take a text and lose its answer. Five invariants (its header lists them): 406,446
   distinct states at four texts signed and a log of seven, no error, seconds. Six negative controls, each a rule of
   `commit` turned off and the invariant it then breaks named in `tlc.sh`; the same guard ties each to a broken twin
-  of `service.js` (four added, 87 in all). Not shown: that anything is ever logged, or anything about `witness.js`'s
+  of `service.js` (four added). Not shown: that anything is ever logged, or anything about `witness.js`'s
   decisions.
 - The id twins' time limit is two hours: 81 took over an hour on a loaded machine. In CI a runner takes them one at
   a time, and 111 did not finish in two hours (run 43147178257, cut off): the nightly job runs them, and the witness
