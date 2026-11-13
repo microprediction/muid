@@ -458,6 +458,40 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   and the same name under another identity, are unaffected. Twins: retirement ignored; the agent named without its
   identity.
 
+## 4g2. Recovery parties in the model (`model/settled.mjs`, `tests/model/R11`): R11, proposed
+
+The executable model gains R11 before any code does. A designation `{ parties, k, w }` rides a membership record;
+a recovery is a successor signed by k of the parties and every root it adds; the model's witness gives notice of
+one at a time, honours a cancel by any root of the settled membership, signs that a recovery matured after its
+window, and only then anchors it; after a cancel it gives no notice for the cooling-off. Twelve tests:
+
+- a designation is an ordinary change, and one out of form is no membership;
+- with every root lost the party recovers the identity, at exactly its window and then the contest window, for the
+  shortest and the longest window;
+- any one root cancels, and the identity is as it was however long after; a cancel by a party or a stranger is
+  nothing;
+- a rogue party, explored with the clock over every state it reaches in four moves: the identity never ends,
+  nothing matures inside its window, until something matures the identity is as it was, and at every state under
+  notice one root's cancel puts it back; unanswered, the party has the identity (the stated limit, shown reached);
+- after maturity a cancel is not honoured and a contest ends the identity;
+- a thief with one root blocks three recoveries in turn, each waiting out the cooling-off, and in every state that
+  root alone reaches the identity is as it was or frozen;
+- a threshold of two is not met by one party, or by two on different records, or by a party not designated;
+- parties' signatures do not make a majority of the roots;
+- one notice at a time, none for the cooling-off after a cancel, and over every state a party and a cancelling
+  owner reach in six moves the notices never outrun the clock (states with a second notice are reached);
+- an ordinary change voids a recovery under notice;
+- no view of the records is forked, with a recovery under notice, cancelled, matured or settled, and a view
+  without the witness's `matured` is behind.
+
+Negative controls, one for each rule (`withRules`): without `cancel`, an owner who answers loses the identity;
+without `mature`, a recovery is anchored the moment it is noticed; without `threshold`, one of two parties starts
+one; without `noVote`, parties outvote the roots; without `cool`, a cancelled party is noticed again at once.
+By hand, once: three faults planted in the model's witness (the window one tick long, a cancel by anyone, the
+cooling-off one tick short) each failed these tests; a fourth (a cancelled recovery still under notice) made the
+witness loop for ever, which a test run shows only as a hang. Not yet: the core against this model as its oracle
+(as R1–R8 are), the witness, the id page, and a proof.
+
 ## 4h. The relying-party adapter (`adapter/`, not core): issue #21
 
 - Atomicity: twenty concurrent requests in one process, and eight worker threads on one SQLite file released by a
