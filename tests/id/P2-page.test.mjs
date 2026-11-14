@@ -2157,6 +2157,15 @@ test('a recovery under notice is shown on load with when it takes effect; one pr
     await t.page.click('#notice-retry')
     await t.page.waitForSelector('#recovery-notice:not([hidden])')
     assert.equal(await t.page.isHidden('#notice-unchecked'), true)
+    // A syntactically broken 200 response is no answer too: silently treating it as no notice would hide the
+    // recovery precisely when the page could not check the witness's state.
+    await t.page.route('**/v1/identities/*/records', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{' }))
+    await t.page.reload()
+    await t.page.waitForSelector('#notice-unchecked:not([hidden])')
+    assert.equal(await t.page.isHidden('#recovery-notice'), true)
+    await t.page.unroute('**/v1/identities/*/records')
+    await t.page.click('#notice-retry')
+    await t.page.waitForSelector('#recovery-notice:not([hidden])')
     assert.equal(await t.page.textContent('#notice-record'), R.id)
     assert.equal(await t.page.textContent('#notice-at'), iso(noticed.recovering.at))
     assert.equal(await t.page.textContent('#notice-matures'), iso(noticed.recovering.at + MIN))
