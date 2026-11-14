@@ -554,7 +554,7 @@ the network and the transparency log are the service's, and the signing key stay
   `cancelled`; failing that, once `window` seconds have passed since its notice, with `matured`, and the next pass
   anchors it as any record (tried first with the trial key's `matured` and anchor, as below). Otherwise, unless a
   recovery was cancelled in the last 259,200 seconds or the notices held have reached `MAX_RECORDS`, it gives
-  `notice` of the held recovery (least id first) that verifiers would follow were it matured and anchored. At a
+  `notice` of the held recovery that verifiers would follow were it matured and anchored (at most one: a threshold is a majority of the parties, and each party holds one proposal per `prev`). At a
   settlement, the cancels, notices and cancellations of that `prev` go with its proposals, except the last
   `cancelled` (the cooling-off runs from it) and the `matured` of the outcome (the state is replayed with it). Its own view leaves out contest anchors, as the model's does. It signs
   only what it keeps, as a CT log signs only what it logs: each candidate anchor is tried signed by a trial key (the

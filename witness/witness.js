@@ -328,8 +328,9 @@ export function witness (config) {
         // Notices are bounded by time (the cooling-off), and by the list that holds them.
         const last = held.cancelled.reduce((at, t) => Math.max(at, open(t, 'cancelled').body.at), -Infinity)
         if (held.notices.length >= MAX_RECORDS || now < last + COOLING_OFF) break
-        const fresh = ids.filter((x) => !said(held, 'notices', 'notice', x) &&
-          trialState(own, { identity: held.identity, record: x, at: now }, true).membership === x).sort()[0]
+        // At most one is found: a threshold is a majority of the parties, and each party holds one proposal per prev.
+        const fresh = ids.find((x) => !said(held, 'notices', 'notice', x) &&
+          trialState(own, { identity: held.identity, record: x, at: now }, true).membership === x)
         if (fresh === undefined) break
         state1('notice', fresh)
         continue

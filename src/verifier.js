@@ -22,9 +22,9 @@ const HEAD_KEYS = freeze(['at', 'authority', 'epoch', 'identity', 'memberships',
 // R11: a head signed while a recovery is under notice says so.
 const HEAD_KEYS_RECOVERING = freeze(['at', 'authority', 'epoch', 'identity', 'memberships', 'recovering', 'revoked'])
 const headKeys = (b) => (b.recovering === undefined ? HEAD_KEYS : HEAD_KEYS_RECOVERING)
-// The notice a head carries: { at, record } and no more (the decoder gives each key once, sorted).
+// The notice a head carries: { at, record } and no more. A decoded value is never null; one that is no object lacks
+// these fields, and a list's or a string's keys are its indexes.
 function noticeOk (x) {
-  if (typeof x !== 'object' || x === null || isArray(x)) return false
   for (const k in x) if (k !== 'at' && k !== 'record') return false
   return isTime(x.at) && isId(x.record)
 }

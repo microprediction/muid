@@ -3,6 +3,7 @@
 // root's cancel ends it; left alone for its window it matures and is anchored like any record. Every step is what
 // verifiers, running the core's own membershipState, would follow, and every head says what is under notice.
 import { test } from 'node:test'
+import { ed25519 } from '@noble/curves/ed25519.js'
 import assert from 'node:assert/strict'
 import { membership, envelope } from '../impl.mjs'
 import { witness } from './impl.mjs'
@@ -296,4 +297,98 @@ test('a witness whose key has run out signs nothing: the step fails, and no sett
 test('an empty holding has the lists recoveries are kept in', () => {
   const e = w.empty(IDENTITY)
   assert.deepEqual([e.cancels, e.notices, e.cancelled, e.matured], [[], [], [], []])
+})
+
+// ---- Found by mutation testing: each of these was a change to the witness no test noticed ----
+const stated = (type, record, at) => {
+  const { payload } = envelope.seal(type, { identity: IDENTITY, record, at })
+  return envelope.wrap(payload, { signature: sign(envelope.signedBytes(payload)), witness: WITNESS })
+}
+
+test("a party's signature counts toward the record it signed, and no other", () => {
+  const d = designated(D(['g', 'h'], 2))
+  const X = d.next(['n'])
+  let held = asked(asked(d.held, X, ['g'], []), d.next(['i']), ['h'], [])
+  held = admitAll(held, [['root', rootText('n')]])
+  assert.equal(reason(held, 'membership', signed('membership', X, 'n')), 'signer', 'one party signed this record, one another')
+  assert.deepEqual(w.advance(held, T0 + 5).signed, [])
+})
+
+test("the quota never refuses the party's signature that completes a threshold", () => {
+  const d = designated(D(['g', 'h'], 2))
+  const R = d.next(['n'])
+  let held = asked(d.held, R, ['h'], [])
+  // g proposes, then moves its proposal until its tombstones are spent.
+  for (let i = 0; i <= 16; i++) held = admitAll2(held, [['membership', partySigned('membership', d.next(['i'], D(['g'], 1, MIN + i)), 'g'), i === 0 ? rootText('g') : undefined]])
+  assert.equal(reason(held, 'membership', partySigned('membership', d.next(['i'], D(['g'], 1, MIN + 99)), 'g')), 'quota')
+  assert.equal(reason(held, 'membership', partySigned('membership', R, 'g')), 'ok', 'it completes the threshold')
+})
+
+test("a party's root record takes a place among the root records: with none left it is refused", () => {
+  const d = designated(D())
+  const R = d.next(['n'])
+  const fill = (n) => Object.freeze({ ...d.held, roots: Object.freeze([...d.held.roots, ...Array.from({ length: n - d.held.roots.length }, () => rootText('a'))]) })
+  assert.equal(reason(fill(MAX_RECORDS), 'membership', partySigned('membership', R, 'g'), rootText('g')), 'full')
+  assert.equal(reason(fill(MAX_RECORDS - 1), 'membership', partySigned('membership', R, 'g'), rootText('g')), 'ok', 'the last place')
+})
+
+test('a second recovery is cancelled like the first, though the first cancel is still held; a settlement keeps only the last cancellation', () => {
+  const d = designated(D())
+  const R = d.next(['n'])
+  const first = w.advance(admitAll(w.advance(asked(d.held, R), T0 + 5).held, [['cancel', cancel(mId(R))]]), T0 + 9).held
+  const R2 = d.next(['i'])
+  const noticed = w.advance(asked(first, R2, ['g'], ['i']), T0 + 9 + MIN)
+  assert.deepEqual(types(noticed), ['notice'])
+  const second = w.advance(admitAll(noticed.held, [['cancel', cancel(mId(R2))]]), T0 + 20 + MIN)
+  assert.deepEqual(bodies(second), [{ type: 'cancelled', identity: IDENTITY, record: mId(R2), at: T0 + 20 + MIN }])
+  assert.equal(second.held.cancelled.length, 2)
+  const M3 = d.next(['a'], D())
+  const a = w.advance(admitAll(second.held, [['membership', signed('membership', M3, 'a')]]), T0 + 21 + MIN)
+  const s = w.advance(a.held, T0 + 21 + MIN + WINDOW)
+  assert.equal(state(s.held).epoch, 3)
+  assert.deepEqual(s.held.cancelled.map((t) => open(t, 'cancelled').body.record), [mId(R2)])
+  const again = asked(s.held, { identity: IDENTITY, prev: mId(M3), epoch: 4, roots: ids('n') })
+  assert.deepEqual(w.advance(again, T0 + 20 + 2 * MIN - 1).signed, [], 'the cooling-off runs from the last')
+  assert.deepEqual(types(w.advance(again, T0 + 20 + 2 * MIN)), ['notice'])
+})
+
+test('when a recovery settles, a root record only a losing proposal named goes, though the recovery was signed with a salt', () => {
+  const d = designated(D())
+  const R = d.next(['n'])
+  // The owner's own proposal, which its added root never signs.
+  const lost = admitAll(asked(d.held, R), [['membership', signed('membership', d.next(['a', 'b']), 'a')], ['root', rootText('b')]])
+  const m = w.advance(w.advance(lost, T0 + 5).held, T0 + 5 + MIN)
+  assert.deepEqual(types(m), ['matured', 'anchor'])
+  const s = w.advance(m.held, T0 + 5 + MIN + WINDOW).held
+  assert.equal(state(s).epoch, 3)
+  assert.deepEqual([s.roots.includes(rootText('b')), s.roots.includes(rootText('g')), s.roots.includes(rootText('n'))], [false, true, true])
+})
+
+test('a holding that says a recovery matured which verifiers would not follow: nothing is signed for it, and a settlement drops the statement', () => {
+  // No witness reaches this holding (what matures is anchored in the same step); a damaged store might hand it one.
+  const d = designated(D(['g', 'h'], 2))
+  const R = d.next(['n'])
+  const one = asked(d.held, R, ['g'], [])
+  const held = Object.freeze({ ...one, notices: Object.freeze([stated('notice', mId(R), T0 + 5)]), matured: Object.freeze([stated('matured', mId(R), T0 + 5 + MIN)]) })
+  assert.equal(state(held).recovering.record, mId(R))
+  assert.deepEqual(w.advance(held, T0 + 6 + MIN).signed, [])
+  const M3 = d.next(['a'], D())
+  const a = w.advance(admitAll(held, [['membership', signed('membership', M3, 'a')]]), T0 + 7 + MIN)
+  assert.deepEqual(types(a), ['anchor'])
+  const s = w.advance(a.held, T0 + 7 + MIN + WINDOW).held
+  assert.deepEqual([state(s).epoch, s.matured, s.notices], [3, [], []])
+})
+
+test('the witness signs only inside a window of its own key: another key listed beside it neither stops it nor stands in for it', () => {
+  // A head, since an anchor is first tried under the trial key, which has the witness key's windows.
+  const other = Buffer.from(ed25519.getPublicKey(secretOf('o'))).toString('hex')
+  const begun = (x) => x.admit(x.empty(IDENTITY), 'root', rootText('a')).held
+  const out = { message: 'the witness key is outside its window at the time it would sign' }
+  const both = witness({ ...CONFIG, witnessKeys: [{ key: WITNESS, nbf: 0, exp: BASE + 1000 }, { key: other, nbf: 0, exp: BASE + 1000 }] })
+  assert.equal(open(both.head(begun(both), BASE), 'head').body.at, BASE)
+  const spent = witness({ ...CONFIG, witnessKeys: [{ key: WITNESS, nbf: 0, exp: BASE }, { key: other, nbf: 0, exp: BASE + 1000 }] })
+  assert.throws(() => spent.head(begun(spent), BASE), out)
+  const early = witness({ ...CONFIG, witnessKeys: [{ key: WITNESS, nbf: BASE + 1, exp: BASE + 1000 }] })
+  assert.throws(() => early.head(begun(early), BASE), out)
+  assert.equal(open(early.head(begun(early), BASE + 1), 'head').body.at, BASE + 1, 'from its first second')
 })

@@ -8,7 +8,7 @@ import { membership, envelope } from '../impl.mjs'
 import { make } from '../assertion/helpers.mjs'
 import { identityFor, CTX_BASE, rootId, rootText, rootSigned, partySigned, witnessSigned, commitmentOf, saltOf, secretOf, BASE } from './translate.mjs'
 
-const { membershipState, headOf, recoveryCommitment, MIN_RECOVERY_WINDOW, MAX_RECOVERY_WINDOW, MAX_RECORDS } = membership
+const { membershipState, headOf, recoveryCommitment, isMembership, MIN_RECOVERY_WINDOW, MAX_RECOVERY_WINDOW, MAX_RECORDS } = membership
 const I = identityFor('a')
 const ctx = { ...CTX_BASE, identity: I }
 const mid = (body) => envelope.seal('membership', body).id
@@ -44,7 +44,7 @@ test('the commitment: SHA-256 of the domain, the root id and the salt; anything 
   assert.equal(recoveryCommitment('00'.repeat(32), '00'.repeat(32)), PINNED)
   assert.notEqual(recoveryCommitment(root, salt), recoveryCommitment(salt, root))
   for (const bad of [[root], [root, salt.slice(2)], [root.toUpperCase().replace(/\d/g, 'A'), salt], [root, salt + '00'], [undefined, salt], [root, 7], [Buffer.from(root, 'hex'), salt]]) {
-    assert.throws(() => recoveryCommitment(...bad), TypeError)
+    assert.throws(() => recoveryCommitment(...bad), { name: 'TypeError', message: 'root and salt must be 32 bytes of lowercase hex' })
   }
   assert.deepEqual([MIN_RECOVERY_WINDOW, MAX_RECOVERY_WINDOW], [259_200, 7_776_000])
 })
@@ -79,6 +79,14 @@ test('a designation out of form is no membership record', () => {
   ]) {
     assert.equal(state(epoch2(d).records).epoch, 1, name)
   }
+  // The form the witness admits by is the same one, and total: a null (which no record can carry) is not one.
+  // (Keys in the order a decoded record has them.)
+  const sorted = (recovery, roots = [rootId('a')]) => (recovery === undefined ? { epoch: 2, identity: I, prev: I, roots } : { epoch: 2, identity: I, prev: I, recovery, roots })
+  assert.equal(isMembership(sorted(ok)), true)
+  assert.equal(isMembership(sorted()), true)
+  assert.equal(isMembership(envelope.open(epoch2(ok).records.memberships[0], 'membership').body), true)
+  for (const recovery of [null, [], 'x', 1, {}, { ...ok, threshold: 0 }]) assert.equal(isMembership(sorted(recovery)), false, JSON.stringify(recovery))
+  assert.equal(isMembership(sorted(ok, [])), false)
 })
 
 test('a recovery: the party opens its commitment; anything less is no recovery, whatever the witness says of it', () => {
@@ -218,6 +226,9 @@ test('the recovery under notice: the witness\'s notice of a held successor of th
     const order = (x) => (flip ? x.reverse() : x)
     assert.deepEqual(under({ notices: order([stated('notice', r.id, BASE + 5), stated('notice', other.id, BASE + 7)]) }), { record: other.id, at: BASE + 7 })
     assert.deepEqual(under({ notices: order([stated('notice', hi, BASE + 5), stated('notice', lo, BASE + 5)]) }), { record: lo, at: BASE + 5 })
+    // The later one whichever id is the lesser: the id decides only between notices of one time.
+    assert.deepEqual(under({ notices: order([stated('notice', hi, BASE + 7), stated('notice', lo, BASE + 5)]) }), { record: hi, at: BASE + 7 })
+    assert.deepEqual(under({ notices: order([stated('notice', lo, BASE + 7), stated('notice', hi, BASE + 5)]) }), { record: lo, at: BASE + 7 })
     assert.deepEqual(under({ notices: order([stated('notice', r.id, BASE + 5), stated('notice', other.id, BASE + 7)]), cancelled: [stated('cancelled', other.id, BASE + 8)] }), { record: r.id, at: BASE + 5 })
   }
   // After the settled membership has moved on, the notice is of nothing.

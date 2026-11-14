@@ -88,14 +88,14 @@ const table = () => create(null)
 // A root-signed record of `type` whose body passes `bodyOk`: { id, body, signer, salt }, or undefined. A signer
 // already counted for that record (in `counted`, as id + signer) is not verified again. With `party` (R11), the
 // signature may open a recovery party's commitment with its salt, and is counted apart from the same root's plain
-// signature, so that neither hides the other in whatever order they come.
+// signature (whose salt reads `undefined` in the key), so that neither hides the other in whatever order they come.
 function rootSigned (text, type, bodyOk, ctx, rootKeys, counted, party = false) {
   const r = opened(text, type)
   if (r === undefined || !bodyOk(r.body)) return undefined
   const salt = party ? r.sig.salt : undefined
   if (!onlyKeys(r.sig, salt === undefined ? ['assertion', 'root'] : ['assertion', 'root', 'salt']) || (salt !== undefined && !isId(salt))) return undefined
   const key = isId(r.sig.root) ? rootKeys[r.sig.root] : undefined
-  const once = r.id + r.sig.root + (salt ?? '')
+  const once = r.id + r.sig.root + salt
   if (key === undefined || counted[once] === true) return undefined
   const a = checkRootAssertion(r.sig.assertion, { record: r.id, rpId: ctx.rpId, origin: ctx.origin, key })
   if (!a.ok) return undefined
@@ -121,10 +121,12 @@ function rootsOk (roots) {
 
 // R11: a designation of recovery parties: 1–3 commitments, strictly ascending, how many of them a recovery needs
 // (a majority), and how long it waits under notice.
+// Anything else has other keys (a list's or a string's are its indexes) or lacks these.
 function recoveryOk (x) {
-  if (typeof x !== 'object' || x === null || isArray(x) || !onlyKeys(x, ['parties', 'threshold', 'window'])) return false
+  if (x === null || !onlyKeys(x, ['parties', 'threshold', 'window'])) return false
   const { parties, threshold, window } = x
-  if (!isArray(parties) || parties.length < 1 || parties.length > MAX_PARTIES) return false
+  // No party at all has no majority (below).
+  if (!isArray(parties) || parties.length > MAX_PARTIES) return false
   for (let i = 0; i < parties.length; i++) {
     if (!isId(parties[i]) || (i > 0 && !(parties[i - 1] < parties[i]))) return false
   }
@@ -144,6 +146,7 @@ function recoveryOf (cur, p) {
   if (cur.recovery === undefined) return false
   const parties = cur.recovery.parties
   const seen = []
+  // Stryker disable next-line EqualityOperator: equivalent; one more step looks up undefined, which nobody opened
   for (let i = 0; i < parties.length; i++) {
     const root = p.opened[parties[i]]
     if (root !== undefined && !has(cur.roots, root) && !has(seen, root)) seen[seen.length] = root
@@ -250,6 +253,7 @@ function read (records, ctx) {
     const s = witnessSigned(t, type, (b) => onlyKeys(b, ['at', 'identity', 'record']) && mine(b) && isInteger(b.at) && isId(b.record), ctx)
     if (s !== undefined) f(s)
   })
+  // Stryker disable next-line ArrayDeclaration: equivalent; a stray element names no record
   const notices = []
   stated('notices', 'notice', (s) => { notices[notices.length] = s })
   const cancelled = table()
@@ -305,7 +309,10 @@ function evaluate (first, ctx, r) {
     const n = r.notices[i]
     const p = r.memberships[n.record]
     if (p === undefined || p.body.prev !== cur.id || r.cancelled[n.record] === true || r.anchored[n.record] === true) continue
-    if (notice === undefined || n.at > notice.at || (n.at === notice.at && n.record < notice.record)) notice = n
+    if (notice !== undefined && (n.at < notice.at || (n.at === notice.at &&
+      // Stryker disable next-line EqualityOperator: equivalent; two notices of one record at one time are the same notice
+      n.record >= notice.record))) continue
+    notice = n
   }
   const d = cur.recovery
   return accept({
