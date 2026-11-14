@@ -37,10 +37,24 @@ const TWINS = [
   ['add-edit-keeps-review', 'an edit of the new root leaves the change signable', [["for (const id of ['agent', 'subject', 'aud', 'scopes', 'days', 'new-root', 'cosign-payload'])", "for (const id of ['agent', 'subject', 'aud', 'scopes', 'days', 'cosign-payload'])"]], 'page.js'],
   ['authority-unchecked', 'a passkey without authority yet signs delegations', [["  if (!s.authority.includes(root.id)) throw new Error('this passkey has no authority yet: wait for the change to settle')\n", '']], 'page.js'],
   ['membership-of-epoch-1', 'delegations name the first membership whatever the current one', [['  return s.membership\n', '  return root.identity\n']], 'page.js'],
+  // R11 at the page.
+  ['add-root-drops-designation', 'adding a passkey ends the recovery designation in force', [[", ...(state.recovery ? { recovery: state.recovery } : {}) }", ' }']], 'records.js'],
+  ['cosign-hides-designation', 'a change shown to co-sign does not show the designation it states (I4)', [["  if (recovery !== undefined) body.recovery = { parties: Array.from(recovery.parties), threshold: recovery.threshold, window: recovery.window }\n", '']], 'records.js'],
+  ['designate-own-root', "one of the identity's own passkeys is designated a recovery party", [["  if (parties.some((p) => state.roots.includes(p.root))) throw new Error(\"a recovery party must not be one of this identity's own passkeys\")\n", '']], 'records.js'],
+  ['designate-minority', 'a designation is built that fewer than half its parties could use', [['2 * threshold <= parties.length', 'threshold < 1']], 'records.js'],
+  ['possession-unchecked', "a party's possession check passes whatever it signed", [["  if (!a.ok) throw new Error(`the party's passkey did not sign this: ${a.reason}`)\n", '']], 'records.js'],
+  ['cancel-other-record', 'the cancel names another record than the recovery under notice', [['const body = { identity, record: state.recovering.record }', 'const body = { identity, record: state.membership }']], 'records.js'],
+  ['matures-at-notice', 'a recovery is shown as taking effect when its notice was given', [['state.recovering.at + state.recovery.window', 'state.recovering.at']], 'records.js'],
+  ['notice-not-shown', 'a recovery under notice is not shown', [["  $('recovery-notice').hidden = under === null\n", "  $('recovery-notice').hidden = true\n"]], 'page.js'],
+  ['broken-answer-silent', 'an answer about recoveries that cannot be read is taken for no recovery', [["    failed = e.unknown !== true && e.message !== 'this identity has ended'\n", "    failed = e.message === 'the witness did not answer' || e instanceof TypeError\n"]], 'page.js'],
+  ['unverified-answer-silent', 'records served that do not verify are taken for an identity the witness does not know', [["    failed = e.unknown !== true && e.message !== 'this identity has ended'\n", "    failed = e.message !== 'the witness holds no record of this identity' && e.message !== 'this identity has ended'\n"]], 'page.js'],
+  ['no-answer-silent', 'a witness that gives no answer about recoveries is not said', [['  unchecked = failed\n', '  unchecked = false\n']], 'page.js'],
+  ['add-designation-not-shown', 'an added passkey is reviewed without the designation the change states (I4)', [["    $('add-recovery').textContent = designation(c.body.recovery)\n", '']], 'page.js'],
+  ['cancel-record-not-shown', 'the record a cancel signs is not shown (I4)', [["    $('notice-record').textContent = under.recovering.record\n", '']], 'page.js'],
   ['root-unregistered', 'a new identity is not registered with the witness', [["    await submit(r.identity, 'root', r.text)\n", '']], 'page.js'],
   ['added-root-unsubmitted', "the added root's record is not given to the witness", [["    await submit(root.identity, 'root', c.rootText)\n", '']], 'page.js'],
-  ['change-while-pending', 'a change is proposed while another is pending', [["  if (state.pending) throw new Error('a change is already pending: wait for it to settle')\n", '']], 'records.js'],
-  ['roots-unsorted', "the change's roots are not sorted", [['roots: [...state.roots, r.id].sort() }', 'roots: [...state.roots, r.id] }']], 'records.js'],
+  ['change-while-pending', 'a change is proposed while another is pending', [["  if (state.pending) throw new Error('a change is already pending: wait for it to settle')\n  const r = checkRoot(root, { rpId })\n", '  const r = checkRoot(root, { rpId })\n']], 'records.js'],
+  ['roots-unsorted', "the change's roots are not sorted", [['roots: [...state.roots, r.id].sort(),', 'roots: [...state.roots, r.id],']], 'records.js'],
   ['inline-script-allowed', "the CSP allows any inline script", [["script-src 'self' 'sha256-", "script-src 'self' 'unsafe-inline' 'sha256-"]], 'index.html'],
   ['hidden-shown', 'hidden parts of the page are displayed', [['[hidden] { display: none !important; }\n', '']], 'page.css'],
   ['pending-forgotten', 'a root is kept as registered before the witness has it', [['joining, registered: false }', 'joining, registered: true }']], 'page.js'],
@@ -50,7 +64,7 @@ const TWINS = [
   ['stored-any-form', 'whatever storage holds is taken as the root', [['  const r = checkRoot(x.text, { rpId })\n  if (!r.ok) return null\n', '  return x\n']], 'records.js'],
   ['stored-id-trusted', "a stored root's id is taken from storage, not its record", [['  return { ...x, id: r.id }\n', '  return x\n']], 'records.js'],
   ['create-over-stored', 'a create in a stale tab overwrites the stored identity', [['  if (now !== null) { root = now; show(); return }\n', '']], 'page.js'],
-  ['tabs-not-followed', 'what another tab stores is not followed', [["    store.watch(() => refresh().then(() => { withdraw(); show() }, fail))\n", ""]], 'page.js'],
+  ['tabs-not-followed', 'what another tab stores is not followed', [["    store.watch(() => refresh().then(() => { withdraw(); show(); notice() }, fail))\n", ""]], 'page.js'],
   ['framed-acts', 'framed, the page still offers its actions', [['const FRAMED = window.top !== window.self', 'const FRAMED = false']], 'page.js'],
   ['origin-unchecked', 'served under another origin, the page still acts', [['  : location.origin !== ORIGIN ?', '  : false ?']], 'page.js'],
   ['cosign-not-kept', 'a co-signature is sent without being kept, so a lost answer loses it', [["    if (!await keepRoot(mine, (kept) => ({ ...kept, cosigned: rootSigned(c.payload, mine, a) }))) return\n", "    root = { ...root, cosigned: rootSigned(c.payload, mine, a) }\n"]], 'page.js'],
@@ -72,7 +86,7 @@ const TWINS = [
   ['reticked', 'a list drawn again ticks what was unticked', [['  for (const s of unticked) if (!listed.has(s)) unticked.delete(s)\n', '  unticked.clear()\n']], 'page.js'],
   ['untick-outlives-entry', 'a forgotten worker authorised again comes back unticked', [['  for (const s of unticked) if (!listed.has(s)) unticked.delete(s)\n', '']], 'page.js'],
   ['stored-key-unchecked', 'a stored worker whose key is not a key is kept', [[' || !checkEd25519Key(x.subject).ok) return undefined', ') return undefined']], 'records.js'],
-  ['workers-change-keeps-review', "another tab's change of the workers leaves a review signable", [["refresh().then(() => { withdraw(); show() }, fail)", "refresh().then(() => { show() }, fail)"]], 'page.js'],
+  ['workers-change-keeps-review', "another tab's change of the workers leaves a review signable", [["refresh().then(() => { withdraw(); show(); notice() }, fail)", "refresh().then(() => { show(); notice() }, fail)"]], 'page.js'],
   ['renew-partly-shown', 'a renewal signs delegations it does not show (I4)', [["    $('renew-list').replaceChildren(...r.delegations.map((d) =>", "    $('renew-list').replaceChildren(...r.delegations.slice(0, 1).map((d) =>"]], 'page.js'],
   ['renew-partly-signed', 'the assertion does not cover every renewed delegation', [['    const a = await sign(r.covers)\n', '    const a = await sign([r.covers[0]])\n']], 'page.js'],
   ['renew-unauthorised', 'a passkey still joining is offered workers to renew', [["  $('renew').hidden = root === null || joining || workers.length === 0\n", "  $('renew').hidden = root === null || workers.length === 0\n"]], 'page.js'],
@@ -181,7 +195,7 @@ test('id page broken twins', { timeout: 7_200_000 }, async (t) => {
       assert.ok(r.pass >= 14, `control: only ${r.pass} tests ran`)
     })
     const jobs = TWINS.map(([name, why, edits, file]) => [name, why, generate(name, edits, file)])
-    assert.equal(jobs.length, 113, 'twin count')
+    assert.equal(jobs.length, 126, 'twin count')
     const results = []
     const queue = part(jobs)
     assert.ok(queue.length > 0, 'this part has twins')

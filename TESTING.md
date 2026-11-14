@@ -788,6 +788,17 @@ What `WitnessOutbox.tla` assumes of the store is tested of the SQLite one, with 
   both ways; the W1 challenge as the core computes it; the assertion object verified by `checkRootAssertion`; a
   delegation signed by the passkey and the worker accepted by `checkDelegation`; each refusal the core would make
   refused first, with its message.
+- `records.js` for recovery parties (R11; `P4-recovery.test.mjs`), through the witness: a party's commitment as the
+  core computes it; a designation the page builds taken by the witness, settled, and read back as the one in force;
+  each refusal R11 would make refused first; a party's possession check failing for another key, record, origin or
+  rp ID; adding a root restating the designation in force (a record without one designates none, so the page's
+  own change would otherwise have ended it); ending a designation; a party's signature starting a recovery, the
+  notice and its maturity read back, and the page's cancel answered with `cancelled`.
+- R11 at the page in Chrome (`P2-page.test.mjs`): a designation and a recovery made in Node with the page's own
+  record builders, the identity's passkey signing by its key read from the virtual authenticator. The notice is
+  shown on load and in another tab, with the record and both times; a witness that is down is said and no notice
+  shown, then asked again; a refused cancel is said and the notice stays; one prompt cancels it, the witness says
+  `cancelled`, and the identity is as it was; an added passkey's review shows the designation the change states.
 - The page in Chrome (`P2-page.test.mjs`, playwright-core driving the installed Chrome, a virtual authenticator
   through the DevTools WebAuthn domain): create and authorise, the result accepted by the core, then through the
   witness's head by the relying party's verifier; a resident credential named as asked; the identity remembered;
@@ -824,7 +835,9 @@ What `WitnessOutbox.tla` assumes of the store is tested of the SQLite one, with 
   wait is cut to 15 s and every test to 60 s, and once one test fails or times out, the rest fail at once. Without
   this, a broken page made each test wait out its limits in turn, and the mutant was counted only when Stryker's
   own timeout ran out.
-- Twins (`tests/meta/id-twins.test.mjs`, 113 in all): the challenge's domain, any algorithm, unsorted scopes, an unbounded
+- Twins (`tests/meta/id-twins.test.mjs`, 126 in all; 13 are R11's: a designation dropped when a passkey is added or
+  hidden from a co-signer, an own passkey or a minority designated, possession unchecked, a cancel of another record,
+  a wrong maturity, a notice or a silent witness not shown, an unreadable or unverified answer taken for none, and what a review leaves out): the challenge's domain, any algorithm, unsorted scopes, an unbounded
   lifetime, an unchecked audience, an edit that keeps the review, a late signature kept, verification preferred,
   any passkey, a credential that is not resident, inline scripts allowed, hidden parts shown; attest granted; a change co-signed that does not add
   this passkey, an edit of the new root kept, authority unchecked, delegations under the first membership, the root

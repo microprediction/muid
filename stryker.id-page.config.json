@@ -5,7 +5,8 @@
     "testFiles": [
       "tests/id/P2-page.test.mjs",
       "tests/id/P3-html.test.mjs",
-      "tests/id/P1-records.test.mjs"
+      "tests/id/P1-records.test.mjs",
+      "tests/id/P4-recovery.test.mjs"
     ]
   },
   "mutate": [
