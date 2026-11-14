@@ -788,6 +788,12 @@ What `WitnessOutbox.tla` assumes of the store is tested of the SQLite one, with 
   both ways; the W1 challenge as the core computes it; the assertion object verified by `checkRootAssertion`; a
   delegation signed by the passkey and the worker accepted by `checkDelegation`; each refusal the core would make
   refused first, with its message.
+- `records.js` for recovery parties (R11; `P4-recovery.test.mjs`), through the witness: a party's commitment as the
+  core computes it; a designation the page builds taken by the witness, settled, and read back as the one in force;
+  each refusal R11 would make refused first; a party's possession check failing for another key, record, origin or
+  rp ID; adding a root restating the designation in force (a record without one designates none, so the page's
+  own change would otherwise have ended it); ending a designation; a party's signature starting a recovery, the
+  notice and its maturity read back, and the page's cancel answered with `cancelled`.
 - The page in Chrome (`P2-page.test.mjs`, playwright-core driving the installed Chrome, a virtual authenticator
   through the DevTools WebAuthn domain): create and authorise, the result accepted by the core, then through the
   witness's head by the relying party's verifier; a resident credential named as asked; the identity remembered;

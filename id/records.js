@@ -3,7 +3,8 @@
 // fields the page shows (I4) before the passkey signs. Nothing here signs; the passkey does, in the browser.
 import { sha256 } from '@noble/hashes/sha2.js'
 import { seal, wrap, open } from '../src/envelope.js'
-import { membershipState } from '../src/membership.js'
+import { membershipState, isMembership, recoveryCommitment, MIN_RECOVERY_WINDOW, MAX_RECOVERY_WINDOW } from '../src/membership.js'
+import { checkRootAssertion } from '../src/assertion.js'
 import { checkRoot, identityOf } from '../src/root.js'
 import { isCanonicalOrigin } from '../src/origin.js'
 import { checkEd25519Key } from '../src/ed25519.js'
@@ -155,7 +156,10 @@ export function currentMembership (records, ctx) {
   const s = membershipState(records, ctx)
   if (!s.ok) throw new Error('the witness holds no record of this identity')
   if (s.dead) throw new Error('this identity has ended')
-  return { membership: s.membership, epoch: s.epoch, roots: [...s.roots], authority: [...s.authority], pending: s.pending }
+  // R11: the settled membership's designation (its parties' commitments), and the recovery under notice, or null.
+  const recovery = s.recovery === null ? null : { parties: [...s.recovery.parties], threshold: s.recovery.threshold, window: s.recovery.window }
+  const recovering = s.recovering === null ? null : { record: s.recovering.record, at: s.recovering.at }
+  return { membership: s.membership, epoch: s.epoch, roots: [...s.roots], authority: [...s.authority], pending: s.pending, recovery, recovering }
 }
 
 // The membership change that adds the root in `root` (its root record) to the current membership (R1): the next
@@ -166,7 +170,8 @@ export function addRoot ({ identity, state, root, rpId }) {
   if (!r.ok) throw new Error(`that is not a root record: ${r.reason}`)
   if (state.roots.includes(r.id)) throw new Error('that passkey is already a root of this identity')
   if (state.roots.length >= 5) throw new Error('an identity has at most 5 roots')
-  const body = { identity, prev: state.membership, epoch: state.epoch + 1, roots: [...state.roots, r.id].sort() }
+  // R11: a record without `recovery` designates none, so the designation in force is stated again.
+  const body = { identity, prev: state.membership, epoch: state.epoch + 1, roots: [...state.roots, r.id].sort(), ...(state.recovery ? { recovery: state.recovery } : {}) }
   return { body, ...seal('membership', body), added: r.id }
 }
 
@@ -181,7 +186,70 @@ export function changeToSign (payload) {
   } catch {
     throw new Error('that is not a membership change')
   }
-  const { identity, prev, epoch, roots } = r.body
-  if (!Array.isArray(roots)) throw new Error('that is not a membership change')
-  return { body: { identity, prev, epoch, roots: Array.from(roots) }, id: r.id, payload }
+  if (!isMembership(r.body)) throw new Error('that is not a membership change')
+  const { identity, prev, epoch, roots, recovery } = r.body
+  const body = { identity, prev, epoch, roots: Array.from(roots) }
+  // R11: the designation it states is shown with it (I4): a change that leaves it out ends the one in force.
+  if (recovery !== undefined) body.recovery = { parties: Array.from(recovery.parties), threshold: recovery.threshold, window: recovery.window }
+  return { body, id: r.id, payload }
 }
+
+// ---- R11: recovery parties (SPEC §8) ----
+export const DEFAULT_RECOVERY_WINDOW = 1_209_600 // 14 days: what the page offers
+const MAX_PARTIES = 3
+
+// What a party gives whoever would designate it: its root record and a salt it keeps. { root, key, salt,
+// commitment }; the commitment is all a designation shows of it.
+export function party (rootText, salt, rpId) {
+  const r = checkRoot(rootText, { rpId })
+  if (!r.ok) throw new Error(`that is not a root record: ${r.reason}`)
+  if (typeof salt !== 'string' || !ID.test(salt)) throw new Error('a salt is 64 lowercase hex digits')
+  return { root: r.id, key: r.key, salt, commitment: recoveryCommitment(r.id, salt) }
+}
+
+// The membership change that designates `parties` (each from `party`) for the current roots: { body, payload, id }.
+// Anything R11 or the witness would refuse is refused first; so is a party that is one of the identity's own roots,
+// which R11 counts for nothing.
+export function designate ({ identity, state, parties, threshold, window }) {
+  if (state.pending) throw new Error('a change is already pending: wait for it to settle')
+  if (!Array.isArray(parties) || parties.length < 1 || parties.length > MAX_PARTIES) throw new Error(`name 1 to ${MAX_PARTIES} recovery parties`)
+  if (parties.some((p) => state.roots.includes(p.root))) throw new Error("a recovery party must not be one of this identity's own passkeys")
+  const commitments = parties.map((p) => p.commitment).sort()
+  if (new Set(parties.map((p) => p.root)).size !== parties.length) throw new Error('a recovery party is named twice')
+  if (!Number.isInteger(threshold) || 2 * threshold <= parties.length || threshold > parties.length) throw new Error('the parties needed must be more than half of those named')
+  if (!Number.isInteger(window) || window < MIN_RECOVERY_WINDOW || window > MAX_RECOVERY_WINDOW) throw new Error('the waiting period must be 3 to 90 days')
+  const body = { identity, prev: state.membership, epoch: state.epoch + 1, roots: [...state.roots], recovery: { parties: commitments, threshold, window } }
+  return { body, ...seal('membership', body) }
+}
+
+// The change that ends the designation in force: the same roots, and no `recovery`.
+export function undesignate ({ identity, state }) {
+  if (state.pending) throw new Error('a change is already pending: wait for it to settle')
+  if (state.recovery === null) throw new Error('no recovery parties are designated')
+  const body = { identity, prev: state.membership, epoch: state.epoch + 1, roots: [...state.roots] }
+  return { body, ...seal('membership', body) }
+}
+
+// A party shows it holds its key: an ordinary root assertion covering `record`, checked under the party's own root
+// record, this rp ID and origin. The assertion is then discarded: it carries no authority, and published it would
+// name the party its commitment hides.
+export function possession (p, assertion, { record, rpId, origin }) {
+  const a = checkRootAssertion(assertion, { record, rpId, origin, key: p.key })
+  if (!a.ok) throw new Error(`the party's passkey did not sign this: ${a.reason}`)
+}
+
+// Whether `p` (from `party`) is one of the designation's parties: its root id and salt open a commitment there.
+export const designated = (recovery, p) => recovery !== null && recovery.parties.includes(p.commitment)
+
+// The root-signed cancel of the recovery under notice (any one root's): { body, payload, id }.
+export function cancel ({ identity, state }) {
+  if (state.recovering === null) throw new Error('no recovery is under notice')
+  const body = { identity, record: state.recovering.record }
+  return { body, ...seal('cancel', body) }
+}
+
+// When the recovery under notice matures unless cancelled: the notice's time and the designation's window.
+export const maturesAt = (state) => state.recovering.at + state.recovery.window
+
+// A party's signature on a recovery: its assertion with the root id and salt that open its commitment (R11).
+export const partySigned = (payload, p, assertion) => wrap(payload, { assertion, root: p.root, salt: p.salt })
