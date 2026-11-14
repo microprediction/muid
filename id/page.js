@@ -145,8 +145,9 @@ function show () {
   $('renew').hidden = root === null || joining || workers.length === 0
   listWorkers()
   $('pending').hidden = !unregistered()
-  // R11: the recovery under notice, as the witness's records last gave it for the root now held.
-  const under = root !== null && !joining && noticed !== null && noticed.root === root.id ? noticed.state : null
+  // R11: the recovery under notice, as the witness's records last gave it for the root now held (only a root of its
+  // own identity is asked about: not none, and not one that is joining).
+  const under = noticed !== null && noticed.root === root?.id ? noticed.state : null
   $('recovery-notice').hidden = under === null
   $('notice-unchecked').hidden = !unchecked || root === null || joining
   if (under !== null) {
@@ -449,7 +450,7 @@ $('cosign-retry').addEventListener('click', () => { $('error').textContent = '';
 // is cancelled at its next pass, and the notice goes when it has.
 $('notice-cancel').addEventListener('click', async () => {
   const n = noticed
-  if (n === null || root === null || n.root !== root.id) return
+  if (n === null || n.root !== root?.id) return // none shown, or one shown for a root this tab no longer holds
   $('error').textContent = ''
   try {
     const c = cancel({ identity: root.identity, state: n.state })

@@ -109,7 +109,14 @@ async function open ({ init } = {}) {
     const unavailable = () => Response.json({ ok: false, reason: 'unavailable' }, { status: 503 })
     holder.svc = kind === 'down' ? { handle: async () => unavailable() } : kind === 'lost' ? { handle: async (r) => { await real.handle(r); return unavailable() } } : real
   }
-  return { site, browser, ...first, device, tab, problems, collect, keys, clock, witnessGet, witnessPost, svc: real, refusing, outage, advance: (s) => { offset += s },
+  // `gate()`: the witness answers nothing until the function it returns is called; then it is itself again.
+  const gate = () => {
+    let release
+    const waiting = new Promise((resolve) => { release = resolve })
+    holder.svc = { handle: async (r) => { await waiting; return real.handle(r) } }
+    return () => { holder.svc = real; release() }
+  }
+  return { site, browser, ...first, device, tab, problems, collect, keys, clock, witnessGet, witnessPost, svc: real, refusing, outage, gate, advance: (s) => { offset += s },
     close: async () => { await collect(); await end() } }
 }
 
@@ -2096,6 +2103,11 @@ test('a recovery under notice is shown on load with when it takes effect; one pr
     const a = await createIdentity(t.page)
     const aId = rootModule.checkRoot(a.text, { rpId }).id
     assert.equal(await t.page.isHidden('#recovery-notice'), true)
+    assert.equal(await t.page.isHidden('#notice-unchecked'), true, 'nothing was asked, and nothing is said of it')
+    // With no notice shown, the cancel button (hidden) does nothing.
+    await t.page.evaluate(() => document.getElementById('notice-cancel').click())
+    await t.page.waitForTimeout(300)
+    assert.equal(await t.page.textContent('#error'), '')
     const { credentials } = await t.cdp.send('WebAuthn.getCredentials', { authenticatorId: t.authenticatorId })
     const aSecret = Buffer.from(createPrivateKey({ key: Buffer.from(credentials[0].privateKey, 'base64'), format: 'der', type: 'pkcs8' }).export({ format: 'jwk' }).d, 'base64url')
     const secret = (name) => Uint8Array.from(createHash('sha256').update('P2 recovery ' + name).digest())
@@ -2154,6 +2166,41 @@ test('a recovery under notice is shown on load with when it takes effect; one pr
     const other = await t.tab(t.context)
     await other.waitForSelector('#recovery-notice:not([hidden])')
 
+    // The notice is of the root it was asked for. Another root stored here (by another tab) is not shown it, even
+    // before the witness has answered for that one; nor does the button, pressed then, sign anything.
+    const mine = await held(t.page, 'root')
+    const y = rootOf('y')
+    const yId = rootModule.checkRoot(y, { rpId }).id
+    const open1 = t.gate()
+    await change(t.page, 'root', { credential: mine.credential, identity: rootModule.identityOf(yId), text: y, registered: true })
+    await t.page.waitForFunction((id) => document.getElementById('identity-id').textContent === id, rootModule.identityOf(yId))
+    await t.page.waitForSelector('#recovery-notice', { state: 'hidden' })
+    await t.page.evaluate(() => document.getElementById('notice-cancel').click())
+    await t.page.waitForTimeout(500)
+    assert.equal(await t.page.textContent('#error'), '')
+    open1()
+    // The witness knows no such identity: that is an answer, and there is nothing to say.
+    await t.page.waitForLoadState('networkidle')
+    assert.equal(await t.page.isHidden('#notice-unchecked'), true)
+    assert.equal(await t.page.isHidden('#recovery-notice'), true)
+    assert.equal(await t.page.textContent('#error'), '', 'the button pressed for another root sent nothing')
+    // A tab opened now has asked about that root only.
+    const late = await t.tab(t.context)
+    await late.waitForSelector('#identity:not([hidden])')
+    await late.waitForLoadState('networkidle')
+    // No root at all, with the old notice still in hand: the button does nothing.
+    const open2 = t.gate()
+    await change(t.page, 'root', mine)
+    await change(t.page, 'root', null)
+    await t.page.waitForSelector('#create:not([hidden])')
+    await t.page.evaluate(() => document.getElementById('notice-cancel').click())
+    open2()
+    // The identity's own root stored again: the witness is asked again, and the notice is back.
+    await change(t.page, 'root', mine)
+    await t.page.waitForSelector('#recovery-notice:not([hidden])')
+    await late.waitForSelector('#recovery-notice:not([hidden])')
+    assert.equal((await t.witnessGet(path)).cancelled.length, 0, 'nothing was cancelled meanwhile')
+
     // A witness that refuses the cancel: said, and the notice stays.
     t.refusing(true)
     await t.page.click('#notice-cancel')
@@ -2166,13 +2213,13 @@ test('a recovery under notice is shown on load with when it takes effect; one pr
     await t.page.waitForSelector('#recovery-notice', { state: 'hidden' })
     assert.equal(await t.page.textContent('#status'), 'Cancel sent. The notice goes once the witness has said the recovery is cancelled.')
     assert.equal(await t.page.textContent('#error'), '')
-    const held = await t.witnessGet(path)
-    assert.equal(held.cancelled.length, 1)
-    assert.deepEqual({ ...envelope.open(held.cancelled[0], 'cancelled').body }.record, R.id)
+    const kept = await t.witnessGet(path)
+    assert.equal(kept.cancelled.length, 1)
+    assert.equal(envelope.open(kept.cancelled[0], 'cancelled').body.record, R.id)
     const after = await current()
     assert.deepEqual([after.recovering, after.membership, after.authority], [null, d.id, [aId]])
     await t.collect()
-    assert.deepEqual(t.problems.filter((p) => !unavailable.test(p) && !/status of 422/.test(p)), [])
+    assert.deepEqual(t.problems.filter((p) => !unavailable.test(p) && !/status of (422|404)/.test(p)), [], 'the browser reports only the answers the test arranged')
   } finally { await t.close() }
 })
 

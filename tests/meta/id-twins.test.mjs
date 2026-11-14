@@ -51,7 +51,7 @@ const TWINS = [
   ['cancel-record-not-shown', 'the record a cancel signs is not shown (I4)', [["    $('notice-record').textContent = under.recovering.record\n", '']], 'page.js'],
   ['root-unregistered', 'a new identity is not registered with the witness', [["    await submit(r.identity, 'root', r.text)\n", '']], 'page.js'],
   ['added-root-unsubmitted', "the added root's record is not given to the witness", [["    await submit(root.identity, 'root', c.rootText)\n", '']], 'page.js'],
-  ['change-while-pending', 'a change is proposed while another is pending', [["  if (state.pending) throw new Error('a change is already pending: wait for it to settle')\n", '']], 'records.js'],
+  ['change-while-pending', 'a change is proposed while another is pending', [["  if (state.pending) throw new Error('a change is already pending: wait for it to settle')\n  const r = checkRoot(root, { rpId })\n", '  const r = checkRoot(root, { rpId })\n']], 'records.js'],
   ['roots-unsorted', "the change's roots are not sorted", [['roots: [...state.roots, r.id].sort() }', 'roots: [...state.roots, r.id] }']], 'records.js'],
   ['inline-script-allowed', "the CSP allows any inline script", [["script-src 'self' 'sha256-", "script-src 'self' 'unsafe-inline' 'sha256-"]], 'index.html'],
   ['hidden-shown', 'hidden parts of the page are displayed', [['[hidden] { display: none !important; }\n', '']], 'page.css'],
