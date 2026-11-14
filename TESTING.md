@@ -835,9 +835,9 @@ What `WitnessOutbox.tla` assumes of the store is tested of the SQLite one, with 
   wait is cut to 15 s and every test to 60 s, and once one test fails or times out, the rest fail at once. Without
   this, a broken page made each test wait out its limits in turn, and the mutant was counted only when Stryker's
   own timeout ran out.
-- Twins (`tests/meta/id-twins.test.mjs`, 124 in all; 11 are R11's: a designation dropped when a passkey is added or
+- Twins (`tests/meta/id-twins.test.mjs`, 126 in all; 13 are R11's: a designation dropped when a passkey is added or
   hidden from a co-signer, an own passkey or a minority designated, possession unchecked, a cancel of another record,
-  a wrong maturity, a notice or a silent witness not shown, and what a review leaves out): the challenge's domain, any algorithm, unsorted scopes, an unbounded
+  a wrong maturity, a notice or a silent witness not shown, an unreadable or unverified answer taken for none, and what a review leaves out): the challenge's domain, any algorithm, unsorted scopes, an unbounded
   lifetime, an unchecked audience, an edit that keeps the review, a late signature kept, verification preferred,
   any passkey, a credential that is not resident, inline scripts allowed, hidden parts shown; attest granted; a change co-signed that does not add
   this passkey, an edit of the new root kept, authority unchecked, delegations under the first membership, the root

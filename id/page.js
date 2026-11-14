@@ -177,7 +177,9 @@ async function state () {
   const res = await fetch(WITNESS + `v1/identities/${root.identity}/records`)
   // The witness knows no such identity (404), or holds its records; anything else is no answer at all.
   if (!res.ok && res.status !== 404) throw new Error('the witness did not answer')
-  const records = res.ok ? await res.json() : {}
+  // Only a 404 says the identity is unknown: records that were served and do not verify are no answer either.
+  if (!res.ok) throw Object.assign(new Error('the witness holds no record of this identity'), { unknown: true })
+  const records = await res.json()
   return currentMembership(records, { identity: root.identity, rpId, origin: ORIGIN, witnessKeys: WITNESS_KEYS })
 }
 // The current membership's id, for a delegation: only a root with authority (R6) signs one.
@@ -200,9 +202,10 @@ async function notice () {
   try {
     s = await state()
   } catch (e) {
-    // Only the two ordinary states in which there can be no recovery are silent. A malformed successful response is
-    // not an answer: hiding that would make a recovery notice look absent when the page could not check it.
-    failed = e.message !== 'the witness holds no record of this identity' && e.message !== 'this identity has ended'
+    // Only the two ordinary states in which there can be no recovery are silent: an identity the witness says it
+    // does not know (404), and one that has ended. A malformed answer, or records that do not verify, is no answer:
+    // hiding that would make a recovery notice look absent when the page could not check it.
+    failed = e.unknown !== true && e.message !== 'this identity has ended'
   }
   noticed = s !== null && s.recovering !== null ? { root: r.id, state: s } : null
   unchecked = failed
