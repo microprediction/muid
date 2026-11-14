@@ -6,8 +6,8 @@
 const ID = /^[0-9a-f]{64}$/
 const IDENTITY_PATH = /^\/v1\/identities\/([0-9a-f]{64})\/(records|head)$/
 const MAX_BODY = 131072 // bytes: two envelopes of the largest payload, with room
-const SUBMITTED = ['root', 'membership', 'contest', 'freeze']
-const LISTS = ['roots', 'memberships', 'contests', 'freezes', 'anchors', 'settlements']
+const SUBMITTED = ['root', 'membership', 'contest', 'freeze', 'cancel']
+const LISTS = ['roots', 'memberships', 'contests', 'freezes', 'anchors', 'settlements', 'notices', 'cancelled', 'matured']
 
 class Unavailable extends Error {
   constructor (reason) {
@@ -144,9 +144,10 @@ export function witnessService ({ witness, holdings, log, clock, headInterval })
     const { b, error } = await body(request)
     if (error !== undefined) return error
     if (pathname === '/v1/records') {
-      if (typeof b.type !== 'string') return refusal(400, 'request')
+      // R11: a recovery party's signature may come with the party's root record, `root`.
+      if (typeof b.type !== 'string' || (b.root !== undefined && typeof b.root !== 'string')) return refusal(400, 'request')
       if (!SUBMITTED.includes(b.type)) return refusal(422, 'type')
-      return change(b.identity, (held) => witness.admit(held, b.type, b.text))
+      return change(b.identity, (held) => witness.admit(held, b.type, b.text, b.root))
     }
     if (pathname === '/v1/delegations') return change(b.identity, (held, now) => witness.log(held, b.text, now))
     if (b.delegation !== undefined && typeof b.delegation !== 'string') return refusal(400, 'request')

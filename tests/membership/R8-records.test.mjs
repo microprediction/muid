@@ -13,7 +13,7 @@ test('the first root alone is epoch 1, settled, with authority', () => {
   const { records } = translate('a', [])
   const r = membershipState(records, ctx())
   assert.deepEqual(JSON.parse(JSON.stringify(r)), { ok: true, dead: false, identity: identityFor('a'), membership: identityFor('a'), settled: identityFor('a'), epoch: 1,
-    roots: [rootId('a')], pending: false, authority: [rootId('a')], frozen: false })
+    roots: [rootId('a')], pending: false, authority: [rootId('a')], frozen: false, recovery: null, recovering: null })
   assert.ok(Object.isFrozen(r) && Object.isFrozen(r.roots) && Object.isFrozen(r.authority))
 })
 

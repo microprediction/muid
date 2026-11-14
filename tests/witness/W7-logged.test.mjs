@@ -253,7 +253,8 @@ test('a retired agent: in the head while one of its delegations is live, and nev
   assert.equal(refused(w.log(held, delegation({ secret: key(3), nbf: NOW }).text, NOW)), 'revoked', 'a new key under the name')
   assert.equal(w.log(held, delegation({ secret: key(4), agent: 'reader' }).text, NOW).ok, true, 'another name')
   // Long after every delegation under the name has expired, the entry has left the head but is still kept.
-  const later = NOW + 30 * DAY
+  const later = BASE + 999_000 // while the witness's key still signs
+  assert.ok(later > NOW + 10 * DAY)
   assert.deepEqual(revokedIn(held, later) ?? [], [], 'not in a head once nothing under it is live')
   assert.equal(refused(w.log(held, delegation({ secret: key(5), nbf: later, exp: later + 3600 }).text, later)), 'revoked', 'still never reissued')
 })

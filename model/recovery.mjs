@@ -20,7 +20,7 @@ export const MAX_ROOTS = 5
 export const WINDOW = 1
 
 // Recovery parties (SPEC §5, R11): a membership may designate up to MAX_PARTIES of them as `rec`: { parties, k, w },
-// the parties (letters, sorted, none a root of that membership), how many must sign a recovery (k), and how long a
+// the parties (letters, sorted; one that is a root of that membership counts for nothing), how many must sign a recovery (k, a majority of them), and how long a
 // recovery waits under notice (w, in ticks, RMIN..RMAX). A membership without one has rec null. A recovery party has
 // no authority and no vote.
 export const MAX_PARTIES = 3
@@ -48,14 +48,15 @@ export const membershipId = (n, roots, prev, rec = null) => `M${n}{${roots.join(
 export const genesisOf = (root) => ({ id: membershipId(1, [root], '-'), n: 1, roots: [root], rec: null })
 
 const recOk = (p) => p.rec === null || (p.rec.parties.length >= 1 && p.rec.parties.length <= MAX_PARTIES &&
-  new Set(p.rec.parties).size === p.rec.parties.length && !p.rec.parties.some((g) => p.roots.includes(g)) &&
-  Number.isInteger(p.rec.k) && p.rec.k >= 1 && p.rec.k <= p.rec.parties.length &&
+  new Set(p.rec.parties).size === p.rec.parties.length &&
+  Number.isInteger(p.rec.k) && 2 * p.rec.k > p.rec.parties.length && p.rec.k <= p.rec.parties.length &&
   Number.isInteger(p.rec.w) && p.rec.w >= RMIN && p.rec.w <= RMAX)
 
-// R11: a recovery of `prev` by its designated parties: enough of them signed it, with every root it adds.
+// R11: a recovery of `prev` by its designated parties: enough of them signed it, with every root it adds. A party
+// that is one of prev's own roots is no party (a record cannot say so of itself: it names commitments, not roots).
 export function recoveryOf (prev, p) {
   if (p.n !== prev.n + 1 || !prev.rec || p.roots.length < 1 || p.roots.length > MAX_ROOTS || !recOk(p)) return false
-  const signed = prev.rec.parties.filter((g) => p.signers.has(g)).length
+  const signed = prev.rec.parties.filter((g) => !prev.roots.includes(g) && p.signers.has(g)).length
   if (signed < (rule('threshold') ? prev.rec.k : 1)) return false
   return p.roots.every((r) => prev.roots.includes(r) || p.signers.has(r))
 }
@@ -69,7 +70,7 @@ export function validNext (prev, p, matured = false) {
   let yes = 0
   for (const r of prev.roots) if (p.signers.has(r)) yes++
   let of = prev.roots.length
-  if (!rule('noVote') && prev.rec) { for (const g of prev.rec.parties) if (p.signers.has(g)) yes++; of += prev.rec.parties.length }
+  if (!rule('noVote') && prev.rec) { for (const g of prev.rec.parties) if (!prev.roots.includes(g)) { of++; if (p.signers.has(g)) yes++ } }
   if (2 * yes <= of) return false
   for (const r of p.roots) if (!prev.roots.includes(r) && !p.signers.has(r)) return false
   return true

@@ -33,10 +33,31 @@ const CALL = Object.freeze({ now: NOW, scope: 'post', revoked: [] })
 const plain = (r) => ({ ...r })
 
 test('a head that verifies gives its identity and time, whatever else a request would carry', () => {
-  assert.deepEqual(plain(v.verifyHead(head(NOW - 100), CALL)), { ok: true, identity: IDENTITY, at: NOW - 100 })
+  assert.deepEqual(plain(v.verifyHead(head(NOW - 100), CALL)), { ok: true, identity: IDENTITY, at: NOW - 100, recovering: null })
   const revoking = head(NOW - 50, { revoked: [del.id] })
-  assert.deepEqual(plain(v.verifyHead(revoking, CALL)), { ok: true, identity: IDENTITY, at: NOW - 50 }, 'one that revokes the delegation')
+  assert.deepEqual(plain(v.verifyHead(revoking, CALL)), { ok: true, identity: IDENTITY, at: NOW - 50, recovering: null }, 'one that revokes the delegation')
   assert.deepEqual(plain(v.verifyDelegation({ delegation, root, logged, head: revoking }, CALL)), { ok: false, reason: 'revoked' })
+})
+
+// R11: a head signed while a recovery is under notice carries it, and verifyHead gives it; nothing else changes.
+test('a head with a recovery under notice gives that notice; the delegation verifies as before; a notice out of form is no head', () => {
+  const record = 'a7'.repeat(32)
+  const noticed = head(NOW - 100, { recovering: { record, at: NOW - 5000 } })
+  const r = v.verifyHead(noticed, CALL)
+  assert.deepEqual(JSON.parse(JSON.stringify(r)), { ok: true, identity: IDENTITY, at: NOW - 100, recovering: { record, at: NOW - 5000 } })
+  assert.ok(Object.isFrozen(r.recovering))
+  assert.equal(v.verifyDelegation({ delegation, root, logged, head: noticed }, CALL).ok, true)
+  // A head may follow one with a notice, or one without: a notice is no part of decision 10's consistency.
+  assert.equal(v.verifyHead(head(NOW - 50), { ...CALL, lastHead: noticed }).ok, true)
+  assert.equal(v.verifyHead(noticed, { ...CALL, lastHead: head(NOW - 150) }).ok, true)
+  for (const recovering of [7, 'x', [], [NOW, record], {}, { record }, { at: NOW }, { record, at: -1 }, { record: 'x', at: NOW },
+    { record: record.toUpperCase(), at: NOW }, { record, at: NOW, by: 'x' }, { record, at: NOW, zz: 1 }, { a: 1, record, at: NOW }, { record, at: String(NOW) }]) {
+    assert.deepEqual(plain(v.verifyHead(head(NOW - 100, { recovering }), CALL)), { ok: false, reason: 'head' }, JSON.stringify(recovering))
+  }
+  // (The encoding has no null and no fraction.) No other key is taken in its place, before or after it.
+  for (const over of [{ recoverin: 1 }, { recoveringz: 1 }, { recovering: { record, at: NOW }, recoveringz: 1 }, { zz: 1 }]) {
+    assert.deepEqual(plain(v.verifyHead(head(NOW - 100, over), CALL)), { ok: false, reason: 'head' }, JSON.stringify(over))
+  }
 })
 
 test("its refusals are verifyDelegation's for the same head and call", () => {
