@@ -199,8 +199,9 @@ async function notice () {
   try {
     s = await state()
   } catch (e) {
-    // An identity the witness holds no record of, or one that has ended, has no recovery to cancel.
-    failed = e.message === 'the witness did not answer' || e instanceof TypeError
+    // Only the two ordinary states in which there can be no recovery are silent. A malformed successful response is
+    // not an answer: hiding that would make a recovery notice look absent when the page could not check it.
+    failed = e.message !== 'the witness holds no record of this identity' && e.message !== 'this identity has ended'
   }
   noticed = s !== null && s.recovering !== null ? { root: r.id, state: s } : null
   unchecked = failed
