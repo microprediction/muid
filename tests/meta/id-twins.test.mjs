@@ -37,6 +37,18 @@ const TWINS = [
   ['add-edit-keeps-review', 'an edit of the new root leaves the change signable', [["for (const id of ['agent', 'subject', 'aud', 'scopes', 'days', 'new-root', 'cosign-payload'])", "for (const id of ['agent', 'subject', 'aud', 'scopes', 'days', 'cosign-payload'])"]], 'page.js'],
   ['authority-unchecked', 'a passkey without authority yet signs delegations', [["  if (!s.authority.includes(root.id)) throw new Error('this passkey has no authority yet: wait for the change to settle')\n", '']], 'page.js'],
   ['membership-of-epoch-1', 'delegations name the first membership whatever the current one', [['  return s.membership\n', '  return root.identity\n']], 'page.js'],
+  // R11 at the page.
+  ['add-root-drops-designation', 'adding a passkey ends the recovery designation in force', [[", ...(state.recovery ? { recovery: state.recovery } : {}) }", ' }']], 'records.js'],
+  ['cosign-hides-designation', 'a change shown to co-sign does not show the designation it states (I4)', [["  if (recovery !== undefined) body.recovery = { parties: Array.from(recovery.parties), threshold: recovery.threshold, window: recovery.window }\n", '']], 'records.js'],
+  ['designate-own-root', "one of the identity's own passkeys is designated a recovery party", [["  if (parties.some((p) => state.roots.includes(p.root))) throw new Error(\"a recovery party must not be one of this identity's own passkeys\")\n", '']], 'records.js'],
+  ['designate-minority', 'a designation is built that fewer than half its parties could use', [['2 * threshold <= parties.length', 'threshold < 1']], 'records.js'],
+  ['possession-unchecked', "a party's possession check passes whatever it signed", [["  if (!a.ok) throw new Error(`the party's passkey did not sign this: ${a.reason}`)\n", '']], 'records.js'],
+  ['cancel-other-record', 'the cancel names another record than the recovery under notice', [['const body = { identity, record: state.recovering.record }', 'const body = { identity, record: state.membership }']], 'records.js'],
+  ['matures-at-notice', 'a recovery is shown as taking effect when its notice was given', [['state.recovering.at + state.recovery.window', 'state.recovering.at']], 'records.js'],
+  ['notice-not-shown', 'a recovery under notice is not shown', [["  $('recovery-notice').hidden = under === null\n", "  $('recovery-notice').hidden = true\n"]], 'page.js'],
+  ['no-answer-silent', 'a witness that gives no answer about recoveries is not said', [['  unchecked = failed\n', '  unchecked = false\n']], 'page.js'],
+  ['add-designation-not-shown', 'an added passkey is reviewed without the designation the change states (I4)', [["    $('add-recovery').textContent = designation(c.body.recovery)\n", '']], 'page.js'],
+  ['cancel-record-not-shown', 'the record a cancel signs is not shown (I4)', [["    $('notice-record').textContent = under.recovering.record\n", '']], 'page.js'],
   ['root-unregistered', 'a new identity is not registered with the witness', [["    await submit(r.identity, 'root', r.text)\n", '']], 'page.js'],
   ['added-root-unsubmitted', "the added root's record is not given to the witness", [["    await submit(root.identity, 'root', c.rootText)\n", '']], 'page.js'],
   ['change-while-pending', 'a change is proposed while another is pending', [["  if (state.pending) throw new Error('a change is already pending: wait for it to settle')\n", '']], 'records.js'],
@@ -181,7 +193,7 @@ test('id page broken twins', { timeout: 7_200_000 }, async (t) => {
       assert.ok(r.pass >= 14, `control: only ${r.pass} tests ran`)
     })
     const jobs = TWINS.map(([name, why, edits, file]) => [name, why, generate(name, edits, file)])
-    assert.equal(jobs.length, 113, 'twin count')
+    assert.equal(jobs.length, 124, 'twin count')
     const results = []
     const queue = part(jobs)
     assert.ok(queue.length > 0, 'this part has twins')

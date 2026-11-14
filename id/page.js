@@ -5,7 +5,7 @@
 // record and the credential id are kept in this browser only. The workers it authorised are remembered here too, so
 // that one assertion renews up to eight of them at once (decision 3).
 import { openStore } from './store.js'
-import { rootRecord, challenge, assertion, delegation, handOff, b64u, fromB64u, currentMembership, addRoot, rootSigned, changeToSign, fingerprint, storedRoot, cosignedIdentity, storedWorkers, remember, retired, renewals } from './records.js'
+import { rootRecord, challenge, assertion, delegation, handOff, b64u, fromB64u, currentMembership, addRoot, rootSigned, changeToSign, fingerprint, storedRoot, cosignedIdentity, storedWorkers, remember, retired, renewals, cancel, maturesAt } from './records.js'
 
 const $ = (id) => document.getElementById(id)
 const meta = (name) => document.querySelector(`meta[name="${name}"]`).content
@@ -100,6 +100,12 @@ const fields = (b) => [['Agent', b.agent], ['Audience', b.aud], ['Scopes', b.sco
 
 // A remembered worker's place in the list: its agent at its audience. Those the user unticked, for as long as they
 // are listed, are not renewed.
+// R11: a designation as a membership change states it (I4): how many of its parties recover, after how long. A
+// change that states none ends the one in force.
+const DAY = 86_400
+const designation = (r) => r === undefined || r === null ? 'none'
+  : `${r.threshold} of ${r.parties.length}, after ${r.window % DAY === 0 ? `${r.window / DAY} days` : `${r.window} seconds`}`
+const when = (t) => new Date(t * 1000).toISOString()
 const slot = (w) => JSON.stringify([w.agent, w.aud])
 const unticked = new Set()
 // The remembered workers, each selected for renewal until unticked, with a button to forget it. Stored text is shown
@@ -139,6 +145,15 @@ function show () {
   $('renew').hidden = root === null || joining || workers.length === 0
   listWorkers()
   $('pending').hidden = !unregistered()
+  // R11: the recovery under notice, as the witness's records last gave it for the root now held.
+  const under = root !== null && !joining && noticed !== null && noticed.root === root.id ? noticed.state : null
+  $('recovery-notice').hidden = under === null
+  $('notice-unchecked').hidden = !unchecked || root === null || joining
+  if (under !== null) {
+    $('notice-at').textContent = when(under.recovering.at)
+    $('notice-matures').textContent = when(maturesAt(under))
+    $('notice-record').textContent = under.recovering.record
+  }
   $('cosign-pending').hidden = root?.cosigned === undefined
   if (root !== null) {
     $('identity-id').textContent = root.identity
@@ -159,6 +174,8 @@ async function submit (identity, type, text) {
 }
 async function state () {
   const res = await fetch(WITNESS + `v1/identities/${root.identity}/records`)
+  // The witness knows no such identity (404), or holds its records; anything else is no answer at all.
+  if (!res.ok && res.status !== 404) throw new Error('the witness did not answer')
   const records = res.ok ? await res.json() : {}
   return currentMembership(records, { identity: root.identity, rpId, origin: ORIGIN, witnessKeys: WITNESS_KEYS })
 }
@@ -167,6 +184,27 @@ async function membership () {
   const s = await state()
   if (!s.authority.includes(root.id)) throw new Error('this passkey has no authority yet: wait for the change to settle')
   return s.membership
+}
+
+// R11: whether a recovery of this identity is under notice, asked of the witness on load and after anything that
+// may change it. `noticed` is the state it was read from, for the root it was read for; `unchecked`, that the
+// witness gave no answer, which is said: a notice not shown is then not known to be absent.
+let noticed = null
+let unchecked = false
+async function notice () {
+  const r = root
+  if (r === null || r.joining === true) return
+  let s = null
+  let failed = false
+  try {
+    s = await state()
+  } catch (e) {
+    // An identity the witness holds no record of, or one that has ended, has no recovery to cancel.
+    failed = e.message === 'the witness did not answer' || e instanceof TypeError
+  }
+  noticed = s !== null && s.recovering !== null ? { root: r.id, state: s } : null
+  unchecked = failed
+  show()
 }
 
 // One user-verified assertion by this identity's own passkey over the records in `covers` (W1).
@@ -344,6 +382,7 @@ $('add-review').addEventListener('click', async () => {
     $('add-added').textContent = c.added
     $('add-fingerprint').textContent = fingerprint(c.added)
     $('add-epoch').textContent = String(c.body.epoch)
+    $('add-recovery').textContent = designation(c.body.recovery)
     $('add-panel').hidden = false
   } catch (e) { if (asked === withdrawals) fail(e) } // a refusal of what was withdrawn is not shown
 })
@@ -373,6 +412,7 @@ $('cosign-review').addEventListener('click', () => {
     pending.cosign = c
     $('cosign-identity').textContent = c.body.identity
     $('cosign-roots').textContent = c.body.roots.join(' ')
+    $('cosign-recovery').textContent = designation(c.body.recovery)
     $('cosign-panel').hidden = false
   } catch (e) { fail(e) }
 })
@@ -405,6 +445,22 @@ async function cosign () {
 }
 $('cosign-retry').addEventListener('click', () => { $('error').textContent = ''; cosign() })
 
+// R11: any one root cancels the recovery under notice. What is signed is the record shown (I4); the witness says it
+// is cancelled at its next pass, and the notice goes when it has.
+$('notice-cancel').addEventListener('click', async () => {
+  const n = noticed
+  if (n === null || root === null || n.root !== root.id) return
+  $('error').textContent = ''
+  try {
+    const c = cancel({ identity: root.identity, state: n.state })
+    const a = await sign([c.id])
+    await submit(root.identity, 'cancel', rootSigned(c.payload, n.root, a))
+    $('status').textContent = 'Cancel sent. The notice goes once the witness has said the recovery is cancelled.'
+    await notice()
+  } catch (e) { fail(e) }
+})
+$('notice-retry').addEventListener('click', notice)
+
 // SPEC §7: without its storage the page offers nothing. What another tab of this origin stores is followed here, so
 // a page open since before cannot act on a stale root or a stale list.
 if (REFUSAL === undefined) {
@@ -413,12 +469,12 @@ if (REFUSAL === undefined) {
     // cleared it): whatever is open is withdrawn, and the page offers nothing more until it is loaded again.
     store = await openStore('muid', () => {
       withdraw()
-      for (const id of ['create', 'identity', 'authorise', 'renew', 'add-root', 'joining', 'pending']) $(id).hidden = true
+      for (const id of ['create', 'identity', 'authorise', 'renew', 'add-root', 'joining', 'pending', 'recovery-notice', 'notice-unchecked']) $(id).hidden = true
       REFUSAL = 'A newer version of this page has taken its storage, or the browser has cleared it: reload this page.'
       show()
     })
     await refresh()
-    store.watch(() => refresh().then(() => { withdraw(); show() }, fail))
+    store.watch(() => refresh().then(() => { withdraw(); show(); notice() }, fail))
   } catch {
     REFUSAL = 'This browser gave the page no storage: it can do nothing here.'
   }
@@ -426,4 +482,5 @@ if (REFUSAL === undefined) {
 show()
 // What is kept to be sent (an outbox) is sent again on load. Where the page refuses to act it has read no root.
 if (unregistered()) register()
+else notice()
 if (root?.cosigned !== undefined) cosign()

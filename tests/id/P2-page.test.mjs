@@ -5,7 +5,11 @@ import { test as nodeTest, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { ed25519 } from '@noble/curves/ed25519.js'
 import { chromium } from 'playwright-core'
-import { generateKeyPairSync } from 'node:crypto'
+import { generateKeyPairSync, createPrivateKey, createHash } from 'node:crypto'
+import { p256 } from '@noble/curves/nist.js'
+import { records as pageRecords } from './impl.mjs'
+import { make as makeAssertion, authData, clientData, challengeFor } from '../assertion/helpers.mjs'
+import { membership as membershipModule } from '../impl.mjs'
 import { root as rootModule, delegation as delegationModule, assertion as assertionModule, envelope, verifier as verifierModule } from '../impl.mjs'
 import { witness, witnessService, memoryHoldings, memoryLog } from '../witness/impl.mjs'
 import { serve } from './serve.mjs'
@@ -673,6 +677,7 @@ test('a second passkey: one device adds it, the other co-signs; once settled it 
     assert.equal(await t.page.textContent('#add-added'), bId)
     assert.equal(await t.page.textContent('#add-fingerprint'), print, 'the same fingerprint as on the joining device')
     assert.equal(await t.page.textContent('#add-epoch'), '2')
+    assert.equal(await t.page.textContent('#add-recovery'), 'none')
     await t.page.fill('#new-root', bRoot + ' ')
     assert.equal(await t.page.isHidden('#add-panel'), true, 'an edit withdraws the change')
     await t.page.click('#add-review')
@@ -697,6 +702,7 @@ test('a second passkey: one device adds it, the other co-signs; once settled it 
     await b.page.waitForSelector('#cosign-panel:not([hidden])')
     assert.equal(await b.page.textContent('#cosign-identity'), a.identity)
     assert.equal(await b.page.textContent('#cosign-roots'), Array.from(change.body.roots).join(' '))
+    assert.equal(await b.page.textContent('#cosign-recovery'), 'none')
     await b.page.click('#cosign-sign')
     await b.page.waitForSelector('#identity:not([hidden])')
     assert.equal(await b.page.textContent('#identity-id'), a.identity)
@@ -2077,6 +2083,98 @@ const commands = fc.array(fc.oneof(
   { weight: 3, arbitrary: fc.record({ do: fc.constant('deafen'), tab: fc.nat(1) }) },
   { weight: 2, arbitrary: fc.record({ do: fc.constant('hear'), tab: fc.nat(1) }) },
 ), { minLength: 8, maxLength: 16, size: 'max' })
+
+// R11 at the page. The designation and the recovery are made here in Node with the page's own record builders: the
+// identity's passkey signs by its private key, read from the virtual authenticator; the party and the root the
+// recovery would install are keys held here.
+test('a recovery under notice is shown on load with when it takes effect; one prompt cancels it; a witness that gives no answer is said; a change shows the designation it states', { timeout: 180_000 }, async () => {
+  const t = await open()
+  const unavailable = /^Failed to load resource: the server responded with a status of 503/
+  try {
+    const rpId = 'localhost'
+    const MIN = membershipModule.MIN_RECOVERY_WINDOW
+    const a = await createIdentity(t.page)
+    const aId = rootModule.checkRoot(a.text, { rpId }).id
+    assert.equal(await t.page.isHidden('#recovery-notice'), true)
+    const { credentials } = await t.cdp.send('WebAuthn.getCredentials', { authenticatorId: t.authenticatorId })
+    const aSecret = Buffer.from(createPrivateKey({ key: Buffer.from(credentials[0].privateKey, 'base64'), format: 'der', type: 'pkcs8' }).export({ format: 'jwk' }).d, 'base64url')
+    const secret = (name) => Uint8Array.from(createHash('sha256').update('P2 recovery ' + name).digest())
+    const rootOf = (name) => envelope.wrap(envelope.seal('root', { pub: hex(p256.getPublicKey(secret(name), false)), rp_id: rpId }).payload)
+    const by = (key, id) => makeAssertion({ covers: [id], ad: authData({ rpId }), cdj: clientData({ challenge: challengeFor([id]), origin: t.site.origin }), secret: key })
+    const path = `/v1/identities/${a.identity}/records`
+    const current = async () => pageRecords.currentMembership(await t.witnessGet(path), { identity: a.identity, rpId, origin: t.site.origin, witnessKeys: t.keys })
+    const post = async (type, text, root) => {
+      const r = await t.witnessPost('/v1/records', root === undefined ? { identity: a.identity, type, text } : { identity: a.identity, type, text, root })
+      assert.equal(r.ok, true, `${type}: ${r.reason}`)
+    }
+    // The owner designates one party, three days' wait; it settles.
+    const g = pageRecords.party(rootOf('g'), hex(secret('salt')), rpId)
+    const d = pageRecords.designate({ identity: a.identity, state: await current(), parties: [g], threshold: 1, window: MIN })
+    await post('membership', pageRecords.rootSigned(d.payload, aId, by(aSecret, d.id)))
+    t.advance(61)
+    await t.svc.tick()
+    assert.equal((await current()).recovery.threshold, 1)
+    await t.page.reload()
+    await t.page.waitForSelector('#identity:not([hidden])')
+    await t.page.waitForLoadState('networkidle')
+    assert.equal(await t.page.isHidden('#recovery-notice'), true, 'designated, and nothing under notice')
+    assert.equal(await t.page.isHidden('#notice-unchecked'), true)
+    // A change the page builds states the designation again, and shows it.
+    await t.page.fill('#new-root', rootOf('b'))
+    await t.page.click('#add-review')
+    await t.page.waitForSelector('#add-panel:not([hidden])')
+    assert.equal(await t.page.textContent('#add-recovery'), '1 of 1, after 3 days')
+    await t.page.fill('#new-root', '')
+
+    // The party asks for a recovery to a root of its choosing: the witness gives notice.
+    const nId = rootModule.checkRoot(rootOf('n'), { rpId }).id
+    const R = envelope.seal('membership', { identity: a.identity, prev: d.id, epoch: 3, roots: [nId] })
+    await post('membership', pageRecords.partySigned(R.payload, g, by(secret('g'), R.id)), rootOf('g'))
+    await post('root', rootOf('n'))
+    await post('membership', pageRecords.rootSigned(R.payload, nId, by(secret('n'), R.id)))
+    const noticed = await current()
+    assert.equal(noticed.recovering.record, R.id)
+    const iso = (s) => new Date(s * 1000).toISOString()
+
+    // The witness gives no answer: the page says it could not ask, and shows no notice it does not have.
+    t.outage('down')
+    await t.page.reload()
+    await t.page.waitForSelector('#notice-unchecked:not([hidden])')
+    assert.equal(await t.page.isHidden('#recovery-notice'), true)
+    t.outage()
+    await t.page.click('#notice-retry')
+    await t.page.waitForSelector('#recovery-notice:not([hidden])')
+    assert.equal(await t.page.isHidden('#notice-unchecked'), true)
+    assert.equal(await t.page.textContent('#notice-record'), R.id)
+    assert.equal(await t.page.textContent('#notice-at'), iso(noticed.recovering.at))
+    assert.equal(await t.page.textContent('#notice-matures'), iso(noticed.recovering.at + MIN))
+    // On load, too; and in another tab of the browser.
+    await t.page.reload()
+    await t.page.waitForSelector('#recovery-notice:not([hidden])')
+    const other = await t.tab(t.context)
+    await other.waitForSelector('#recovery-notice:not([hidden])')
+
+    // A witness that refuses the cancel: said, and the notice stays.
+    t.refusing(true)
+    await t.page.click('#notice-cancel')
+    await errorShown(t.page)
+    assert.equal(await t.page.textContent('#error'), 'the witness refused the cancel: test')
+    assert.equal(await t.page.isHidden('#recovery-notice'), false)
+    t.refusing(false)
+    // One prompt cancels it: the witness says so, the notice goes, and the identity is as it was.
+    await t.page.click('#notice-cancel')
+    await t.page.waitForSelector('#recovery-notice', { state: 'hidden' })
+    assert.equal(await t.page.textContent('#status'), 'Cancel sent. The notice goes once the witness has said the recovery is cancelled.')
+    assert.equal(await t.page.textContent('#error'), '')
+    const held = await t.witnessGet(path)
+    assert.equal(held.cancelled.length, 1)
+    assert.deepEqual({ ...envelope.open(held.cancelled[0], 'cancelled').body }.record, R.id)
+    const after = await current()
+    assert.deepEqual([after.recovering, after.membership, after.authority], [null, d.id, [aId]])
+    await t.collect()
+    assert.deepEqual(t.problems.filter((p) => !unavailable.test(p) && !/status of 422/.test(p)), [])
+  } finally { await t.close() }
+})
 
 test('histories: two tabs, steps drawn at random, each judged by what the model states of every state', { timeout: 3_600_000 }, async () => {
   const t = await open({ init: HOLD_STORAGE })
