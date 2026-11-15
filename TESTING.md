@@ -467,10 +467,20 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   twenty of eight instances together); it waits `busy` milliseconds and no longer, and not at all for a file that is
   not a database. The wait is by the clock that only moves forward: with the wall clock set back an hour, or
   forward, after it began, it is still `busy` milliseconds (#76; by the wall clock it went on until let go).
+- **Revocations once seen (R10; found by a probe).** The adapter kept only the last head, so a later head that left
+  a revocation out was refused once, against the head before it, then became the memory, and the revoked delegation
+  was accepted from the next request on. Now, in both stores: after a head that revokes, every later request under
+  heads that leave it out is refused as `revoked`; a revocation in a head older than the memory (handed over by
+  another party) is kept though the head is `stale`; a target is kept `revocationMemory` seconds past the newest
+  head that carried it, an older head never shortening that, and dropped by the cleanup after; kept by identity, at
+  most 256 for one (those kept longest, then by target), so a witness key cannot fill a store; what is kept is
+  joined to the call's own list in the transaction; a store that cannot give it is `storage`. `verifyHead` gives
+  what the head revokes (`F6`). Twins: twelve (not kept, not used, replacing the call's list, lapsing with the head,
+  shortened, unbounded, shared across identities, never dropped; the store ones for each store), 38 in all.
 - A head alone (`acceptHead`): one handed over by another relying party is remembered if it may follow the memory,
   `stale` if older, `equivocation` if it cannot follow (the memory keeps its own); what cannot be read is `head`,
   failing storage is `storage`, and a head too old for this party is not remembered. Twins: judged without the
-  memory and not remembered; consumed as a claim would be (26 in all). A record the verifier does not name is not
+  memory and not remembered; consumed as a claim would be. A record the verifier does not name is not
   read, by the verifier or the adapter (a later version's records pass an older one).
 - Memory: the head only moves forward, in both stores and under a late writer; an older head is then refused; a
   stored head the verifier cannot read (corrupt, or signed by a removed witness key) bounds rollback by its time.
@@ -502,11 +512,17 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   delegate's key, who signs claims with any time and presents any claim with any signed head, to either of two
   instances whose clocks differ by 2 s, sharing one durable store; each request verified alone, then in a transaction,
   with the other instance's requests, cleanup of expired ids, restarts and time passing in between. Explored
-  exhaustively: each claim is dispatched at most once; nothing is dispatched once the store remembers a revoking head;
+  exhaustively: each claim is dispatched at most once; nothing is dispatched once a revoking head has reached the
+  store (a request whose head revokes is refused, and its head still reaches the transaction);
   a request is authorised, at its transaction, only while its claim's age, its delegation's window, its head's
   freshness and the witness key's window all still hold by its instance's clock (`NoExpiredAuthorizationAtCommit`);
   and it is authorised at most `maxStaleness` plus the clock difference after the revocation, a bound TLC showed is
-  reached. About 24 million states, a minute or so. Negative controls, each of which TLC must report: with the grace
+  reached. About 22 million distinct states, minutes. A second configuration has a witness that may leave the
+  revocation out of heads it signs after it (`AdapterDishonestWitness.cfg`): there nothing is dispatched once any
+  head that carried the revocation has reached the store, whatever later heads say (R10), over 15 million distinct
+  states (102 million at the first configuration's bound, run once). Its negative control is the adapter as it was,
+  keeping only the last head (`AdapterNoRevocationMemory.cfg`): TLC reports the revoked delegation dispatched.
+  Negative controls of the first, each of which TLC must report: with the grace
   below the clock difference, or without the claim's age checked at the transaction, a claim is dispatched twice;
   without the delegation's window, the head's freshness or the witness key's window checked there (three
   configurations), a request is authorised past that deadline; with the freshness limit one second tighter, it is

@@ -205,11 +205,12 @@ export function verifier (config) {
     return accept({ id: d.id, body: b, agent })
   }
 
-  // F6: a head alone, under the same call: { ok, identity, at }, or F5's head refusal. A relying party may remember
-  // any head that verifies, whatever else a request carries.
+  // F6: a head alone, under the same call: what it states ({ ok, identity, at, epoch, memberships, authority,
+  // revoked }), or F5's head refusal. A relying party may remember any head that verifies, and what it revokes (R10),
+  // whatever else a request carries.
   function verifyHead (head, call) {
     const h = checkHead(head, readCall(call, false, cfg))
-    return h.ok === false ? h : accept({ identity: h.identity, at: h.at })
+    return h.ok === false ? h : accept({ identity: h.identity, at: h.at, epoch: h.epoch, memberships: h.memberships, authority: h.authority, revoked: h.revoked })
   }
 
   function verifyDelegation (records, call) {
