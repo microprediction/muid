@@ -37,7 +37,7 @@ const TWINS = [
   ['authority-may-shrink-at-settlement', 'authority may shrink when the pending successor settles', [['hm.length === 1 && within(l.authority, h.authority)', 'hm.length === 1 && false']]],
   ['epoch-zero', 'a head of epoch 0 is accepted', [['(isTime(b.epoch) && b.epoch > 0 && b.epoch', '(isTime(b.epoch) && b.epoch']]],
   ['epoch-unbounded', 'an epoch near 2^53 rounds in the equivocation check', [[' && b.epoch < 2 ** 32)', ')']]],
-  ['identity-as-pending', 'the identity id is accepted as a pending successor, reviving epoch 1', [[' || b.memberships[1] === b.identity) return', ') return']]],
+  ['identity-as-pending', 'the identity id is accepted as a pending successor, reviving epoch 1', [[' || b.memberships[1] === b.identity ||', ' ||']]],
   ['older-than-last-accepted', 'a head older than the last one accepted is accepted', [[' || (last && h.at < last.at)', '']]],
   ['last-identity-unchecked', 'a last head of another identity is compared as if it were this one\'s', [["    if (last && last.identity !== h.identity) return refuse('identity')\n", '']]],
   ['last-head-at-now', 'the last head must still be in its key\'s window now, so key rotation breaks callers', [['headBody(lastHead, cfg, undefined)', 'headBody(lastHead, cfg, now)']]],
