@@ -50,12 +50,13 @@ export function relyingParty ({ verifier, store, clock }) {
     }
   }
 
-  async function accept (method, records, rawCall) {
+  // `verify(given, call)` is the verifier's check of the request; `claim` says whether what it accepts is consumed.
+  async function accept (verify, claim, records, rawCall) {
     const call = readCall(rawCall)
     const given = readGiven(records)
     // Without memory first, outside the lock. Memory only adds refusals, so a request refused here is refused; it
     // takes the lock only to remember its head, when that head verifies and is newer than the memory (F6).
-    const pre = verifier[method](given, call)
+    const pre = verify(given, call)
     const seen = verifier.verifyHead(given?.head, call)
     if (!seen.ok) return refusal(pre.reason)
     if (!pre.ok) {
@@ -67,7 +68,7 @@ export function relyingParty ({ verifier, store, clock }) {
       }
       // Nothing to remember: the memory is later, or is this very head. The reason is the one the memory gives.
       if (stored !== undefined && (stored.at > seen.at || stored.head === given.head)) {
-        return refusal(withMemory((c) => verifier[method](given, c), call, stored).reason)
+        return refusal(withMemory((c) => verify(given, c), call, stored).reason)
       }
     }
     let outcome
@@ -80,7 +81,7 @@ export function relyingParty ({ verifier, store, clock }) {
           if (!Number.isSafeInteger(now) || now < 0) throw new TypeError('clock() must give a time in seconds')
           const current = { ...call, now }
           head = withMemory((c) => verifier.verifyHead(given.head, c), current, stored)
-          r = withMemory((c) => verifier[method](given, c), current, stored)
+          r = withMemory((c) => verify(given, c), current, stored)
         } catch (e) {
           return { thrown: e } // the verifier's, not the store's: rethrown below
         }
@@ -95,7 +96,7 @@ export function relyingParty ({ verifier, store, clock }) {
         }
         if (!r.ok) return refusal(r.reason)
         if (!pre.ok) return refusal(pre.reason) // refused at the call's time, whatever the clock says
-        if (method === 'verifyClaim' && !tx.consume(r.id, r.until)) return refusal('replay')
+        if (claim && !tx.consume(r.id, r.until)) return refusal('replay')
         return r
       })
     } catch {
@@ -106,16 +107,21 @@ export function relyingParty ({ verifier, store, clock }) {
   }
 
   // A delegation alone (a request that carries no claim): verified, and the head remembered.
-  const acceptDelegation = (given, call) => accept('verifyDelegation', given, call)
+  const acceptDelegation = (given, call) => accept(verifier.verifyDelegation, false, given, call)
+
+  // A head alone (F6), as another relying party hands over the newest it accepted: judged against the memory as any
+  // head is, and remembered if it may follow. A split between two parties' views is refused as `equivocation` at
+  // whichever sees the other's head. Only `given.head` is read.
+  const acceptHead = (given, call) => accept((g, c) => verifier.verifyHead(g?.head, c), false, given, call)
 
   // A claim: verified, consumed atomically, and only then `action(result)` run, once. If the action fails, the claim
   // stays consumed and the error propagates: the delegate makes a new claim.
   async function acceptClaim (given, call, action) {
-    const r = await accept('verifyClaim', given, call)
+    const r = await accept(verifier.verifyClaim, true, given, call)
     if (!r.ok) return r
     const value = await action(r)
     return Object.freeze({ ok: true, id: r.id, until: r.until, body: r.body, delegation: r.delegation, value })
   }
 
-  return Object.freeze({ acceptDelegation, acceptClaim })
+  return Object.freeze({ acceptDelegation, acceptClaim, acceptHead })
 }
