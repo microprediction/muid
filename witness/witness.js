@@ -1,4 +1,4 @@
-// The membership witness's decisions (SPEC R3–R5, R8's admission, R9's heads): pure functions over the records it
+// The membership witness's decisions (SPEC R3–R5, R8's admission, R9's heads, R11's recoveries): pure functions over the records it
 // holds for one identity, outside the trusted core. model/settled.mjs's `witness` is its specification. Whether a
 // record it signs would be followed is decided by the core's own membershipState, never by a second implementation
 // of R1: an anchor is kept only if, with it, verifiers see that record pending (R3: "applies R1 exactly as verifiers
@@ -6,7 +6,7 @@
 import { open, seal, wrap, signedBytes, EnvelopeError } from '../src/envelope.js'
 import { checkRoot, identityOf, agentIdOf } from '../src/root.js'
 import { checkRootAssertion } from '../src/assertion.js'
-import { membershipState, headOf, MAX_RECORDS, MAX_REVOKED } from '../src/membership.js'
+import { membershipState, headOf, isMembership, recoveryCommitment, MAX_RECORDS, MAX_REVOKED, MIN_RECOVERY_WINDOW } from '../src/membership.js'
 import { checkDelegation } from '../src/delegation.js'
 import { checkEd25519 } from '../src/ed25519.js'
 import { readWitnessKeys, onlyKeys, isHex } from '../src/attestation.js'
@@ -32,20 +32,17 @@ const DAY = 86_400
 // Tombstones a root may hold for one prev: its replaced proposals, whose resubmission is refused.
 const TOMBSTONES = 16
 // The record types anyone may submit, and the list each is held in (R8's grouping).
-const LISTS = freeze({ __proto__: null, root: 'roots', membership: 'memberships', contest: 'contests', freeze: 'freezes' })
+const LISTS = freeze({ __proto__: null, root: 'roots', membership: 'memberships', contest: 'contests', freeze: 'freezes', cancel: 'cancels' })
+// R11: after a recovery is cancelled, no other is put under notice for this long (the contest window's three days).
+const COOLING_OFF = MIN_RECOVERY_WINDOW
 const SHAPES = freeze({
   __proto__: null,
-  membership: (b) => onlyKeys(b, ['epoch', 'identity', 'prev', 'roots']) && rootsOk(b.roots),
+  // The core's own form (R1, R11's designation): a record verifiers would ignore is never held, so it is never counted.
+  membership: isMembership,
   contest: (b) => onlyKeys(b, ['identity', 'record']),
   freeze: (b) => onlyKeys(b, ['identity', 'membership']),
+  cancel: (b) => onlyKeys(b, ['identity', 'record']),
 })
-
-// 1–5 root ids, strictly ascending (R1's record form).
-function rootsOk (roots) {
-  if (!isArray(roots) || roots.length < 1 || roots.length > 5) return false
-  for (let i = 0; i < roots.length; i++) if (!isHex(ID, roots[i]) || (i > 0 && !(roots[i - 1] < roots[i]))) return false
-  return true
-}
 
 const isTime = (x) => isSafeInteger(x) && x >= 0
 const add = (held, list, text) => freeze({ ...held, [list]: freeze([...held[list], text]) })
@@ -71,15 +68,22 @@ export function witness (config) {
     return s
   }
   const trialKeys = freeze([...keys, ...keys.filter((k) => k.key === key).map((k) => freeze({ ...k, key: TRIAL_KEY }))])
-  // The state with `text`, an anchor signed by the trial key, added to `held`'s anchors.
-  const trialState = (held, body) => {
-    const { payload } = seal('anchor', body)
-    const text = wrap(payload, { signature: toHex(ed25519.sign(signedBytes(payload), TRIAL_SECRET)), witness: TRIAL_KEY })
-    return membershipState(add(held, 'anchors', text), { identity: held.identity, rpId, origin, witnessKeys: trialKeys })
+  // The state with an anchor of `body` signed by the trial key added to `held`'s anchors; with `matured` (R11), the
+  // trial key's word that the record matured is added too.
+  const trialState = (held, body, matured = false) => {
+    const trial = (type) => {
+      const { payload } = seal(type, body)
+      return wrap(payload, { signature: toHex(ed25519.sign(signedBytes(payload), TRIAL_SECRET)), witness: TRIAL_KEY })
+    }
+    const with1 = add(held, 'anchors', trial('anchor'))
+    return membershipState(matured ? add(with1, 'matured', trial('matured')) : with1, { identity: held.identity, rpId, origin, witnessKeys: trialKeys })
   }
 
   // A record signed by the witness. A signature that does not verify under the witness's key is a fault of `sign`.
+  // So is signing at a time outside every window of the witness's key: no verifier would take the record, and a
+  // settlement nobody takes would be signed again at every pass (found by a walk that outlived its key).
   function make (type, body) {
+    if (!keys.some((k) => k.key === key && k.nbf <= body.at && body.at < k.exp)) throw new Error('the witness key is outside its window at the time it would sign')
     const { payload } = seal(type, body)
     const signature = sign(signedBytes(payload))
     if (!checkEd25519(signature, signedBytes(payload), key).ok) throw new Error('sign gave no valid signature under the witness key')
@@ -109,11 +113,26 @@ export function witness (config) {
     if (!isHex(ID, identity)) throw new TypeError('identity must be an id')
     const none = freeze([])
     return freeze({ identity, roots: none, memberships: none, contests: none, freezes: none, anchors: none, settlements: none, revocations: none,
-      replaced: none, logged: none, buckets: none })
+      replaced: none, logged: none, buckets: none, cancels: none, notices: none, cancelled: none, matured: none })
+  }
+
+  // R11: whether the witness has said `record` of one of its lists (notices, cancelled, matured).
+  const said = (held, list, type, record) => held[list].some((t) => open(t, type).body.record === record)
+  // R11: the recovery parties that have signed the held membership record `id`, each opening its commitment (checked
+  // against the settled membership's designation on admission; records of another prev are not held).
+  function partiesOf (held, id) {
+    const seen = new Set()
+    for (const t of held.memberships) {
+      const m = open(t, 'membership')
+      if (m.id === id && hasOwn(m.sig, 'salt')) seen.add(m.sig.root)
+    }
+    return seen.size
   }
 
   // R8's admission: { ok, held } with the record added (or already held), or a refusal; the holding is not changed.
-  function admit (held, type, text) {
+  // R11: a recovery party's signature on a membership record may come with the party's root record, `partyRoot`,
+  // which is held with it: until a party acts, nothing names it.
+  function admit (held, type, text, partyRoot) {
     if (!hasOwn(LISTS, type)) {
       seal(type, {}) // throws for a type that does not exist
       return refuse('type')
@@ -129,19 +148,45 @@ export function witness (config) {
       return refuse(isRefusal(e) ? e.reason : 'envelope-encoding')
     }
     const b = r.body
-    if (!SHAPES[type](b) || !onlyKeys(r.sig, ['assertion', 'root'])) return refuse('shape')
+    const salted = type === 'membership' && hasOwn(r.sig, 'salt')
+    if (!SHAPES[type](b) || !onlyKeys(r.sig, salted ? ['assertion', 'root', 'salt'] : ['assertion', 'root']) ||
+      (salted && !(isHex(ID, r.sig.salt) && isHex(ID, r.sig.root)))) return refuse('shape')
     const s = against(held, b)
     if (!s.ok) return s
     const signer = r.sig.root
     // One envelope per record and signer: another (an assertion covering other records too) adds nothing.
     if (held[list].some((t) => { const x = open(t, type); return x.id === r.id && x.sig.root === signer })) return accept({ held })
+    // R11: enough of the settled membership's parties have signed the held record `id` (with `more` to come), and
+    // the witness has not said it was cancelled.
+    const recovers = (id, more) => !s.pending && s.recovery !== null && partiesOf(held, id) + more >= s.recovery.threshold && !said(held, 'cancelled', 'cancelled', id)
     let roots
+    let keys = rootKeys(held)
     if (type === 'membership') {
       if (b.prev !== s.membership) return refuse('prev')
       if (b.epoch !== s.epoch + 1) return refuse('epoch')
-      // A root the record adds signs only once a strict majority of the effective membership's roots has.
-      const added = !has(s.roots, signer) && has(b.roots, signer)
-      roots = added && 2 * signersOf(held, r.id, s.roots) > s.roots.length ? [signer] : s.roots
+      if (salted) {
+        // R11: a party of the settled membership's designation, none of its roots; nothing pending is recovered.
+        if (s.pending || s.recovery === null || has(s.roots, signer) || !has(s.recovery.parties, recoveryCommitment(signer, r.sig.salt))) return refuse('signer')
+        if (!keys.has(signer) && partyRoot !== undefined) {
+          const p = checkRoot(partyRoot, { rpId })
+          if (!p.ok || p.id !== signer) return refuse('root-record')
+          if (held.roots.length >= MAX_RECORDS) return refuse('full')
+          held = add(held, 'roots', partyRoot)
+          keys = rootKeys(held)
+        }
+        roots = [signer]
+      } else {
+        // A root the record adds signs only once a strict majority of the effective membership's roots has, or (R11)
+        // enough of its recovery parties.
+        const added = !has(s.roots, signer) && has(b.roots, signer)
+        roots = added && (2 * signersOf(held, r.id, s.roots) > s.roots.length || recovers(r.id, 0)) ? [signer] : s.roots
+      }
+    } else if (type === 'cancel') {
+      // R11: any one root of the settled membership, while the recovery is under notice (one that has matured is
+      // anchored in the same step, and is under notice no longer). One cancel is enough: another root's adds nothing.
+      if (s.recovering === null || b.record !== s.recovering.record) return refuse('record')
+      if (held.cancels.some((t) => open(t, 'cancel').body.record === b.record)) return accept({ held })
+      roots = rootsOf(held, s.settled) // though a successor is pending
     } else if (type === 'contest') {
       if (!s.pending || b.record !== s.membership) return refuse('record')
       roots = rootsOf(held, s.settled)
@@ -150,7 +195,7 @@ export function witness (config) {
       roots = b.membership === s.membership ? s.roots : rootsOf(held, s.settled)
     }
     if (!has(roots, signer)) return refuse('signer')
-    const k = rootKeys(held).get(signer)
+    const k = keys.get(signer)
     if (k === undefined) return refuse('root-missing')
     if (!checkRootAssertion(r.sig.assertion, { record: r.id, rpId, origin, key: k }).ok) return refuse('signature')
     // W0: one prompt cannot both propose a change and end the identity by contesting it — the record itself, or the
@@ -172,26 +217,33 @@ export function witness (config) {
     // A signature that completes a strict majority is kept, as multi-signature systems keep partial signatures until
     // their threshold (KERI's escrow; Safe's approvals): its root cannot move it off that record, and the quota never
     // refuses the signature that completes one. So a co-holder of a root can neither undo nor block the owner's change.
-    const quorate = (id, more) => 2 * (signersOf(held, id, s.roots) + more) > s.roots.length
-    if (gone.some((x) => quorate(x.id, 0))) return refuse('quorate')
+    // R11: the same holds of a recovery its parties' threshold has signed, until it is cancelled: a party cannot
+    // leave a recovery under notice without the signatures it was given notice for.
+    const quorate = (id, more, parties) => 2 * (signersOf(held, id, s.roots) + more) > s.roots.length || recovers(id, parties)
+    if (gone.some((x) => quorate(x.id, 0, 0))) return refuse('quorate')
     // A root with tombstones for this prev always holds a proposal for it (its last), so this one replaces it.
-    if (tombs.filter((x) => x.signer === signer).length >= TOMBSTONES && !quorate(r.id, has(s.roots, signer) ? 1 : 0)) return refuse('quota')
+    if (tombs.filter((x) => x.signer === signer).length >= TOMBSTONES && !quorate(r.id, has(s.roots, signer) ? 1 : 0, salted ? 1 : 0)) return refuse('quota')
     const replaced = freeze([...tombs, ...gone.map((x) => freeze({ record: x.id, signer, prev: b.prev }))])
     const memberships = freeze([...held.memberships.filter((t) => !mine(open(t, 'membership'))), text])
     return accept({ held: freeze({ ...held, memberships, roots: rootsNamed(held, memberships), replaced }) })
   }
 
-  // The held root records the first root is, or a membership in `memberships` names.
+  // The held root records the first root is, or a membership in `memberships` names, or (R11) a recovery party
+  // signed one of them with.
   function rootsNamed (held, memberships) {
-    const named = (id) => identityOf(id) === held.identity || memberships.some((t) => has(open(t, 'membership').body.roots, id))
+    const named = (id) => identityOf(id) === held.identity || memberships.some((t) => { const m = open(t, 'membership'); return has(m.body.roots, id) || (hasOwn(m.sig, 'salt') && m.sig.root === id) })
     return freeze(held.roots.filter((t) => named(checkRoot(t, { rpId }).id)))
   }
 
   // At a settlement of `prev` as `outcome`: the proposals that lost that prev can never be anchored, so they go, with
   // the root records only they named; the records of settled memberships stay, since the state is replayed from them.
+  // R11: what was said of recoveries of `prev` goes too, but that the outcome matured (the state is replayed with
+  // it) and the last cancellation (the cooling-off runs from it).
   function purge (held, prev, outcome) {
     const memberships = freeze(held.memberships.filter((t) => { const x = open(t, 'membership'); return x.body.prev !== prev || x.id === outcome }))
-    return freeze({ ...held, memberships, roots: rootsNamed(held, memberships) })
+    const none = freeze([])
+    const matured = freeze(held.matured.filter((t) => memberships.some((m) => open(m, 'membership').id === open(t, 'matured').body.record)))
+    return freeze({ ...held, memberships, roots: rootsNamed(held, memberships), cancels: none, notices: none, matured, cancelled: freeze(held.cancelled.slice(-1)) })
   }
 
   // The id of the contest of membership record `record`: the same for every signer.
@@ -249,10 +301,38 @@ export function witness (config) {
           // Stryker disable next-line ConditionalExpression,MethodExpression: equivalent; the check below refuses a record of another prev, and this bounds the work
           .filter((m) => m.body.prev === s.settled).map((m) => m.id))]
         const found = ids.find((x) => trialState(own, { identity: held.identity, record: x, at: now }).membership === x)
-        if (found === undefined) break
-        const text = make('anchor', { identity: held.identity, record: found, at: now })
-        held = add(held, 'anchors', text)
-        sign1('anchor', text)
+        if (found !== undefined) {
+          const text = make('anchor', { identity: held.identity, record: found, at: now })
+          held = add(held, 'anchors', text)
+          sign1('anchor', text)
+          continue
+        }
+        // A dead or unknown identity has no recovery either.
+        if (!s.ok || s.dead) break
+        // R11. No successor verifiers would follow: a recovery of the settled membership. One is under notice at a
+        // time. A cancel by any root of that membership ends it, and nothing has changed; left alone for its window
+        // it matures, and is anchored above like any record, its contest window still to come.
+        const state1 = (type, record) => {
+          const text = make(type, { identity: held.identity, record, at: now })
+          held = add(held, type === 'notice' ? 'notices' : type, text)
+          sign1(type, text)
+        }
+        const under = s.recovering
+        if (under !== null) {
+          if (said(held, 'matured', 'matured', under.record)) break
+          if (held.cancels.some((t) => open(t, 'cancel').body.record === under.record)) state1('cancelled', under.record)
+          else if (now >= under.at + s.recovery.window) state1('matured', under.record)
+          else break
+          continue
+        }
+        // Notices are bounded by time (the cooling-off), and by the list that holds them.
+        const last = held.cancelled.reduce((at, t) => Math.max(at, open(t, 'cancelled').body.at), -Infinity)
+        if (held.notices.length >= MAX_RECORDS || now < last + COOLING_OFF) break
+        // At most one is found: a threshold is a majority of the parties, and each party holds one proposal per prev.
+        const fresh = ids.find((x) => !said(held, 'notices', 'notice', x) &&
+          trialState(own, { identity: held.identity, record: x, at: now }, true).membership === x)
+        if (fresh === undefined) break
+        state1('notice', fresh)
         continue
       }
       const at = anchors.find((a) => a.record === s.membership).at
