@@ -2217,6 +2217,23 @@ test('a recovery under notice is shown on load with when it takes effect; one pr
     await t.page.waitForSelector('#recovery-notice:not([hidden])')
     await late.waitForSelector('#recovery-notice:not([hidden])')
     assert.equal((await t.witnessGet(path)).cancelled.length, 0, 'nothing was cancelled meanwhile')
+    // An answer that comes late, for a root this tab no longer holds, says nothing of the root it holds now: the
+    // witness is asked about another root, this identity's root is stored again and its notice shown, and only then
+    // does the first question get its answer (that the witness could not be asked).
+    let answerLate
+    const asked = new Promise((resolve) => { answerLate = resolve })
+    let waiting
+    await t.page.route(`**/v1/identities/${rootModule.identityOf(yId)}/records`, (route) => { waiting = route; answerLate() })
+    await change(t.page, 'root', { credential: mine.credential, identity: rootModule.identityOf(yId), text: y, registered: true })
+    await asked
+    await t.page.waitForSelector('#recovery-notice', { state: 'hidden' })
+    await change(t.page, 'root', mine)
+    await t.page.waitForSelector('#recovery-notice:not([hidden])')
+    await waiting.fulfill({ status: 503, contentType: 'application/json', body: '{}' })
+    await t.page.waitForTimeout(500)
+    assert.equal(await t.page.isHidden('#recovery-notice'), false, 'the late answer does not take the notice down')
+    assert.equal(await t.page.isHidden('#notice-unchecked'), true, 'nor is it said of this root that the witness could not be asked')
+    await t.page.unroute(`**/v1/identities/${rootModule.identityOf(yId)}/records`)
 
     // A witness that refuses the cancel: said, and the notice stays.
     t.refusing(true)
