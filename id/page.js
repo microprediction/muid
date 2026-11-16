@@ -196,7 +196,9 @@ let noticed = null
 let unchecked = false
 async function notice () {
   const r = root
-  if (r === null || r.joining === true) return
+  // A root not yet registered is unknown to the witness: it is asked once the registration is kept, which this
+  // tab's own registering, or the tab that registered it, brings about.
+  if (r === null || r.joining === true || r.registered !== true) return
   let s = null
   let failed = false
   try {

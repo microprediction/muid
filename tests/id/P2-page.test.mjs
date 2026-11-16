@@ -544,7 +544,22 @@ test('another tab that creates an identity is followed here, and one is never cr
     const other = await t.tab(t.context)
     await other.waitForSelector('#create:not([hidden])')
     await t.page.bringToFront() // WebAuthn asks only a focused document
-    const a = await createIdentity(t.page)
+    // While the registration is on its way the other tab, told of the root, asks the witness nothing about an
+    // identity it does not yet hold; once it is registered, it asks (R11: a recovery under notice).
+    const asks = []
+    other.on('request', (r) => { if (r.method() === 'GET' && /\/records$/.test(r.url())) asks.push(r.url()) })
+    const release = t.gate()
+    await t.page.fill('#name', 'test')
+    await t.page.click('#create-button')
+    await other.waitForSelector('#identity:not([hidden])')
+    await other.waitForTimeout(500)
+    assert.deepEqual(asks, [])
+    release()
+    await t.page.waitForFunction(() => document.getElementById('status').textContent === 'Registered with the witness.')
+    const a = { text: await t.page.inputValue('#root-text'), identity: await t.page.textContent('#identity-id') }
+    for (let i = 0; asks.length === 0 && i < 50; i++) await other.waitForTimeout(100)
+    assert.deepEqual(asks, [`${t.site.origin}/witness/v1/identities/${a.identity}/records`])
+    await other.waitForLoadState('networkidle')
     // The other tab, open since before, now shows the identity and offers no create.
     await other.waitForSelector('#identity:not([hidden])')
     assert.equal(await other.textContent('#identity-id'), a.identity)

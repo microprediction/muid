@@ -49,6 +49,7 @@ const TWINS = [
   ['broken-answer-silent', 'an answer about recoveries that cannot be read is taken for no recovery', [["    failed = e.unknown !== true && e.message !== 'this identity has ended'\n", "    failed = e.message === 'the witness did not answer' || e instanceof TypeError\n"]], 'page.js'],
   ['unverified-answer-silent', 'records served that do not verify are taken for an identity the witness does not know', [["    failed = e.unknown !== true && e.message !== 'this identity has ended'\n", "    failed = e.message !== 'the witness holds no record of this identity' && e.message !== 'this identity has ended'\n"]], 'page.js'],
   ['late-answer-published', "an answer about a root no longer held replaces what is known of the root held now", [["  if (root?.id !== r.id) return\n", ""]], 'page.js'],
+  ['unregistered-asked-about', "the witness is asked about a root whose registration has not landed", [["  if (r === null || r.joining === true || r.registered !== true) return\n", "  if (r === null || r.joining === true) return\n"]], 'page.js'],
   ['no-answer-silent', 'a witness that gives no answer about recoveries is not said', [['  unchecked = failed\n', '  unchecked = false\n']], 'page.js'],
   ['add-designation-not-shown', 'an added passkey is reviewed without the designation the change states (I4)', [["    $('add-recovery').textContent = designation(c.body.recovery)\n", '']], 'page.js'],
   ['cancel-record-not-shown', 'the record a cancel signs is not shown (I4)', [["    $('notice-record').textContent = under.recovering.record\n", '']], 'page.js'],
@@ -196,7 +197,7 @@ test('id page broken twins', { timeout: 7_200_000 }, async (t) => {
       assert.ok(r.pass >= 14, `control: only ${r.pass} tests ran`)
     })
     const jobs = TWINS.map(([name, why, edits, file]) => [name, why, generate(name, edits, file)])
-    assert.equal(jobs.length, 127, 'twin count')
+    assert.equal(jobs.length, 128, 'twin count')
     const results = []
     const queue = part(jobs)
     assert.ok(queue.length > 0, 'this part has twins')
