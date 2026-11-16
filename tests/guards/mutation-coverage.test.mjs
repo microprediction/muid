@@ -42,7 +42,10 @@ test('a config that names its test files one by one names every test file of its
     const dirs = [...new Set(files.map((f) => f.slice(0, f.lastIndexOf('/') + 1)))]
     const all = dirs.flatMap((d) => readdirSync(new URL(d, ROOT)).filter((f) => f.endsWith('.test.mjs')).map((f) => d + f))
     // The demo's end-to-end scenarios (D1) run the Go log, which the mutation jobs do not install.
-    const expected = all.filter((f) => f !== 'tests/demo/D1-scenarios.test.mjs')
+    // The id records are killed by the Node tests alone, every mutant of them; the page in Chrome (P2), minutes a
+    // run, is left to the page's own config.
+    const left = c === 'stryker.id-records.config.json' ? ['tests/id/P2-page.test.mjs'] : []
+    const expected = all.filter((f) => f !== 'tests/demo/D1-scenarios.test.mjs' && !left.includes(f))
     assert.deepEqual([...files].sort(), expected.sort(), c)
   }
 })

@@ -51,8 +51,9 @@ test('selection: a change to the id page selects the configs whose tests load it
   // The demo's tests load id/ too (tests/id/impl.mjs), but not the page tests or their server. The storage adapter's
   // tests are served id/ by the page tests' server, and read none of the page's tests.
   for (const f of ['id/page.js', 'id/store.js', 'id/index.html', 'id/page.css', 'id/new.js']) assert.deepEqual(configs(select([f])), only(...ids, store, 'stryker.demo.config.json'), f)
-  assert.deepEqual(configs(select(['tests/id/P2-page.test.mjs'])), only(...ids))
-  assert.deepEqual(configs(select(['tests/id/serve.mjs'])), only(...ids, store))
+  // The records config leaves the page in Chrome to the page's config (mutation-coverage guard).
+  assert.deepEqual(configs(select(['tests/id/P2-page.test.mjs'])), ['stryker.id-page.config.json'])
+  assert.deepEqual(configs(select(['tests/id/serve.mjs'])), only('stryker.id-page.config.json', store))
   assert.deepEqual(configs(select(['tests/store/ST1-store.test.mjs'])), [store])
   assert.deepEqual(configs(select(['stryker.id-page.config.json'])), ['stryker.id-page.config.json'])
 })
