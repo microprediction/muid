@@ -294,6 +294,33 @@ export function recoveryChange (payload, { identity, state }) {
   return c
 }
 
+// R11, for one who has lost every passkey: the recovery that makes the new passkey in `root` (its root record) the
+// identity's only root, stating the designation in force again. { body, payload, id, added }. Its parties sign it
+// first; this root after them.
+export function recovery ({ identity, state, root, rpId }) {
+  if (state.pending) throw new Error('a change is already pending: wait for it to settle')
+  if (state.recovery === null) throw new Error('that identity has designated no recovery parties')
+  if (state.recovering !== null) throw new Error('a recovery of that identity is already under notice')
+  const r = checkRoot(root, { rpId })
+  if (!r.ok) throw new Error(`that is not a root record: ${r.reason}`)
+  if (state.roots.includes(r.id)) throw new Error('that passkey is already a root of this identity')
+  const body = { identity, prev: state.membership, epoch: state.epoch + 1, roots: [r.id], recovery: state.recovery }
+  return { body, ...seal('membership', body), added: r.id }
+}
+
+// R11, for a party asked to sign a recovery: the request read (as `changeToSign` gives it) with the salt, among
+// those this passkey kept, that opens one of the designation's commitments, and the wait; or a reason. `state` is
+// the identity's, as the witness gives it; `root` this passkey's root id.
+export function rescue (payload, { state, root, salts }) {
+  const c = changeToSign(payload)
+  if (state.pending || state.recovery === null) throw new Error('that identity has no recovery parties who can act now')
+  if (c.body.prev !== state.membership || c.body.epoch !== state.epoch + 1) throw new Error('that request is not for the identity as it now stands')
+  if (state.roots.includes(root)) throw new Error("this passkey is one of that identity's own")
+  const salt = salts.find((t) => state.recovery.parties.includes(recoveryCommitment(root, t)))
+  if (salt === undefined) throw new Error("this passkey is not one of that identity's recovery parties")
+  return { ...c, salt, window: state.recovery.window }
+}
+
 // Whether `p` (from `party`) is one of the designation's parties: its root id and salt open a commitment there.
 export const designated = (recovery, p) => recovery !== null && recovery.parties.includes(p.commitment)
 

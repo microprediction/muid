@@ -5,7 +5,7 @@
 // record and the credential id are kept in this browser only. The workers it authorised are remembered here too, so
 // that one assertion renews up to eight of them at once (decision 3).
 import { openStore } from './store.js'
-import { rootRecord, challenge, assertion, delegation, handOff, b64u, fromB64u, currentMembership, addRoot, rootSigned, changeToSign, fingerprint, storedRoot, cosignedIdentity, storedWorkers, remember, retired, renewals, cancel, maturesAt, card, kept, newSalt, fromCard, majority, possessionId, shows, designate, undesignate, designated, recoveryChange, MAX_SALTS } from './records.js'
+import { rootRecord, challenge, assertion, delegation, handOff, b64u, fromB64u, currentMembership, addRoot, rootSigned, changeToSign, fingerprint, storedRoot, cosignedIdentity, storedWorkers, remember, retired, renewals, cancel, maturesAt, card, kept, newSalt, fromCard, majority, possessionId, shows, designate, undesignate, designated, recoveryChange, MAX_SALTS, recovery, rescue, partySigned } from './records.js'
 
 const $ = (id) => document.getElementById(id)
 const meta = (name) => document.querySelector(`meta[name="${name}"]`).content
@@ -49,7 +49,7 @@ async function refresh () {
 }
 // Stryker disable next-line ObjectLiteral: nothing shown differs; without the nulls a signing button (hidden) pressed
 // before any review throws where it would return, and does nothing either way
-const pending = { delegation: null, change: null, cosign: null, renewal: null, designation: null, recoveryCosign: null, proof: null }
+const pending = { delegation: null, change: null, cosign: null, renewal: null, designation: null, recoveryCosign: null, proof: null, recover: null, rescue: null }
 
 // A change to the stored root, made only while storage holds the root it was decided for (`mine`, its id: null
 // when one is being created): another's root is adopted, never overwritten. Whether the change was made.
@@ -103,8 +103,8 @@ const fields = (b) => [['Agent', b.agent], ['Audience', b.aud], ['Scopes', b.sco
 // R11: a designation as a membership change states it (I4): how many of its parties recover, after how long. A
 // change that states none ends the one in force.
 const DAY = 86_400
-const designation = (r) => r === undefined || r === null ? 'none'
-  : `${r.threshold} of ${r.parties.length}, after ${r.window % DAY === 0 ? `${r.window / DAY} days` : `${r.window} seconds`}`
+const wait = (s) => s % DAY === 0 ? `${s / DAY} days` : `${s} seconds`
+const designation = (r) => r === undefined || r === null ? 'none' : `${r.threshold} of ${r.parties.length}, after ${wait(r.window)}`
 const when = (t) => new Date(t * 1000).toISOString()
 const slot = (w) => JSON.stringify([w.agent, w.aud])
 const unticked = new Set()
@@ -160,6 +160,10 @@ function show () {
     $('notice-at').textContent = when(under.recovering.at)
     $('notice-matures').textContent = when(maturesAt(under))
     $('notice-record').textContent = under.recovering.record
+    // Only a root the identity has now cancels: the passkey a recovery would make its own is told what it waits for.
+    const own = under.roots.includes(root.id)
+    $('notice-own').hidden = !own
+    $('notice-incoming').hidden = own
   }
   $('cosign-pending').hidden = root?.cosigned === undefined
   if (root !== null) {
@@ -175,8 +179,8 @@ function fail (e) {
 }
 
 // The witness service: a record submitted, or the records it holds for the identity.
-async function submit (identity, type, text) {
-  const r = await (await fetch(WITNESS + 'v1/records', { method: 'POST', body: JSON.stringify({ identity, type, text }) })).json()
+async function submit (identity, type, text, root) {
+  const r = await (await fetch(WITNESS + 'v1/records', { method: 'POST', body: JSON.stringify({ identity, type, text, root }) })).json()
   if (!r.ok) throw new Error(`the witness refused the ${type}: ${r.reason}`)
 }
 async function state (r = root) {
@@ -264,7 +268,9 @@ function withdraw () {
   pending.designation = null
   pending.recoveryCosign = null
   pending.proof = null
-  for (const id of ['review-panel', 'handoff', 'add-panel', 'add-handoff', 'cosign-panel', 'renew-panel', 'renew-handoffs', 'designate-panel', 'designate-handoff', 'recovery-cosign-panel', 'proof-panel', 'proof']) $(id).hidden = true
+  pending.recover = null
+  pending.rescue = null
+  for (const id of ['review-panel', 'handoff', 'add-panel', 'add-handoff', 'cosign-panel', 'renew-panel', 'renew-handoffs', 'designate-panel', 'designate-handoff', 'recovery-cosign-panel', 'proof-panel', 'proof', 'recover-panel', 'rescue-panel']) $(id).hidden = true
   $('error').textContent = ''
 }
 
@@ -311,7 +317,7 @@ async function register () {
 $('create-button').addEventListener('click', () => create(false))
 $('register-retry').addEventListener('click', () => { $('error').textContent = ''; register() })
 $('join-button').addEventListener('click', () => create(true))
-for (const id of ['agent', 'subject', 'aud', 'scopes', 'days', 'new-root', 'cosign-payload', 'party-cards', 'recovery-days', 'recovery-cosign-payload', 'proof-code']) $(id).addEventListener('input', withdraw)
+for (const id of ['agent', 'subject', 'aud', 'scopes', 'days', 'new-root', 'cosign-payload', 'party-cards', 'recovery-days', 'recovery-cosign-payload', 'proof-code', 'recover-identity', 'rescue-request', 'rescue-card']) $(id).addEventListener('input', withdraw)
 
 $('review').addEventListener('click', async () => {
   withdraw()
@@ -458,11 +464,19 @@ async function cosign () {
   const r = root // the root whose co-signature is sent: only it becomes the identity's
   try {
     const identity = cosignedIdentity(r.cosigned, r.id)
-    await submit(identity, 'membership', r.cosigned)
+    try {
+      await submit(identity, 'membership', r.cosigned)
+    } catch (e) {
+      // In a recovery (R11) nobody else has given the witness this root's record: it is given, and this sent again.
+      if (e.message !== 'the witness refused the membership: root-missing') throw e
+      await submit(identity, 'root', r.text)
+      await submit(identity, 'membership', r.cosigned)
+    }
     if (await keepRoot(r.id, ({ cosigned, ...rest }) => ({ ...rest, identity, joining: false, registered: true }))) {
       $('status').textContent = 'Co-signed. The change settles once its contest window has passed.'
     }
-  } catch (e) { fail(e) }
+  } catch (e) { fail(e); return }
+  notice()
 }
 $('cosign-retry').addEventListener('click', () => { $('error').textContent = ''; cosign() })
 
@@ -572,6 +586,78 @@ $('recovery-cosign-sign').addEventListener('click', async () => {
     if (pending.recoveryCosign !== c) return
     await submit(root.identity, 'membership', rootSigned(c.payload, root.id, a))
     $('status').textContent = 'Co-signed. The change settles once its contest window has passed.'
+  } catch (e) { fail(e) }
+})
+
+// R11, for one who has lost every passkey: a passkey made to join asks the identity's recovery parties to make it
+// the identity's only root. The request is shown from its payload (I4) and given to the parties; this passkey signs
+// after them, and its signature is kept and sent as a co-signature is.
+$('recover-review').addEventListener('click', async () => {
+  withdraw()
+  const asked = withdrawals
+  try {
+    const identity = $('recover-identity').value.trim()
+    if (!/^[0-9a-f]{64}$/.test(identity)) throw new Error('an identity is 64 lowercase hex digits')
+    const current = await state({ identity })
+    if (asked !== withdrawals) return // withdrawn while the witness was asked
+    const c = recovery({ identity, state: current, root: root.text, rpId })
+    pending.recover = c
+    $('recover-shown').textContent = c.body.identity
+    $('recover-roots').textContent = c.body.roots.join(' ')
+    $('recover-recovery').textContent = designation(c.body.recovery)
+    $('recover-wait').textContent = `${wait(current.recovery.window)} after enough parties and this passkey have signed, unless a passkey the identity has now cancels it`
+    $('recover-request').value = c.payload
+    $('recover-panel').hidden = false
+  } catch (e) { if (asked === withdrawals) fail(e) }
+})
+$('recover-sign').addEventListener('click', async () => {
+  const c = pending.recover
+  if (c === null) return
+  $('error').textContent = ''
+  const added = c.added // this passkey's root, as it was when the request was made
+  try {
+    const a = await sign([c.id])
+    if (pending.recover !== c) return
+    if (!await keepRoot(added, (now) => ({ ...now, cosigned: rootSigned(c.payload, added, a) }))) return
+  } catch (e) { fail(e); return }
+  await cosign()
+})
+
+// R11, as a party asked to recover someone: the request is read against the identity as the witness holds it, and
+// shown from its payload (I4) with the fingerprints of the passkeys it would make the identity's. The salt is one
+// this passkey kept, or the one on the card given back.
+$('rescue-review').addEventListener('click', async () => {
+  withdraw()
+  const asked = withdrawals
+  try {
+    const payload = $('rescue-request').value.trim()
+    const given = $('rescue-card').value.trim()
+    const identity = changeToSign(payload).body.identity
+    const mine = root
+    const back = given === '' ? [] : [fromCard(given, rpId)]
+    if (back.some((p) => p.root !== mine.id)) throw new Error("that recovery card is not this passkey's")
+    const current = await state({ identity })
+    if (asked !== withdrawals) return // withdrawn while the witness was asked
+    const c = rescue(payload, { state: current, root: mine.id, salts: [...(mine.salts ?? []), ...back.map((p) => p.salt)] })
+    pending.rescue = c
+    $('rescue-identity').textContent = c.body.identity
+    $('rescue-roots').textContent = c.body.roots.join(' ')
+    $('rescue-fingerprints').textContent = c.body.roots.map(fingerprint).join(', ')
+    $('rescue-recovery').textContent = designation(c.body.recovery)
+    $('rescue-wait').textContent = `${wait(c.window)} after enough parties and the new passkey have signed, unless a passkey the identity has now cancels it`
+    $('rescue-panel').hidden = false
+  } catch (e) { if (asked === withdrawals) fail(e) }
+})
+$('rescue-sign').addEventListener('click', async () => {
+  const c = pending.rescue
+  if (c === null) return
+  $('error').textContent = ''
+  $('status').textContent = '' // what is said next is said of this signing
+  try {
+    const a = await sign([c.id])
+    if (pending.rescue !== c) return
+    await submit(c.body.identity, 'membership', partySigned(c.payload, { root: root.id, salt: c.salt }, a), root.text)
+    $('status').textContent = 'Signed. The recovery is under notice once enough parties and the new passkey have signed.'
   } catch (e) { fail(e) }
 })
 

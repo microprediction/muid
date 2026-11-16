@@ -63,6 +63,18 @@ const TWINS = [
   ['registered-unasked', "a new identity is not asked about at the witness until the page is loaded again", [["  } catch (e) { fail(e); return }\n  // Now the witness knows the identity: what it holds for it (its designation, a recovery under notice) is asked.\n  notice()", "  } catch (e) { fail(e); return }"]], "page.js"],
   ['designate-status-stale', "what was said of an earlier signing stands while a designation is refused", [["  const c = pending.designation\n  if (c === null) return\n  $('error').textContent = ''\n  $('status').textContent = '' // what is said next is said of this signing\n", "  const c = pending.designation\n  if (c === null) return\n  $('error').textContent = ''\n"]], "page.js"],
   ['cosign-status-stale', "what was said of an earlier signing stands while a co-signature is refused", [["  const c = pending.recoveryCosign\n  if (c === null) return\n  $('error').textContent = ''\n  $('status').textContent = '' // what is said next is said of this signing\n", "  const c = pending.recoveryCosign\n  if (c === null) return\n  $('error').textContent = ''\n"]], "page.js"],
+  ['recovery-drops-designation', "a recovery asked for at the page leaves the restored identity without its recovery parties", [["roots: [r.id], recovery: state.recovery }", "roots: [r.id] }"]], 'records.js'],
+  ['recovery-over-recovery', "a recovery is asked for while another is under notice", [["  if (state.recovering !== null) throw new Error('a recovery of that identity is already under notice')\n", ""]], 'records.js'],
+  ['rescue-any-request', "a party is shown a request that is not for the identity as it stands", [["  if (c.body.prev !== state.membership || c.body.epoch !== state.epoch + 1) throw new Error('that request is not for the identity as it now stands')\n", ""]], 'records.js'],
+  ['rescue-not-a-party', "a passkey that is no party of the identity is offered a recovery to sign", [["  if (salt === undefined) throw new Error(\"this passkey is not one of that identity's recovery parties\")\n", ""]], 'records.js'],
+  ['rescue-fingerprint-hidden', "a party signs a recovery without the fingerprints of the passkeys it installs", [["    $('rescue-fingerprints').textContent = c.body.roots.map(fingerprint).join(', ')\n", ""]], 'page.js'],
+  ['rescue-roots-hidden', "a party signs a recovery without the roots it installs (I4)", [["    $('rescue-roots').textContent = c.body.roots.join(' ')\n", ""]], 'page.js'],
+  ['rescue-foreign-card', "a card of another passkey is taken as this one's", [["    if (back.some((p) => p.root !== mine.id)) throw new Error(\"that recovery card is not this passkey's\")\n", ""]], 'page.js'],
+  ['rescue-status-stale', "what was said of an earlier signing stands while a party's signature is refused", [["  const c = pending.rescue\n  if (c === null) return\n  $('error').textContent = ''\n  $('status').textContent = '' // what is said next is said of this signing\n", "  const c = pending.rescue\n  if (c === null) return\n  $('error').textContent = ''\n"]], 'page.js'],
+  ['party-root-withheld', "a party's signature is sent without its root record, which the witness has never seen", [["partySigned(c.payload, { root: root.id, salt: c.salt }, a), root.text)", "partySigned(c.payload, { root: root.id, salt: c.salt }, a))"]], 'page.js'],
+  ['recover-edit-keeps-review', "an edit of the identity leaves the reviewed recovery signable", [["'proof-code', 'recover-identity',", "'proof-code',"]], 'page.js'],
+  ['new-root-record-not-given', "the new passkey's root record is never given to the witness, so its signature is never taken", [["      if (e.message !== 'the witness refused the membership: root-missing') throw e\n", "      throw e\n"]], 'page.js'],
+  ['incoming-offered-cancel', "the passkey a recovery would install is offered a cancel it cannot make", [["    $('notice-own').hidden = !own\n", "    $('notice-own').hidden = false\n"]], 'page.js'],
   ['broken-answer-silent', 'an answer about recoveries that cannot be read is taken for no recovery', [["    failed = e.unknown !== true && e.message !== 'this identity has ended'\n", "    failed = e.message === 'the witness did not answer' || e instanceof TypeError\n"]], 'page.js'],
   ['unverified-answer-silent', 'records served that do not verify are taken for an identity the witness does not know', [["    failed = e.unknown !== true && e.message !== 'this identity has ended'\n", "    failed = e.message !== 'the witness holds no record of this identity' && e.message !== 'this identity has ended'\n"]], 'page.js'],
   ['late-answer-published', "an answer about a root no longer held replaces what is known of the root held now", [["  if (root?.id !== r.id) return\n", ""]], 'page.js'],
@@ -213,7 +225,7 @@ test('id page broken twins', { timeout: 7_200_000 }, async (t) => {
       assert.ok(r.pass >= 14, `control: only ${r.pass} tests ran`)
     })
     const jobs = TWINS.map(([name, why, edits, file]) => [name, why, generate(name, edits, file)])
-    assert.equal(jobs.length, 144, 'twin count')
+    assert.equal(jobs.length, 156, 'twin count')
     const results = []
     const queue = part(jobs)
     assert.ok(queue.length > 0, 'this part has twins')

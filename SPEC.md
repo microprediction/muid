@@ -397,7 +397,7 @@ is `{ root, salt, assertion }`; a root-signed **cancel** is `{ identity, record 
   required by the verifier, as OCSP must-staple and short-lived certificates do: revocation is then "stop issuing",
   with no list, no per-root accounting and no bucket on the safety path.
 - **R11 RECOVERY PARTIES (decision 15; proposed: `model/settled.mjs` states it and `tests/model/R11` checks it; the
-  core and the witness implement it, each tested against that model; the id page designates parties, shows a notice and cancels, and does not yet start a recovery).** An owner who has lost every root has nobody left to
+  core and the witness implement it, each tested against that model; the id page designates parties, starts a recovery, shows a notice and cancels).** An owner who has lost every root has nobody left to
   sign for them (R1). A membership may therefore designate recovery parties, who can restore the identity and do
   nothing else, as wallets' guardians do (Argent) and as a queued change that anyone entitled may cancel does
   (Zodiac Delay, Candide's recovery module).
@@ -909,10 +909,8 @@ with the time it takes effect and a cancel one prompt away (the record the cance
 that gives no answer is said, since a notice not shown is then not known to be absent; a change that adds a
 passkey states the designation in force again (a record without one designates none) and shows it, as a change
 handed over to co-sign does. Recovery parties are designated at the page, and a designation ended, as the bullet
-on them below says; a new identity is asked about at the witness as soon as it is registered. Not yet: starting a
-recovery at the page (a party's signature on one is built and tested in `id/records.js`; the screens for the one
-who lost every passkey, and for the party who signs, are not made), removing a root, freezes and contests, and the
-I1–I3 window protocol for apps.
+on them below says, and a recovery is started there; a new identity is asked about at the witness as soon as it is
+registered. Not yet: removing a root, freezes and contests, and the I1–I3 window protocol for apps.
 
 - The id origin is a dedicated host serving nothing else, with no subdomains. `rp_id` and the exact origin are
   deployment configuration (meta tags, as the witness's URL and keys are), compared exactly; no suffix or wildcard
@@ -969,7 +967,18 @@ its own), and a registration or a co-signature the witness took marks only the r
   it would name the party the commitment hides, and it carries no authority (R11). With more than one root the
   record is handed to the others to co-sign, and a root co-signs there only the current membership's successor with
   the roots as they are, shown from its payload (I4). The page offers the same check
-  later over the current membership, since a key shown once may be gone since; it shows a notice of recovery
+  later over the current membership, since a key shown once may be gone since. *Starting a recovery:* one who
+  has lost every passkey makes a new one as a joining passkey does, names the identity, and is shown the recovery
+  from its payload: that passkey as the identity's only root, the designation in force stated again (the parties
+  who restored it stay its parties until the owner says otherwise). The request goes to the parties with the new
+  passkey's fingerprint. A party's page reads the request against the identity as the witness holds it (the
+  settled membership's successor, nothing pending), finds among the salts it kept the one that opens a commitment
+  there, or takes it from the card given back, and shows the identity, the roots the recovery installs with their
+  fingerprints, and the wait; the party signs only if sure who is asking, which no record can check. Its signature
+  goes to the witness with its root record. The new passkey signs after the parties (R11): its signature is kept
+  and sent as a co-signature is, with its root record the first time the witness lacks it, and sent again until
+  taken. While the recovery is under notice that passkey's page says what it waits for and offers no cancel, which
+  only a root of the settled membership can make. The page shows a notice of recovery
   whenever a head carries one, with a cancel one prompt away; and it tells whoever designates what R11's limits (b)
   and (c) mean for them. An institution acting as a party should hold more than one designated key, and one root
   for each person it backs if it would not have them linked once it has acted for one.

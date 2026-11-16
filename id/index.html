@@ -41,6 +41,22 @@
       </dl>
       <button id="cosign-sign" type="button">Sign with your passkey</button>
     </div>
+    <h2>Or recover an identity whose passkeys are all lost</h2>
+    <label>The identity <input id="recover-identity" autocomplete="off" spellcheck="false"></label>
+    <button id="recover-review" type="button">Review</button>
+    <div id="recover-panel" hidden>
+      <p>This asks the identity's recovery parties to replace every passkey it has with this one. Your passkey will sign exactly this change, once they have signed it:</p>
+      <dl>
+        <dt>Identity</dt><dd id="recover-shown"></dd>
+        <dt>Its only root after it</dt><dd id="recover-roots"></dd>
+        <dt>Recovery parties after it</dt><dd id="recover-recovery"></dd>
+        <dt>It takes effect</dt><dd id="recover-wait"></dd>
+      </dl>
+      <p>Give each party this request, and tell them the fingerprint above so that they can see it is yours:</p>
+      <textarea id="recover-request" readonly aria-label="Give this request to the identity's recovery parties"></textarea>
+      <p>When enough of them have signed it:</p>
+      <button id="recover-sign" type="button">Sign with your passkey</button>
+    </div>
   </section>
   <section id="identity" hidden>
     <p>Identity <code id="identity-id"></code></p>
@@ -50,11 +66,14 @@
   <section id="recovery-notice" hidden>
     <h2>A recovery of this identity is under way</h2>
     <p>Its recovery parties asked the witness, on <span id="notice-at"></span>, to replace this identity's passkeys. Unless it is cancelled, that takes effect on <span id="notice-matures"></span>.</p>
-    <p>If you did not ask for it, cancel it. Your passkey will sign exactly this:</p>
-    <dl>
-      <dt>Cancels the recovery</dt><dd id="notice-record"></dd>
-    </dl>
-    <button id="notice-cancel" type="button">Cancel the recovery with your passkey</button>
+    <div id="notice-own">
+      <p>If you did not ask for it, cancel it. Your passkey will sign exactly this:</p>
+      <dl>
+        <dt>Cancels the recovery</dt><dd id="notice-record"></dd>
+      </dl>
+      <button id="notice-cancel" type="button">Cancel the recovery with your passkey</button>
+    </div>
+    <p id="notice-incoming" hidden>This passkey is the one it makes the identity's. Until then it can do nothing here, and any passkey the identity has now can cancel it.</p>
   </section>
   <p id="notice-unchecked" hidden>The witness could not be asked whether a recovery of this identity is under way. <button id="notice-retry" type="button">Ask again</button></p>
   <section id="add-root" hidden>
@@ -124,6 +143,21 @@
       <button id="proof-sign" type="button">Sign with your passkey</button>
     </div>
     <textarea id="proof" readonly hidden aria-label="Give this back to whoever designates you"></textarea>
+    <h3>Recover the identity of someone who has lost every passkey</h3>
+    <label>Their request <textarea id="rescue-request" spellcheck="false"></textarea></label>
+    <label>The recovery card you gave them, if this browser no longer has it <input id="rescue-card" autocomplete="off" spellcheck="false"></label>
+    <button id="rescue-review" type="button">Review</button>
+    <div id="rescue-panel" hidden>
+      <p>Your passkey will sign exactly this change. Once enough of the identity's recovery parties have, and the wait has passed uncancelled, every passkey the identity has is replaced:</p>
+      <dl>
+        <dt>Identity</dt><dd id="rescue-identity"></dd>
+        <dt>Its only roots after it</dt><dd id="rescue-roots"></dd>
+        <dt>Their fingerprints</dt><dd><code id="rescue-fingerprints"></code> — sign only if you are sure who is asking, and they show you the same</dd>
+        <dt>Recovery parties after it</dt><dd id="rescue-recovery"></dd>
+        <dt>It takes effect</dt><dd id="rescue-wait"></dd>
+      </dl>
+      <button id="rescue-sign" type="button">Sign with your passkey</button>
+    </div>
   </section>
   <section id="authorise" hidden>
     <h2>Authorise a worker</h2>

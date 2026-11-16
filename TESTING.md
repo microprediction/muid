@@ -807,6 +807,14 @@ What `WitnessOutbox.tla` assumes of the store is tested of the SQLite one, with 
   the identity in Node with its card's salt, and the owner's page shows the notice; ending the designation. With
   two passkeys: the change is handed over, the other passkey refuses one that touches the roots, epoch or `prev`,
   co-signs the right one, and a refusing witness leaves no earlier status standing.
+- Starting a recovery (`P4`, and `P2` with three devices): the request built for a new passkey and each thing
+  that refuses it; a party's reading of it against the identity, the salt found among those kept, and each
+  refusal; through the witness, the new root's record unnamed and its signature refused until the parties' threshold
+  has signed. In Chrome: the new device asks, signs too early and is kept waiting; the party's page refuses what is
+  no request, a card that is another passkey's, and a browser that lost the salt until the card is given back; it
+  shows the fingerprint the new device shows; the kept signature is sent again with its root record and no second
+  prompt; the new passkey's page offers no cancel and the owner's does; uncancelled, the identity is the new
+  passkey's, which authorises a worker under the recovered membership.
 - R11 at the page in Chrome (`P2-page.test.mjs`): a designation and a recovery made in Node with the page's own
   record builders, the identity's passkey signing by its key read from the virtual authenticator. The notice is
   shown on load and in another tab, with the record and both times; a witness that is down is said and no notice
@@ -848,9 +856,9 @@ What `WitnessOutbox.tla` assumes of the store is tested of the SQLite one, with 
   wait is cut to 15 s and every test to 60 s, and once one test fails or times out, the rest fail at once. Without
   this, a broken page made each test wait out its limits in turn, and the mutant was counted only when Stryker's
   own timeout ran out.
-- Twins (`tests/meta/id-twins.test.mjs`, 144 in all; 31 are R11's: a designation dropped when a passkey is added or
+- Twins (`tests/meta/id-twins.test.mjs`, 156 in all; 43 are R11's: a designation dropped when a passkey is added or
   hidden from a co-signer, an own passkey or a minority designated, possession unchecked, a cancel of another record,
-  a wrong maturity, a notice or a silent witness not shown, an unreadable or unverified answer taken for none, a late answer about another root published, what a review leaves out; a possession check over the record's own id, at the records and at the party's page; salts of any form or without limit; a card shown unkept; one party of several enough; a co-signature of a change of roots, or of any change; parties' answers unchecked; an edit or a stale status kept; an undesignated card checked; a hand-off withheld; a joining passkey offering cards; a new identity not asked about): the challenge's domain, any algorithm, unsorted scopes, an unbounded
+  a wrong maturity, a notice or a silent witness not shown, an unreadable or unverified answer taken for none, a late answer about another root published, what a review leaves out; a possession check over the record's own id, at the records and at the party's page; salts of any form or without limit; a card shown unkept; one party of several enough; a co-signature of a change of roots, or of any change; parties' answers unchecked; an edit or a stale status kept; an undesignated card checked; a hand-off withheld; a joining passkey offering cards; a new identity not asked about; a recovery that drops the designation or is asked over another; a party shown a request for another state of the identity, or one it is no party of, or without the roots or fingerprints it installs, or taking another passkey's card; a party's or the new passkey's root record withheld; the incoming passkey offered a cancel): the challenge's domain, any algorithm, unsorted scopes, an unbounded
   lifetime, an unchecked audience, an edit that keeps the review, a late signature kept, verification preferred,
   any passkey, a credential that is not resident, inline scripts allowed, hidden parts shown; attest granted; a change co-signed that does not add
   this passkey, an edit of the new root kept, authority unchecked, delegations under the first membership, the root

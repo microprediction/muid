@@ -9,6 +9,7 @@ import { make } from '../assertion/helpers.mjs'
 import { membership, envelope } from '../impl.mjs'
 import { createHash } from 'node:crypto'
 
+const { recovery, rescue } = records
 const { party, designate, undesignate, possession, possessionId, shows, card, fromCard, kept, newSalt, majority, recoveryChange, storedRoot, MAX_SALTS, designated, cancel, maturesAt, partySigned, rootSigned, currentMembership, addRoot, changeToSign, DEFAULT_RECOVERY_WINDOW } = records
 const { IDENTITY, BASE, WINDOW, w } = wf
 const { rpId: RP_ID, origin: ORIGIN } = wf.CTX
@@ -200,4 +201,48 @@ test("a party's signature built by the page starts a recovery; the page reads th
   const r = w.advance(admit(noticed, 'cancel', rootSigned(c.payload, wf.rootId('a'), by('a', c.id))), T0 + 6)
   assert.deepEqual(r.signed.map((x) => x.type), ['cancelled'])
   assert.equal(current(r.held).recovering, null)
+})
+
+test('one who lost every passkey asks for a recovery; a party reads the request against the identity; signed by both, the witness gives notice', () => {
+  const { held, d } = designatedBy(['g', 'h', 'i'], 2, MIN)
+  const state = current(held)
+  const c = recovery({ identity: IDENTITY, state, root: wf.rootText('n'), rpId: RP_ID })
+  assert.deepEqual(c.body, { identity: IDENTITY, prev: d.id, epoch: 3, roots: [wf.rootId('n')], recovery: d.body.recovery })
+  assert.equal(c.added, wf.rootId('n'))
+  assert.equal(changeToSign(c.payload).id, c.id)
+  const of = (x) => () => recovery({ identity: IDENTITY, state, root: wf.rootText('n'), rpId: RP_ID, ...x })
+  assert.throws(of({ state: { ...state, pending: true } }), { message: 'a change is already pending: wait for it to settle' })
+  assert.throws(of({ state: { ...state, recovery: null } }), { message: 'that identity has designated no recovery parties' })
+  assert.throws(of({ state: { ...state, recovering: { record: d.id, at: 1 } } }), { message: 'a recovery of that identity is already under notice' })
+  assert.throws(of({ root: 'x' }), { message: /^that is not a root record: / })
+  assert.throws(of({ rpId: 'other.example' }), { message: /^that is not a root record: / })
+  assert.throws(of({ root: wf.rootText('a') }), { message: 'that passkey is already a root of this identity' })
+
+  // The party: the salt it kept that opens a commitment, among others it kept; the wait.
+  const kept = [saltOf('n'), saltOf('h'), saltOf('i')]
+  const r = rescue(c.payload, { state, root: wf.rootId('h'), salts: kept })
+  assert.deepEqual(r, { body: c.body, id: c.id, payload: c.payload, salt: saltOf('h'), window: MIN })
+  const no = (x, message) => assert.throws(() => rescue(c.payload, { state, root: wf.rootId('h'), salts: kept, ...x }), { message })
+  no({ salts: [] }, "this passkey is not one of that identity's recovery parties")
+  no({ salts: [saltOf('g'), saltOf('i')] }, "this passkey is not one of that identity's recovery parties")
+  no({ root: wf.rootId('n') }, "this passkey is not one of that identity's recovery parties")
+  no({ root: wf.rootId('a') }, "this passkey is one of that identity's own")
+  no({ state: { ...state, pending: true } }, 'that identity has no recovery parties who can act now')
+  no({ state: { ...state, recovery: null } }, 'that identity has no recovery parties who can act now')
+  no({ state: { ...state, membership: IDENTITY } }, 'that request is not for the identity as it now stands')
+  no({ state: { ...state, epoch: 3 } }, 'that request is not for the identity as it now stands')
+  assert.throws(() => rescue('nonsense', { state, root: wf.rootId('h'), salts: kept }), { message: 'that is not a membership change' })
+
+  // Through the witness: the new root's record is unnamed, and its signature refused, until the parties have signed.
+  const mine = rootSigned(c.payload, wf.rootId('n'), by('n', c.id))
+  assert.equal(w.admit(held, 'root', wf.rootText('n')).reason, 'root-unnamed')
+  let h = admit(held, 'membership', partySigned(c.payload, { root: wf.rootId('h'), salt: r.salt }, by('h', c.id)), wf.rootText('h'))
+  assert.equal(w.admit(h, 'membership', mine).reason, 'signer', 'one of two parties is not enough')
+  const g = rescue(c.payload, { state: current(h), root: wf.rootId('g'), salts: [saltOf('g')] })
+  h = admit(h, 'membership', partySigned(c.payload, { root: wf.rootId('g'), salt: g.salt }, by('g', c.id)), wf.rootText('g'))
+  assert.equal(w.admit(h, 'membership', mine).reason, 'root-missing', 'what the page answers by giving the root record')
+  h = admit(admit(h, 'root', wf.rootText('n')), 'membership', mine)
+  const noticed = current(w.advance(h, T0 + 5).held)
+  assert.deepEqual(noticed.recovering, { record: c.id, at: T0 + 5 })
+  assert.throws(() => recovery({ identity: IDENTITY, state: noticed, root: wf.rootText('n'), rpId: RP_ID }), { message: 'a recovery of that identity is already under notice' })
 })
