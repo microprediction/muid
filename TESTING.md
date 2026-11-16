@@ -1189,7 +1189,13 @@ ones run nightly (and on demand, from the Actions tab), and a nightly failure is
    coverage of `src/`. Among the guards, `public-surface` pins the package's entries (`exports` in `package.json`)
    and every name each exports, imported by the package's name as a consumer imports them; a path outside the
    entries does not resolve. `muid/ed25519` is K5's check for a layer above with keys and message domains of its
-   own (K7 binds only what muid's keys sign).
+   own (K7 binds only what muid's keys sign). `muid/testing` is test support (SPEC §7): `tests/testing/T1` uses it as a
+   service's tests would, through the package's entries alone — a request accepted by the real verifier and once
+   by the adapter; each thing the service checks refused when the request differs; a revoked delegation, a stale
+   head, an old claim and an expired delegation; the test log's checkpoints taken by `verifyCheckpoint`, its proofs
+   by `verifyInclusion`, and a receipt bundle by `verifyReceipt`; and that the entry imports only the package's other
+   entries and its two crypto libraries. It is not mutation-tested: it signs nothing anyone relies on, and what it
+   makes is judged by the code that is.
 2. **Twins:** the quick harnesses in `tests/meta/` on every run, in three jobs, each run one after another; the
    slow ones (the id page, the witness) nightly, a job each.
 3. **Mutation testing:** one config per module. Nightly, every config: the slow ones (the id page, membership, the

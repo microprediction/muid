@@ -825,6 +825,17 @@ older version never writes to data of a newer form, by the standard's rule and n
 multi-process browser's tabs, and a lock taken beside it (Web Locks) orders the tabs without making one see what
 another just wrote. Research: [`browser-storage.md`](research/browser-storage.md).
 
+**Test support (`testing/`, the entry `muid/testing`; not core, not for production, and outside what version 1 holds
+stable).** A service behind the adapter is tested best against the real verifier, with requests made as real ones
+are, as libraries ship their own test doubles beside them (Go's `httptest`, `rxjs/testing`). `testIdentity` gives an
+identity whose passkey is a key in memory, registered with an in-process witness, and its agents: for each, the
+logged delegation, signed claims, the five records a request carries, and a revocation by the owner. `testLog` gives
+an in-memory log with `tesseraLog`'s interface, whose checkpoints are signed and cosigned by test keys, and the
+configuration that verifies them. Both are built through the package's other entries alone (a test holds them to
+that), so they can do nothing a consumer could not; the software passkey asserts a user verification that never
+happened, which is the point in a test and the reason for the entry's name. Issuing a receipt is the service's own
+and is not here.
+
 **Relying-party adapter (`adapter/`, not core).** The verifier is pure; the state a relying party keeps around it is
 replay and head memory, and the adapter makes both atomic with the established mechanism for each. `acceptClaim`
 reads the presented records and the call's fields once (a call bringing its own `lastHead` is a programming error:

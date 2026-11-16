@@ -22,11 +22,13 @@ const SURFACE = {
   './witness/service': ['memoryHoldings', 'memoryLog', 'serial', 'witnessService'],
   './witness/holdings': ['sqliteHoldings'],
   './witness/log': ['tesseraLog', 'tileIndex'],
+  // Test support (SPEC §7): not for production, and outside what version 1 holds stable.
+  './testing': ['testIdentity', 'testLog'],
 }
 
 test('the entries are these, each a file of the package, and no path outside them resolves', async () => {
   assert.deepEqual(Object.keys(pkg.exports), Object.keys(SURFACE))
-  for (const target of Object.values(pkg.exports)) assert.match(target, /^\.\/(src|adapter|witness)\/[a-z0-9-]+\.js$/)
+  for (const target of Object.values(pkg.exports)) assert.match(target, /^\.\/(src|adapter|witness|testing)\/[a-z0-9-]+\.js$/)
   await assert.rejects(import(pkg.name + '/src/verifier.js'), { code: 'ERR_PACKAGE_PATH_NOT_EXPORTED' })
   await assert.rejects(import(pkg.name), { code: 'ERR_PACKAGE_PATH_NOT_EXPORTED' })
 })
