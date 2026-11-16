@@ -8,7 +8,7 @@ const refused = (r) => (r.ok ? 'accepted' : r.reason)
 
 test('an empty holding is the identity alone; the first root is admitted, and nothing else without it', () => {
   const e = w.empty(IDENTITY)
-  assert.deepEqual({ ...e }, { identity: IDENTITY, roots: [], memberships: [], contests: [], freezes: [], anchors: [], settlements: [], revocations: [], replaced: [], logged: [], buckets: [] })
+  assert.deepEqual({ ...e }, { identity: IDENTITY, roots: [], memberships: [], contests: [], freezes: [], anchors: [], settlements: [], revocations: [], replaced: [], logged: [], buckets: [], cancels: [], notices: [], cancelled: [], matured: [] })
   assert.ok(Object.isFrozen(e) && Object.isFrozen(e.roots))
   assert.equal(refused(w.admit(e, 'membership', signed('membership', M2, 'a'))), 'unknown-identity')
   const r = w.admit(e, 'root', rootText('a'))

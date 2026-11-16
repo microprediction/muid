@@ -5,7 +5,11 @@ import { test as nodeTest, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { ed25519 } from '@noble/curves/ed25519.js'
 import { chromium } from 'playwright-core'
-import { generateKeyPairSync } from 'node:crypto'
+import { generateKeyPairSync, createPrivateKey, createHash } from 'node:crypto'
+import { p256 } from '@noble/curves/nist.js'
+import { records as pageRecords } from './impl.mjs'
+import { make as makeAssertion, authData, clientData, challengeFor } from '../assertion/helpers.mjs'
+import { membership as membershipModule } from '../impl.mjs'
 import { root as rootModule, delegation as delegationModule, assertion as assertionModule, envelope, verifier as verifierModule } from '../impl.mjs'
 import { witness, witnessService, memoryHoldings, memoryLog } from '../witness/impl.mjs'
 import { serve } from './serve.mjs'
@@ -105,7 +109,14 @@ async function open ({ init } = {}) {
     const unavailable = () => Response.json({ ok: false, reason: 'unavailable' }, { status: 503 })
     holder.svc = kind === 'down' ? { handle: async () => unavailable() } : kind === 'lost' ? { handle: async (r) => { await real.handle(r); return unavailable() } } : real
   }
-  return { site, browser, ...first, device, tab, problems, collect, keys, clock, witnessGet, witnessPost, svc: real, refusing, outage, advance: (s) => { offset += s },
+  // `gate()`: the witness answers nothing until the function it returns is called; then it is itself again.
+  const gate = () => {
+    let release
+    const waiting = new Promise((resolve) => { release = resolve })
+    holder.svc = { handle: async (r) => { await waiting; return real.handle(r) } }
+    return () => { holder.svc = real; release() }
+  }
+  return { site, browser, ...first, device, tab, problems, collect, keys, clock, witnessGet, witnessPost, svc: real, refusing, outage, gate, advance: (s) => { offset += s },
     close: async () => { await collect(); await end() } }
 }
 
@@ -533,7 +544,22 @@ test('another tab that creates an identity is followed here, and one is never cr
     const other = await t.tab(t.context)
     await other.waitForSelector('#create:not([hidden])')
     await t.page.bringToFront() // WebAuthn asks only a focused document
-    const a = await createIdentity(t.page)
+    // While the registration is on its way the other tab, told of the root, asks the witness nothing about an
+    // identity it does not yet hold; once it is registered, it asks (R11: a recovery under notice).
+    const asks = []
+    other.on('request', (r) => { if (r.method() === 'GET' && /\/records$/.test(r.url())) asks.push(r.url()) })
+    const release = t.gate()
+    await t.page.fill('#name', 'test')
+    await t.page.click('#create-button')
+    await other.waitForSelector('#identity:not([hidden])')
+    await other.waitForTimeout(500)
+    assert.deepEqual(asks, [])
+    release()
+    await t.page.waitForFunction(() => document.getElementById('status').textContent === 'Registered with the witness.')
+    const a = { text: await t.page.inputValue('#root-text'), identity: await t.page.textContent('#identity-id') }
+    for (let i = 0; asks.length === 0 && i < 50; i++) await other.waitForTimeout(100)
+    assert.deepEqual(asks, [`${t.site.origin}/witness/v1/identities/${a.identity}/records`])
+    await other.waitForLoadState('networkidle')
     // The other tab, open since before, now shows the identity and offers no create.
     await other.waitForSelector('#identity:not([hidden])')
     assert.equal(await other.textContent('#identity-id'), a.identity)
@@ -673,6 +699,7 @@ test('a second passkey: one device adds it, the other co-signs; once settled it 
     assert.equal(await t.page.textContent('#add-added'), bId)
     assert.equal(await t.page.textContent('#add-fingerprint'), print, 'the same fingerprint as on the joining device')
     assert.equal(await t.page.textContent('#add-epoch'), '2')
+    assert.equal(await t.page.textContent('#add-recovery'), 'none')
     await t.page.fill('#new-root', bRoot + ' ')
     assert.equal(await t.page.isHidden('#add-panel'), true, 'an edit withdraws the change')
     await t.page.click('#add-review')
@@ -697,6 +724,7 @@ test('a second passkey: one device adds it, the other co-signs; once settled it 
     await b.page.waitForSelector('#cosign-panel:not([hidden])')
     assert.equal(await b.page.textContent('#cosign-identity'), a.identity)
     assert.equal(await b.page.textContent('#cosign-roots'), Array.from(change.body.roots).join(' '))
+    assert.equal(await b.page.textContent('#cosign-recovery'), 'none')
     await b.page.click('#cosign-sign')
     await b.page.waitForSelector('#identity:not([hidden])')
     assert.equal(await b.page.textContent('#identity-id'), a.identity)
@@ -2077,6 +2105,601 @@ const commands = fc.array(fc.oneof(
   { weight: 3, arbitrary: fc.record({ do: fc.constant('deafen'), tab: fc.nat(1) }) },
   { weight: 2, arbitrary: fc.record({ do: fc.constant('hear'), tab: fc.nat(1) }) },
 ), { minLength: 8, maxLength: 16, size: 'max' })
+
+// R11 at the page. The designation and the recovery are made here in Node with the page's own record builders: the
+// identity's passkey signs by its private key, read from the virtual authenticator; the party and the root the
+// recovery would install are keys held here.
+test('a recovery under notice is shown on load with when it takes effect; one prompt cancels it; a witness that gives no answer is said; a change shows the designation it states', { timeout: 180_000 }, async () => {
+  const t = await open()
+  const unavailable = /^Failed to load resource: the server responded with a status of 503/
+  try {
+    const rpId = 'localhost'
+    const MIN = membershipModule.MIN_RECOVERY_WINDOW
+    const a = await createIdentity(t.page)
+    const aId = rootModule.checkRoot(a.text, { rpId }).id
+    assert.equal(await t.page.isHidden('#recovery-notice'), true)
+    assert.equal(await t.page.isHidden('#notice-unchecked'), true, 'nothing was asked, and nothing is said of it')
+    // With no notice shown, the cancel button (hidden) does nothing.
+    await t.page.evaluate(() => document.getElementById('notice-cancel').click())
+    await t.page.waitForTimeout(300)
+    assert.equal(await t.page.textContent('#error'), '')
+    const { credentials } = await t.cdp.send('WebAuthn.getCredentials', { authenticatorId: t.authenticatorId })
+    const aSecret = Buffer.from(createPrivateKey({ key: Buffer.from(credentials[0].privateKey, 'base64'), format: 'der', type: 'pkcs8' }).export({ format: 'jwk' }).d, 'base64url')
+    const secret = (name) => Uint8Array.from(createHash('sha256').update('P2 recovery ' + name).digest())
+    const rootOf = (name) => envelope.wrap(envelope.seal('root', { pub: hex(p256.getPublicKey(secret(name), false)), rp_id: rpId }).payload)
+    const by = (key, id) => makeAssertion({ covers: [id], ad: authData({ rpId }), cdj: clientData({ challenge: challengeFor([id]), origin: t.site.origin }), secret: key })
+    const path = `/v1/identities/${a.identity}/records`
+    const current = async () => pageRecords.currentMembership(await t.witnessGet(path), { identity: a.identity, rpId, origin: t.site.origin, witnessKeys: t.keys })
+    const post = async (type, text, root) => {
+      const r = await t.witnessPost('/v1/records', root === undefined ? { identity: a.identity, type, text } : { identity: a.identity, type, text, root })
+      assert.equal(r.ok, true, `${type}: ${r.reason}`)
+    }
+    // The owner designates one party, three days' wait; it settles.
+    const g = pageRecords.party(rootOf('g'), hex(secret('salt')), rpId)
+    const d = pageRecords.designate({ identity: a.identity, state: await current(), parties: [g], threshold: 1, window: MIN })
+    await post('membership', pageRecords.rootSigned(d.payload, aId, by(aSecret, d.id)))
+    t.advance(61)
+    await t.svc.tick()
+    assert.equal((await current()).recovery.threshold, 1)
+    await t.page.reload()
+    await t.page.waitForSelector('#identity:not([hidden])')
+    await t.page.waitForLoadState('networkidle')
+    assert.equal(await t.page.isHidden('#recovery-notice'), true, 'designated, and nothing under notice')
+    assert.equal(await t.page.isHidden('#notice-unchecked'), true)
+    // A change the page builds states the designation again, and shows it.
+    await t.page.fill('#new-root', rootOf('b'))
+    await t.page.click('#add-review')
+    await t.page.waitForSelector('#add-panel:not([hidden])')
+    assert.equal(await t.page.textContent('#add-recovery'), '1 of 1, after 3 days')
+    await t.page.fill('#new-root', '')
+
+    // The party asks for a recovery to a root of its choosing: the witness gives notice.
+    const nId = rootModule.checkRoot(rootOf('n'), { rpId }).id
+    const R = envelope.seal('membership', { identity: a.identity, prev: d.id, epoch: 3, roots: [nId] })
+    await post('membership', pageRecords.partySigned(R.payload, g, by(secret('g'), R.id)), rootOf('g'))
+    await post('root', rootOf('n'))
+    await post('membership', pageRecords.rootSigned(R.payload, nId, by(secret('n'), R.id)))
+    const noticed = await current()
+    assert.equal(noticed.recovering.record, R.id)
+    const iso = (s) => new Date(s * 1000).toISOString()
+
+    // The witness gives no answer: the page says it could not ask, and shows no notice it does not have.
+    t.outage('down')
+    await t.page.reload()
+    await t.page.waitForSelector('#notice-unchecked:not([hidden])')
+    assert.equal(await t.page.isHidden('#recovery-notice'), true)
+    t.outage()
+    await t.page.click('#notice-retry')
+    await t.page.waitForSelector('#recovery-notice:not([hidden])')
+    assert.equal(await t.page.isHidden('#notice-unchecked'), true)
+    // A syntactically broken 200 response is no answer too: silently treating it as no notice would hide the
+    // recovery precisely when the page could not check the witness's state.
+    await t.page.route('**/v1/identities/*/records', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{' }))
+    await t.page.reload()
+    await t.page.waitForSelector('#notice-unchecked:not([hidden])')
+    assert.equal(await t.page.isHidden('#recovery-notice'), true)
+    await t.page.unroute('**/v1/identities/*/records')
+    await t.page.click('#notice-retry')
+    await t.page.waitForSelector('#recovery-notice:not([hidden])')
+    // So are records that are served and do not verify: only a 404 says the witness does not know the identity.
+    await t.page.route('**/v1/identities/*/records', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{}' }))
+    await t.page.reload()
+    await t.page.waitForSelector('#notice-unchecked:not([hidden])')
+    assert.equal(await t.page.isHidden('#recovery-notice'), true)
+    await t.page.unroute('**/v1/identities/*/records')
+    await t.page.click('#notice-retry')
+    await t.page.waitForSelector('#recovery-notice:not([hidden])')
+    assert.equal(await t.page.textContent('#notice-record'), R.id)
+    assert.equal(await t.page.textContent('#notice-at'), iso(noticed.recovering.at))
+    assert.equal(await t.page.textContent('#notice-matures'), iso(noticed.recovering.at + MIN))
+    // On load, too; and in another tab of the browser.
+    await t.page.reload()
+    await t.page.waitForSelector('#recovery-notice:not([hidden])')
+    const other = await t.tab(t.context)
+    await other.waitForSelector('#recovery-notice:not([hidden])')
+
+    // The notice is of the root it was asked for. Another root stored here (by another tab) is not shown it, even
+    // before the witness has answered for that one; nor does the button, pressed then, sign anything.
+    const mine = await held(t.page, 'root')
+    const y = rootOf('y')
+    const yId = rootModule.checkRoot(y, { rpId }).id
+    const open1 = t.gate()
+    await change(t.page, 'root', { credential: mine.credential, identity: rootModule.identityOf(yId), text: y, registered: true })
+    await t.page.waitForFunction((id) => document.getElementById('identity-id').textContent === id, rootModule.identityOf(yId))
+    await t.page.waitForSelector('#recovery-notice', { state: 'hidden' })
+    await t.page.evaluate(() => document.getElementById('notice-cancel').click())
+    await t.page.waitForTimeout(500)
+    assert.equal(await t.page.textContent('#error'), '')
+    open1()
+    // The witness knows no such identity: that is an answer, and there is nothing to say.
+    await t.page.waitForLoadState('networkidle')
+    assert.equal(await t.page.isHidden('#notice-unchecked'), true)
+    assert.equal(await t.page.isHidden('#recovery-notice'), true)
+    assert.equal(await t.page.textContent('#error'), '', 'the button pressed for another root sent nothing')
+    // A tab opened now has asked about that root only.
+    const late = await t.tab(t.context)
+    await late.waitForSelector('#identity:not([hidden])')
+    await late.waitForLoadState('networkidle')
+    // No root at all, with the old notice still in hand: the button does nothing.
+    const open2 = t.gate()
+    await change(t.page, 'root', mine)
+    await change(t.page, 'root', null)
+    await t.page.waitForSelector('#create:not([hidden])')
+    await t.page.evaluate(() => document.getElementById('notice-cancel').click())
+    open2()
+    // The identity's own root stored again: the witness is asked again, and the notice is back.
+    await change(t.page, 'root', mine)
+    await t.page.waitForSelector('#recovery-notice:not([hidden])')
+    await late.waitForSelector('#recovery-notice:not([hidden])')
+    assert.equal((await t.witnessGet(path)).cancelled.length, 0, 'nothing was cancelled meanwhile')
+    // An answer that comes late, for a root this tab no longer holds, says nothing of the root it holds now: the
+    // witness is asked about another root, this identity's root is stored again and its notice shown, and only then
+    // does the first question get its answer (that the witness could not be asked).
+    let answerLate
+    const asked = new Promise((resolve) => { answerLate = resolve })
+    let waiting
+    await t.page.route(`**/v1/identities/${rootModule.identityOf(yId)}/records`, (route) => { waiting = route; answerLate() })
+    await change(t.page, 'root', { credential: mine.credential, identity: rootModule.identityOf(yId), text: y, registered: true })
+    await asked
+    await t.page.waitForSelector('#recovery-notice', { state: 'hidden' })
+    await change(t.page, 'root', mine)
+    await t.page.waitForSelector('#recovery-notice:not([hidden])')
+    await waiting.fulfill({ status: 503, contentType: 'application/json', body: '{}' })
+    await t.page.waitForTimeout(500)
+    assert.equal(await t.page.isHidden('#recovery-notice'), false, 'the late answer does not take the notice down')
+    assert.equal(await t.page.isHidden('#notice-unchecked'), true, 'nor is it said of this root that the witness could not be asked')
+    await t.page.unroute(`**/v1/identities/${rootModule.identityOf(yId)}/records`)
+
+    // A witness that refuses the cancel: said, and the notice stays.
+    t.refusing(true)
+    await t.page.click('#notice-cancel')
+    await errorShown(t.page)
+    assert.equal(await t.page.textContent('#error'), 'the witness refused the cancel: test')
+    assert.equal(await t.page.isHidden('#recovery-notice'), false)
+    t.refusing(false)
+    // One prompt cancels it: the witness says so, the notice goes, and the identity is as it was.
+    await t.page.click('#notice-cancel')
+    await t.page.waitForSelector('#recovery-notice', { state: 'hidden' })
+    assert.equal(await t.page.textContent('#status'), 'Cancel sent. The notice goes once the witness has said the recovery is cancelled.')
+    assert.equal(await t.page.textContent('#error'), '')
+    const kept = await t.witnessGet(path)
+    assert.equal(kept.cancelled.length, 1)
+    assert.equal(envelope.open(kept.cancelled[0], 'cancelled').body.record, R.id)
+    const after = await current()
+    assert.deepEqual([after.recovering, after.membership, after.authority], [null, d.id, [aId]])
+    await t.collect()
+    assert.deepEqual(t.problems.filter((p) => !unavailable.test(p) && !/status of (422|404)/.test(p)), [], 'the browser reports only the answers the test arranged')
+  } finally { await t.close() }
+})
+
+// R11 at the page, both sides: a passkey that is someone's recovery party, and the owner who designates it.
+const statusIs = (page, text) => page.waitForFunction((text) => document.getElementById('status').textContent === text, text)
+const errorIs = async (page, text) => { await errorShown(page); assert.equal(await page.textContent('#error'), text) }
+async function proofOf (g, code) {
+  await g.page.bringToFront()
+  await g.page.fill('#proof-code', code)
+  await g.page.click('#proof-review')
+  await g.page.waitForSelector('#proof-panel:not([hidden])')
+  assert.equal(await g.page.textContent('#proof-shown'), code)
+  await g.page.click('#proof-sign')
+  await g.page.waitForSelector('#proof:not([hidden])')
+  return g.page.inputValue('#proof')
+}
+async function cardOf (g) {
+  await g.page.click('#card-make')
+  await g.page.waitForFunction((was) => { const c = document.getElementById('card'); return !c.hidden && c.value !== was }, await g.page.inputValue('#card'))
+  return g.page.inputValue('#card')
+}
+
+test('recovery parties: a party gives a card and shows that its passkey is held; the owner designates it, checks it again, and ends the designation; the party the page made recovers', { timeout: 180_000 }, async () => {
+  const t = await open()
+  try {
+    const rpId = 'localhost'
+    const a = await createIdentity(t.page)
+    const aId = rootModule.checkRoot(a.text, { rpId }).id
+    const path = `/v1/identities/${a.identity}/records`
+    const current = async () => pageRecords.currentMembership(await t.witnessGet(path), { identity: a.identity, rpId, origin: t.site.origin, witnessKeys: t.keys })
+    const settle = async () => { t.advance(61); await t.svc.tick(); t.advance(61); await t.svc.tick() }
+    await t.page.waitForFunction(() => document.getElementById('recovery-now').textContent === 'none')
+    assert.equal(await t.page.textContent('#recheck-code'), a.identity)
+    // The party: its own identity on its own device. Each card has a new salt, kept beside its root before it is shown.
+    const g = await t.device()
+    const gRoot = await createIdentity(g.page)
+    const gId = rootModule.checkRoot(gRoot.text, { rpId }).id
+    assert.equal(await g.page.isHidden('#card'), true)
+    const card = await cardOf(g)
+    const { root: cardRoot, salt } = JSON.parse(card)
+    assert.equal(cardRoot, gRoot.text)
+    assert.match(salt, /^[0-9a-f]{64}$/)
+    assert.deepEqual((await held(g.page, 'root')).salts, [salt])
+    const spare = await cardOf(g)
+    assert.notEqual(JSON.parse(spare).salt, salt)
+    assert.deepEqual((await held(g.page, 'root')).salts, [salt, JSON.parse(spare).salt])
+    // A passkey that has given out as many cards as it keeps gives no more, and says so.
+    const kept32 = await held(g.page, 'root')
+    await change(g.page, 'root', { ...kept32, salts: [...kept32.salts, ...Array.from({ length: 30 }, (_, i) => hex(createHash('sha256').update('salt ' + i).digest()))] })
+    await g.page.waitForTimeout(300)
+    await g.page.click('#card-make')
+    await errorIs(g.page, 'this passkey has given out 32 recovery cards, the most it keeps')
+    assert.equal((await held(g.page, 'root')).salts.length, 32)
+    assert.equal(await g.page.inputValue('#card'), spare, 'no card is shown for a salt that was not kept')
+
+    // The owner: no card, a card that is none, the owner's own passkey as its party.
+    await t.page.bringToFront()
+    await t.page.click('#designate-review')
+    await errorIs(t.page, 'name 1 to 3 recovery parties')
+    await t.page.fill('#party-cards', 'x')
+    await t.page.click('#designate-review')
+    await errorIs(t.page, 'that is not a recovery card')
+    await t.page.fill('#party-cards', JSON.stringify({ root: a.text, salt }))
+    await t.page.click('#designate-review')
+    await errorIs(t.page, "a recovery party must not be one of this identity's own passkeys")
+    await t.page.fill('#party-cards', card)
+    await t.page.fill('#recovery-days', '2')
+    await t.page.click('#designate-review')
+    await errorIs(t.page, 'the waiting period must be 3 to 90 days')
+    // The card, with blank lines about it, and three and a half days: what will be signed is shown.
+    await t.page.fill('#party-cards', `\n  ${card}  \n\n`)
+    await t.page.fill('#recovery-days', '3.5')
+    await t.page.click('#designate-review')
+    await t.page.waitForSelector('#designate-panel:not([hidden])')
+    assert.equal(await t.page.textContent('#error'), '')
+    assert.equal(await t.page.textContent('#designate-recovery'), '1 of 1, after 302400 seconds')
+    assert.equal(await t.page.textContent('#designate-roots'), aId)
+    assert.equal(await t.page.textContent('#designate-epoch'), '2')
+    assert.equal(await t.page.isHidden('#designate-proofs-part'), false)
+    // Any edit withdraws it.
+    for (const [field, value] of [['#party-cards', card + ' '], ['#recovery-days', '14']]) {
+      await t.page.fill(field, value)
+      assert.equal(await t.page.isHidden('#designate-panel'), true, field)
+      await t.page.click('#designate-review')
+      await t.page.waitForSelector('#designate-panel:not([hidden])')
+    }
+    assert.equal(await t.page.textContent('#designate-recovery'), '1 of 1, after 14 days')
+    const code = await t.page.textContent('#designate-code')
+    const expected = pageRecords.designate({ identity: a.identity, state: await current(), parties: [pageRecords.fromCard(card, rpId)], threshold: 1, window: 14 * 86_400 })
+    assert.equal(code, expected.id)
+    // Unsigned until the party has shown that it holds its passkey: nothing asks the owner's passkey before.
+    const signs = await signCount(t)
+    await t.page.click('#designate-sign')
+    await errorIs(t.page, '1 of the parties have not shown that they hold their passkey')
+    // The party's side: a code that is none; then what it signs is the code's possession value, not the code.
+    await g.page.bringToFront()
+    await g.page.evaluate(() => document.getElementById('proof-sign').click())
+    await g.page.fill('#proof-code', 'x')
+    await g.page.click('#proof-review')
+    await errorIs(g.page, 'a record id is 64 lowercase hex digits')
+    assert.equal(await g.page.isHidden('#proof-panel'), true)
+    const gSigns = await signCount(g)
+    const proof = await proofOf(g, code)
+    assert.equal(await signCount(g), gSigns + 1, 'nothing was signed before the review')
+    assert.deepEqual(JSON.parse(proof).covers, [pageRecords.possessionId(code)])
+    await g.page.fill('#proof-code', code + ' ')
+    assert.equal(await g.page.isHidden('#proof-panel'), true, 'an edit withdraws it')
+    assert.equal(await g.page.isHidden('#proof'), true)
+    const other = await proofOf(g, a.identity)
+    // The owner: an answer for another code shows nothing; the right one, among other lines, does.
+    await t.page.bringToFront()
+    await t.page.fill('#designate-proofs', other)
+    await t.page.click('#designate-sign')
+    await errorIs(t.page, '1 of the parties have not shown that they hold their passkey')
+    assert.equal(await signCount(t), signs)
+    assert.equal(await t.page.isHidden('#designate-panel'), false, 'what they gave back is no edit of the change')
+    await t.page.fill('#designate-proofs', `${other}\n ${proof} \n`)
+    await t.page.click('#designate-sign')
+    await statusIs(t.page, 'Signed. The change settles once its contest window has passed.')
+    assert.equal(await t.page.textContent('#error'), '')
+    assert.equal(await t.page.isHidden('#designate-handoff'), true, 'one passkey: nobody is left to co-sign')
+    assert.equal(await signCount(t), signs + 1)
+    await settle()
+    assert.deepEqual((await current()).recovery, expected.body.recovery)
+    assert.equal((await current()).membership, code)
+
+    // Loaded again, the page says what is designated; the same check is made over the current membership.
+    await t.page.reload()
+    await t.page.waitForFunction(() => document.getElementById('recovery-now').textContent === '1 of 1, after 14 days')
+    assert.equal(await t.page.textContent('#recheck-code'), code)
+    await t.page.click('#recheck')
+    await errorIs(t.page, 'paste the recovery cards of the parties to check')
+    await t.page.fill('#party-cards', card)
+    await t.page.click('#recheck')
+    await statusIs(t.page, '0 of 1 of these parties showed that they hold their passkey.')
+    const again = await proofOf(g, code)
+    await t.page.bringToFront()
+    await t.page.fill('#recheck-proofs', `${other}\n${again}`)
+    await t.page.click('#recheck')
+    await statusIs(t.page, '1 of 1 of these parties showed that they hold their passkey.')
+    assert.equal(await t.page.textContent('#error'), '')
+    await t.page.fill('#party-cards', `${card}\n${spare}`)
+    await t.page.click('#recheck')
+    await errorIs(t.page, "a card here is not one of this identity's recovery parties")
+    assert.equal(await t.page.textContent('#status'), '', 'the last check is not left standing')
+
+    // The party the page made recovers: its key and the card's salt open the commitment, and notice is given.
+    const { credentials } = await g.cdp.send('WebAuthn.getCredentials', { authenticatorId: g.authenticatorId })
+    const gSecret = Buffer.from(createPrivateKey({ key: Buffer.from(credentials[0].privateKey, 'base64'), format: 'der', type: 'pkcs8' }).export({ format: 'jwk' }).d, 'base64url')
+    const nSecret = Uint8Array.from(createHash('sha256').update('P2 designate n').digest())
+    const nRoot = envelope.wrap(envelope.seal('root', { pub: hex(p256.getPublicKey(nSecret, false)), rp_id: rpId }).payload)
+    const by = (key, id) => makeAssertion({ covers: [id], ad: authData({ rpId }), cdj: clientData({ challenge: challengeFor([id]), origin: t.site.origin }), secret: key })
+    const R = envelope.seal('membership', { identity: a.identity, prev: code, epoch: 3, roots: [rootModule.checkRoot(nRoot, { rpId }).id] })
+    const post = async (body) => { const r = await t.witnessPost('/v1/records', { identity: a.identity, ...body }); assert.equal(r.ok, true, r.reason) }
+    await post({ type: 'membership', text: pageRecords.partySigned(R.payload, pageRecords.fromCard(card, rpId), by(gSecret, R.id)), root: gRoot.text })
+    await post({ type: 'root', text: nRoot })
+    await post({ type: 'membership', text: pageRecords.rootSigned(R.payload, rootModule.checkRoot(nRoot, { rpId }).id, by(nSecret, R.id)) })
+    await t.svc.tick()
+    assert.equal((await current()).recovering.record, R.id)
+    assert.equal(gId, pageRecords.fromCard(card, rpId).root)
+    await t.page.reload()
+    await t.page.waitForSelector('#recovery-notice:not([hidden])')
+    await t.page.click('#notice-cancel')
+    await statusIs(t.page, 'Cancel sent. The notice goes once the witness has said the recovery is cancelled.')
+    await t.svc.tick()
+
+    // Ending the designation: the same change without one, and no party is asked anything.
+    await t.page.click('#undesignate-review')
+    await t.page.waitForSelector('#designate-panel:not([hidden])')
+    assert.equal(await t.page.textContent('#designate-recovery'), 'none')
+    assert.equal(await t.page.textContent('#designate-epoch'), '3')
+    assert.equal(await t.page.isHidden('#designate-proofs-part'), true)
+    t.refusing(true)
+    await t.page.click('#designate-sign')
+    await errorIs(t.page, 'the witness refused the membership: test')
+    assert.equal(await t.page.textContent('#status'), '', 'nothing said of an earlier signing is left standing')
+    t.refusing(false)
+    await t.page.click('#designate-sign')
+    await statusIs(t.page, 'Signed. The change settles once its contest window has passed.')
+    await settle()
+    assert.equal((await current()).recovery, null)
+    await t.page.click('#undesignate-review')
+    await errorIs(t.page, 'no recovery parties are designated')
+    assert.deepEqual(t.problems.filter((p) => !/status of 422 \(Unprocessable Entity\)$/.test(p)), [])
+  } finally { await t.close() }
+})
+
+test('recovery parties, two passkeys: one designates and hands the change over; the other co-signs only a change that sets the parties and nothing else', { timeout: 180_000 }, async () => {
+  const t = await open()
+  try {
+    const rpId = 'localhost'
+    const a = await createIdentity(t.page)
+    const aId = rootModule.checkRoot(a.text, { rpId }).id
+    const path = `/v1/identities/${a.identity}/records`
+    const current = async () => pageRecords.currentMembership(await t.witnessGet(path), { identity: a.identity, rpId, origin: t.site.origin, witnessKeys: t.keys })
+    // A second passkey joins, and the change settles.
+    const b = await t.device()
+    await b.page.click('#join-button')
+    await b.page.waitForSelector('#joining:not([hidden])')
+    assert.deepEqual([await b.page.isHidden('#recovery'), await b.page.isHidden('#party')], [true, true], 'a joining passkey designates nothing and is nobody\'s party')
+    const bId = rootModule.checkRoot(await b.page.inputValue('#join-root'), { rpId }).id
+    await t.page.bringToFront()
+    await t.page.fill('#new-root', await b.page.inputValue('#join-root'))
+    await t.page.click('#add-review')
+    await t.page.waitForSelector('#add-panel:not([hidden])')
+    await t.page.click('#add-sign')
+    await t.page.waitForSelector('#add-handoff:not([hidden])')
+    await b.page.bringToFront()
+    await b.page.fill('#cosign-payload', await t.page.inputValue('#add-handoff'))
+    await b.page.click('#cosign-review')
+    await b.page.waitForSelector('#cosign-panel:not([hidden])')
+    await b.page.click('#cosign-sign')
+    await b.page.waitForSelector('#identity:not([hidden])')
+    assert.deepEqual([await b.page.isHidden('#recovery'), await b.page.isHidden('#party')], [false, false])
+    t.advance(61)
+    await t.svc.tick()
+    const two = await current()
+    assert.deepEqual(two.authority, [aId, bId].sort())
+
+    // A party; the first passkey designates it, and is told to co-sign with the other.
+    const g = await t.device()
+    await createIdentity(g.page)
+    const card = await cardOf(g)
+    await t.page.bringToFront()
+    await t.page.fill('#party-cards', card)
+    await t.page.click('#designate-review')
+    await t.page.waitForSelector('#designate-panel:not([hidden])')
+    assert.equal(await t.page.textContent('#designate-roots'), [aId, bId].sort().join(' '))
+    const code = await t.page.textContent('#designate-code')
+    const proof = await proofOf(g, code)
+    await t.page.bringToFront()
+    await t.page.fill('#designate-proofs', proof)
+    await t.page.click('#designate-sign')
+    await statusIs(t.page, 'Signed. Co-sign this change with your other passkeys.')
+    assert.equal(await t.page.isHidden('#designate-handoff'), false)
+    const payload = await t.page.inputValue('#designate-handoff')
+    const d = pageRecords.changeToSign(payload)
+    assert.equal(d.id, code)
+    assert.equal((await current()).membership, two.membership, 'one of two has changed nothing')
+    // An edit after signing withdraws the hand-off.
+    await t.page.fill('#recovery-days', '15')
+    assert.equal(await t.page.isHidden('#designate-handoff'), true)
+
+    // The other passkey: nothing is signed before a review; a change of the roots is no change of the parties.
+    await b.page.bringToFront()
+    await b.page.evaluate(() => document.getElementById('recovery-cosign-sign').click())
+    await b.page.fill('#recovery-cosign-payload', 'x')
+    await b.page.click('#recovery-cosign-review')
+    await errorIs(b.page, 'that is not a membership change')
+    for (const over of [{ roots: [bId] }, { epoch: d.body.epoch + 1 }, { prev: a.identity }]) {
+      await b.page.fill('#recovery-cosign-payload', envelope.seal('membership', { ...d.body, ...over }).payload)
+      await b.page.click('#recovery-cosign-review')
+      await errorIs(b.page, "that change does more than set this identity's recovery parties")
+      assert.equal(await b.page.isHidden('#recovery-cosign-panel'), true)
+    }
+    const signs = await signCount(b)
+    await b.page.fill('#recovery-cosign-payload', ` ${payload} `)
+    await b.page.click('#recovery-cosign-review')
+    await b.page.waitForSelector('#recovery-cosign-panel:not([hidden])')
+    assert.equal(await b.page.textContent('#error'), '')
+    assert.equal(await b.page.textContent('#recovery-cosign-recovery'), '1 of 1, after 14 days')
+    assert.equal(await b.page.textContent('#recovery-cosign-roots'), [aId, bId].sort().join(' '))
+    assert.equal(await b.page.textContent('#recovery-cosign-epoch'), '3')
+    await b.page.fill('#recovery-cosign-payload', payload)
+    assert.equal(await b.page.isHidden('#recovery-cosign-panel'), true, 'an edit withdraws it')
+    await b.page.click('#recovery-cosign-review')
+    await b.page.waitForSelector('#recovery-cosign-panel:not([hidden])')
+    assert.equal(await signCount(b), signs)
+    // A witness that refuses is shown, and nothing said of an earlier signing is left standing.
+    t.refusing(true)
+    await b.page.click('#recovery-cosign-sign')
+    await errorIs(b.page, 'the witness refused the membership: test')
+    assert.equal(await b.page.textContent('#status'), '')
+    t.refusing(false)
+    await b.page.click('#recovery-cosign-sign')
+    await statusIs(b.page, 'Co-signed. The change settles once its contest window has passed.')
+    assert.equal(await b.page.textContent('#error'), '')
+    assert.equal(await signCount(b), signs + 2)
+    t.advance(61)
+    await t.svc.tick()
+    t.advance(61)
+    await t.svc.tick()
+    const after = await current()
+    assert.deepEqual([after.membership, after.recovery], [code, d.body.recovery])
+    assert.deepEqual(t.problems.filter((p) => !/status of 422 \(Unprocessable Entity\)$/.test(p)), [])
+  } finally { await t.close() }
+})
+
+test('recovery at the page: a new passkey asks, the party signs what it is shown, the new passkey signs after it; the owner sees the notice; uncancelled, the identity is the new passkey\'s', { timeout: 180_000 }, async () => {
+  const t = await open()
+  try {
+    const rpId = 'localhost'
+    const MIN = membershipModule.MIN_RECOVERY_WINDOW
+    const a = await createIdentity(t.page)
+    const aId = rootModule.checkRoot(a.text, { rpId }).id
+    const path = `/v1/identities/${a.identity}/records`
+    const current = async () => pageRecords.currentMembership(await t.witnessGet(path), { identity: a.identity, rpId, origin: t.site.origin, witnessKeys: t.keys })
+    // The party, with a card its page made; the owner designates it (here in Node, with the owner's passkey).
+    const g = await t.device()
+    const gRoot = await createIdentity(g.page)
+    const card = await cardOf(g)
+    const { credentials } = await t.cdp.send('WebAuthn.getCredentials', { authenticatorId: t.authenticatorId })
+    const aSecret = Buffer.from(createPrivateKey({ key: Buffer.from(credentials[0].privateKey, 'base64'), format: 'der', type: 'pkcs8' }).export({ format: 'jwk' }).d, 'base64url')
+    const by = (key, id) => makeAssertion({ covers: [id], ad: authData({ rpId }), cdj: clientData({ challenge: challengeFor([id]), origin: t.site.origin }), secret: key })
+    const d = pageRecords.designate({ identity: a.identity, state: await current(), parties: [pageRecords.fromCard(card, rpId)], threshold: 1, window: MIN })
+    assert.equal((await t.witnessPost('/v1/records', { identity: a.identity, type: 'membership', text: pageRecords.rootSigned(d.payload, aId, by(aSecret, d.id)) })).ok, true)
+    t.advance(61)
+    await t.svc.tick()
+    assert.equal((await current()).membership, d.id)
+
+    // Every passkey lost: a new one, on a new device, asks for the identity.
+    const n = await t.device()
+    await n.page.click('#join-button')
+    await n.page.waitForSelector('#joining:not([hidden])')
+    const nRoot = await n.page.inputValue('#join-root')
+    const nId = rootModule.checkRoot(nRoot, { rpId }).id
+    const print = await n.page.textContent('#join-fingerprint')
+    await n.page.evaluate(() => document.getElementById('recover-sign').click())
+    await n.page.fill('#recover-identity', 'x')
+    await n.page.click('#recover-review')
+    await errorIs(n.page, 'an identity is 64 lowercase hex digits')
+    await n.page.fill('#recover-identity', gRoot.identity)
+    await n.page.click('#recover-review')
+    await errorIs(n.page, 'that identity has designated no recovery parties')
+    await n.page.fill('#recover-identity', ` ${a.identity} `)
+    await n.page.click('#recover-review')
+    await n.page.waitForSelector('#recover-panel:not([hidden])')
+    assert.equal(await n.page.textContent('#error'), '')
+    assert.equal(await n.page.textContent('#recover-shown'), a.identity)
+    assert.equal(await n.page.textContent('#recover-roots'), nId)
+    assert.equal(await n.page.textContent('#recover-recovery'), '1 of 1, after 3 days')
+    assert.equal(await n.page.textContent('#recover-wait'), '3 days after enough parties and this passkey have signed, unless a passkey the identity has now cancels it')
+    const request = await n.page.inputValue('#recover-request')
+    const R = pageRecords.changeToSign(request)
+    assert.deepEqual(R.body, { identity: a.identity, prev: d.id, epoch: 3, roots: [nId], recovery: d.body.recovery })
+    await n.page.fill('#recover-identity', a.identity)
+    assert.equal(await n.page.isHidden('#recover-panel'), true, 'an edit withdraws it')
+    await n.page.click('#recover-review')
+    await n.page.waitForSelector('#recover-panel:not([hidden])')
+    assert.equal(await n.page.inputValue('#recover-request'), request)
+    // Signed before any party has: kept, refused by the witness, and waiting to be sent again.
+    const nSigns = await signCount(n)
+    await n.page.click('#recover-sign')
+    await errorIs(n.page, 'the witness refused the membership: signer')
+    await n.page.waitForSelector('#cosign-pending:not([hidden])')
+    assert.equal(await signCount(n), nSigns + 1)
+    assert.equal((await current()).recovering, null)
+
+    // The party: what is no request; a card that is not its own; a browser that lost the salt, and the card given back.
+    await g.page.bringToFront()
+    await g.page.evaluate(() => document.getElementById('rescue-sign').click())
+    await g.page.fill('#rescue-request', 'x')
+    await g.page.click('#rescue-review')
+    await errorIs(g.page, 'that is not a membership change')
+    const kept = await held(g.page, 'root')
+    const { salts, ...bare } = kept
+    await change(g.page, 'root', bare)
+    await g.page.waitForTimeout(300)
+    await g.page.fill('#rescue-request', request)
+    await g.page.click('#rescue-review')
+    await errorIs(g.page, "this passkey is not one of that identity's recovery parties")
+    await g.page.fill('#rescue-card', JSON.stringify({ root: a.text, salt: salts[0] }))
+    await g.page.click('#rescue-review')
+    await errorIs(g.page, "that recovery card is not this passkey's")
+    await g.page.fill('#rescue-card', card)
+    await g.page.click('#rescue-review')
+    await g.page.waitForSelector('#rescue-panel:not([hidden])')
+    await g.page.fill('#rescue-card', '')
+    assert.equal(await g.page.isHidden('#rescue-panel'), true, 'an edit withdraws it')
+    // With the salt it kept: what will be signed is shown, with the fingerprint the new device shows.
+    await change(g.page, 'root', kept)
+    await g.page.waitForTimeout(300)
+    await g.page.fill('#rescue-request', ` ${request} `)
+    await g.page.click('#rescue-review')
+    await g.page.waitForSelector('#rescue-panel:not([hidden])')
+    assert.equal(await g.page.textContent('#error'), '')
+    assert.equal(await g.page.textContent('#rescue-identity'), a.identity)
+    assert.equal(await g.page.textContent('#rescue-roots'), nId)
+    assert.equal(await g.page.textContent('#rescue-fingerprints'), print)
+    assert.equal(await g.page.textContent('#rescue-recovery'), '1 of 1, after 3 days')
+    assert.equal(await g.page.textContent('#rescue-wait'), '3 days after enough parties and the new passkey have signed, unless a passkey the identity has now cancels it')
+    const gSigns = await signCount(g)
+    t.refusing(true)
+    await g.page.click('#rescue-sign')
+    await errorIs(g.page, 'the witness refused the membership: test')
+    assert.equal(await g.page.textContent('#status'), '', 'nothing said before is left standing')
+    t.refusing(false)
+    await g.page.click('#rescue-sign')
+    await statusIs(g.page, 'Signed. The recovery is under notice once enough parties and the new passkey have signed.')
+    assert.equal(await signCount(g), gSigns + 2)
+    assert.equal((await current()).recovering, null, 'the new passkey has yet to sign')
+
+    // The new passkey's kept signature is sent again, with its root record, which nobody else gave the witness.
+    await n.page.bringToFront()
+    await n.page.click('#cosign-retry')
+    await n.page.waitForSelector('#identity:not([hidden])')
+    assert.equal(await n.page.textContent('#identity-id'), a.identity)
+    assert.equal(await signCount(n), nSigns + 1, 'no second prompt')
+    await t.svc.tick()
+    const noticed = await current()
+    assert.equal(noticed.recovering.record, R.id)
+    // It is told what it waits for, and offered no cancel; the owner's passkey is offered one.
+    await n.page.reload()
+    await n.page.waitForSelector('#recovery-notice:not([hidden])')
+    assert.deepEqual([await n.page.isHidden('#notice-incoming'), await n.page.isHidden('#notice-own')], [false, true])
+    await t.page.bringToFront()
+    await t.page.reload()
+    await t.page.waitForSelector('#recovery-notice:not([hidden])')
+    assert.deepEqual([await t.page.isHidden('#notice-incoming'), await t.page.isHidden('#notice-own')], [true, false])
+    assert.equal(await t.page.textContent('#notice-record'), R.id)
+
+    // Uncancelled for the wait, and then the contest window: the identity is the new passkey's, which authorises a worker.
+    t.advance(MIN + 1)
+    await t.svc.tick()
+    t.advance(61)
+    await t.svc.tick()
+    const after = await current()
+    assert.deepEqual([after.membership, after.roots, after.authority, after.recovering], [R.id, [nId], [nId], null])
+    await n.page.bringToFront()
+    await n.page.reload()
+    await n.page.waitForSelector('#identity:not([hidden])')
+    await n.page.waitForLoadState('networkidle')
+    assert.equal(await n.page.isHidden('#recovery-notice'), true)
+    await authorise(n.page)
+    await n.page.waitForSelector('#review-panel:not([hidden])')
+    await n.page.click('#sign')
+    await n.page.waitForSelector('#handoff:not([hidden])')
+    assert.equal(envelope.open(envelope.wrap(JSON.parse(await n.page.inputValue('#handoff')).payload, { root: {}, subject: '0'.repeat(128) }), 'delegation').body.membership, R.id)
+    assert.deepEqual(t.problems.filter((p) => !/status of 422 \(Unprocessable Entity\)$/.test(p)), [])
+  } finally { await t.close() }
+})
 
 test('histories: two tabs, steps drawn at random, each judged by what the model states of every state', { timeout: 3_600_000 }, async () => {
   const t = await open({ init: HOLD_STORAGE })

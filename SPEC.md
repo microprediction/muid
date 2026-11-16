@@ -168,7 +168,7 @@ Research: [`encoding.md`](research/encoding.md).
 - **V1 VERSION:** `v` must equal 1. Any other value is rejected.
 - **V2 TYPE:** the verifier is told which `type` it expects; a mismatch is rejected. Types form a closed list:
   `root`, `delegation`, `attestation`, `membership`, `freeze`, `contest`, `anchor`, `settlement`, `head`, `claim`,
-  `revocation`, `receipt`, `logged`. Asking
+  `revocation`, `receipt`, `logged`, `cancel`, `notice`, `cancelled`, `matured`. Asking
   for any other type is a programming error, not a reject.
 - **V3 ONE ALGORITHM PER TYPE:** the record type fixes the signature algorithm and the signer's role. Nothing in the
   record selects either.
@@ -292,6 +292,9 @@ Records the witness signs about membership (V3: witness key; checked against tha
 `sig = { signature, witness }`. A root-signed **contest** `{ identity, record }` and **freeze**
 `{ identity, membership }` complete the set. A membership, contest or freeze record may be signed by several roots,
 one envelope each, so its `sig` names the signer: `{ root, assertion }`, where `assertion` is W0–W6's object.
+For recovery parties (R11), a membership body may also carry `recovery`; a party's signature on a membership record
+is `{ root, salt, assertion }`; a root-signed **cancel** is `{ identity, record }`; and the witness signs **notice**,
+**cancelled** and **matured**, each `{ identity, record, at }`, as it signs an anchor.
 
 - **R1 CHANGE BY MAJORITY:** a membership record is valid only if signed by a strict majority of `prev`'s roots
   (⌊n/2⌋ + 1 of n) and by every root it adds. A root is retired by leaving it out.
@@ -331,11 +334,14 @@ one envelope each, so its `sig` names the signer: `{ root, assertion }`, where `
   and a top-ranked key would be a single point of failure.
 
 - **R8 STATE, AS A FUNCTION:** `membershipState(records, ctx)`, with `records` grouped by type (`roots`,
-  `memberships`, `contests`, `freezes`, `anchors`, `settlements`, each a list of envelope texts) and
+  `memberships`, `contests`, `freezes`, `anchors`, `settlements`, and R11's `notices`, `cancelled` and `matured`,
+  each a list of envelope texts) and
   `ctx = { identity, rpId, origin, witnessKeys }`, verifies each record on its own — a record that does not verify
   carries no authority and is ignored — and returns `{ ok: true, dead: true }`, or
-  `{ ok: true, dead: false, identity, membership, settled, epoch, roots, pending, authority, frozen }` (`settled`
-  is the last settled membership, `membership` the effective one), or `{ ok: false, reason }`
+  `{ ok: true, dead: false, identity, membership, settled, epoch, roots, pending, authority, frozen, recovery,
+  recovering }` (`settled` is the last settled membership, `membership` the effective one; `recovery` is the settled
+  membership's designation and `recovering` the recovery of it under notice, `{ record, at }`, each null where there
+  is none: R11), or `{ ok: false, reason }`
   with `self-test` when its known answers fail (§4), `unknown-identity` when no root record given is the identity's
   first root, or `records` when a list is longer than `MAX_RECORDS` (256) or cannot be read; a list that is not an array is empty. A signer already counted
   for a record is not verified again, and `MAX_RECORDS` bounds each list, so the work a caller can cause is bounded.
@@ -350,7 +356,8 @@ one envelope each, so its `sig` names the signer: `{ root, assertion }`, where `
   executable form: every state the model's explorer reaches, and every partial view of it, is translated into
   signed records and must give the model's answer.
 
-- **R9 FRESH HEAD:** a **head** `{ identity, epoch, memberships, authority, revoked, at }` is signed by the
+- **R9 FRESH HEAD:** a **head** `{ identity, epoch, memberships, authority, revoked, at }` (and `recovering`, while
+  a recovery is under notice: R11) is signed by the
   membership witness (A4's `sig`): `membershipState` of every record the witness holds for the identity, at time
   `at`. `epoch` is the settled membership's epoch; `memberships` is the last settled membership id, followed by its
   pending successor's if there is one; the identity id is the first entry exactly when `epoch` is 1, and never the
@@ -389,6 +396,79 @@ one envelope each, so its `sig` names the signer: `{ root, assertion }`, where `
   short-lived status record per delegation, re-issued by the witness while the delegation is live and unrevoked and
   required by the verifier, as OCSP must-staple and short-lived certificates do: revocation is then "stop issuing",
   with no list, no per-root accounting and no bucket on the safety path.
+- **R11 RECOVERY PARTIES (decision 15; proposed: `model/settled.mjs` states it and `tests/model/R11` checks it; the
+  core and the witness implement it, each tested against that model; the id page designates parties, starts a recovery, shows a notice and cancels).** An owner who has lost every root has nobody left to
+  sign for them (R1). A membership may therefore designate recovery parties, who can restore the identity and do
+  nothing else, as wallets' guardians do (Argent) and as a queued change that anyone entitled may cancel does
+  (Zodiac Delay, Candide's recovery module).
+  - *Designation.* A membership record may carry `recovery`: `{ parties, threshold, window }`. `parties` is a sorted
+    list of 1–3 distinct commitments, each hex SHA-256(`UTF-8("muid-recovery\n")` ‖ the party's root id as 32 raw
+    bytes ‖ a 32-byte salt): the record names nobody until a party acts. `threshold` is how many of them must sign a
+    recovery: a majority of them, up to their number (1 of 1, 2 of 2, 2 or 3 of 3), as guardians' thresholds are
+    (Argent; one guardian of several, and no delay, is how Loopring's wallets were taken in 2024). `window` is how long a recovery waits, in seconds, from 259,200 (3 days, the
+    contest window) to 7,776,000 (90 days); the id page offers 14 days. A record without `recovery` designates
+    nobody; a successor keeps a designation only by repeating it. Designating is an ordinary change (R1, R3, R4): a
+    majority of the roots, an anchor, the contest window. A party is a root record under the same `rp_id` (a passkey
+    at the id origin, used by a person or held by an institution) that is not one of the membership's roots. A
+    record names commitments, so it cannot be refused for committing to one of its own roots, or to one party twice
+    under two salts: a root of the membership counts for nothing as its party, and one party counts once.
+  - *No authority, no vote.* A recovery party is never in `authority`, signs no delegation, freeze, contest or
+    cancel that counts, and its signature on an ordinary membership record counts for nothing.
+  - *Recovery.* A recovery is a membership record naming the settled membership as `prev`, signed by at least
+    `threshold` of that membership's parties, each signature opening its commitment (`sig` is
+    `{ root, salt, assertion }`), and by every root the record adds (a party the record adds as a root signs once,
+    as a party). The witness does not anchor it. If nothing with
+    that `prev` is anchored, no other recovery of it is under notice, and none was cancelled in the last 259,200
+    seconds, the witness signs a **notice** `{ identity, record, at }` and appends it to its log.
+    Being a membership record, a recovery states the restored identity's own `recovery` too, or none: those who
+    sign it choose, as they choose its roots. Parties who meet the threshold wrongly could so name themselves again,
+    but by then they hold the identity; a restored owner changes it by an ordinary change.
+  - *Under notice.* Nothing changes: the same membership, the same authority. Every head the witness signs while the
+    notice stands carries it (`recovering`: `{ record, at }`, otherwise absent), so every relying party and device
+    that takes a head can show the owner that a recovery was asked for and when. That is the notification this rule
+    rests on; a message the operator also sends is a courtesy outside it.
+  - *Cancel.* A **cancel** `{ identity, record }` signed by any one root of the settled membership, received while
+    the recovery is under notice, ends it: the witness signs **cancelled** `{ identity, record, at }`, never gives
+    notice of that record again, and the identity is as it was, since nothing was anchored. An ordinary change by
+    the owner does the same without a cancel: once it settles, the recovery's `prev` is no longer the settled
+    membership.
+  - *Maturity.* Left alone for `window` seconds from its notice's `at`, with the membership still the settled one,
+    the recovery matures: the witness signs **matured** `{ identity, record, at }`, and from then the record is valid
+    as R1's records are and is anchored as R3 anchors any (one anchor per `prev` stands: a recovery that is cancelled
+    was never anchored). R4–R7 then apply unchanged. The roots it removes lose authority at that anchoring (R6); the
+    roots it adds gain it at settlement, a contest window later. From maturity a cancel is not honoured: what
+    remains is R5's contest, by a majority of the old roots, which ends the identity. A verifier takes a recovery as
+    a membership only with the witness's `matured` for it, so one that lacks it is behind, never on another branch.
+  - *What this does and does not protect, each a property of the model with the rule that gives it turned off as its
+    negative control.* (a) While any root of the settled membership is used to cancel within the window, no
+    recovery ever takes effect, and a recovery party can neither end the identity nor gain authority. (b) An owner
+    who does nothing for the whole window, and then the contest window, loses the identity to parties who meet the
+    threshold: the designation is that trust, and the window and the notice in every head are its only brakes. (c)
+    Whoever can use one root of the settled membership, a thief included, can cancel every recovery: recovery can be
+    blocked by them, never used by them, and an owner who has lost every root to someone who can use one has lost the
+    identity as before. (d) With a threshold above one, no single party starts a recovery or keeps others from
+    starting one. (e) One recovery is under notice at a time and, after a cancel, none for 259,200 seconds, so
+    notices are bounded by time, not by how often a party asks.
+  - *Limits that are stated, not solved.* (f) The notice reaches whoever takes a head, and some identities have none:
+    a frozen one, and one whose pending membership shares no root with the settled one (R6, R9). There a recovery
+    under notice is seen only in the witness's records (`notices`), which the id page reads. (g) The witness is
+    trusted for the window as it is for every time (R3): a witness that lies, together with parties who meet the
+    threshold, can say a recovery matured that never waited. Logged heads (R12) would let a monitor see it; nothing
+    here prevents it. The same witness could withhold a cancel. (h) A party that acts has opened its commitment for
+    good, cancelled or not: whoever reads the log knows it from then, so an owner who cancels should designate again
+    with fresh salts, and the id page says so. (i) Any one root cancels, with no override: deployed systems instead
+    let a threshold of signers (Safe) or a higher-ranked key (did:plc) decide, which a thief holding a majority, or
+    the top key, then also has. Kept as it is for version 1: an owner with any one root can always stop the parties,
+    and what a thief with one root gains is only what limit (c) already gives. (j) An operator that offers recovery
+    parties must also tell the owner out of band (mail, or whatever it has) when a notice is given, as NIST SP
+    800-63B-4 requires of account recovery and as wallets' recovery services do; no record can show that it did, so
+    this is the operator's duty and not a rule a verifier checks.
+  - *Limits, stated.* The window is by the witness's clock, as R4's is (decision 8's residual: a leaked witness key
+    could backdate a notice as it could an anchor). A commitment hides a party until it signs a recovery; from then
+    its root id is public, and an institution that uses one root for many people links them once it has acted for
+    one. Possession of a party's key is shown when it signs a recovery, not when it is designated: the id page checks
+    it at designation (§8), which shows it for that day. R1's signed-in-advance successor remains possible without
+    any of this: a record a majority signed and gave to someone to submit later is an ordinary record.
 - **Head lag (residual):** a delegate chooses which head to present, so an anchored change, a freeze or a revocation
   reaches a verifier only once every older head has aged past `maxStaleness` — a day — unless the verifier passes
   `minHeadAt` or `lastHead` (F5), the newest head it has seen for the identity. A relying party that needs faster effect for a scope
@@ -453,13 +533,30 @@ the network and the transparency log are the service's, and the signing key stay
   contest, is refused, either way round. A
   list at `MAX_RECORDS` refuses new ones (`full`), a backstop the rules above keep out of reach; nothing is admitted
   to a dead identity.
+  R11: a membership record whose body is not of the core's form, its designation included, is refused (`shape`), so
+  nothing verifiers would ignore is held or counted. A party's signature (one with a `salt`) is admitted only with
+  nothing pending, for a successor of the settled membership, from a root that is none of that membership's and whose
+  commitment its designation holds (`signer`). Nothing names a party before it acts, so its root record comes with
+  its signature (`admit(held, type, text, partyRoot)`; `root-record` if it is not that root's) and is held while
+  that signature is. A root the recovery adds signs once the threshold of parties has. A party holds one proposal
+  per `prev` as a root does, and cannot move off a recovery its threshold has signed until the witness has said it
+  was cancelled (`quorate`): a recovery under notice keeps the signatures notice was given for. A **cancel** is
+  admitted from any root of the settled membership for the recovery under notice, until it has matured (`record`
+  otherwise); one is enough, and a second changes nothing.
 - `advance(held, now)` signs what the model's witness does: with nothing pending, it anchors a held successor of
   the settled membership (at most one has a strict majority, since each root holds one proposal per `prev`), and keeps an anchor only if `membershipState` with it shows that record
   pending, so the witness never applies a second implementation of R1; with a record pending and the window open, it
   anchors a held contest only if verifiers would then see the identity end; once `CONTEST_WINDOW` has passed, it
   settles, as `contested` if a contest is anchored. At a settlement that is not contested, the proposals that lost
   that `prev`, and the root records only they named, are dropped: they can never be anchored. A settlement can make a
-  held successor anchorable in the same step. Its own view leaves out contest anchors, as the model's does. It signs
+  held successor anchorable in the same step. R11: with nothing pending and no successor verifiers would follow, it
+  looks to recoveries of the settled membership. If one is under notice: a held cancel of it is answered with
+  `cancelled`; failing that, once `window` seconds have passed since its notice, with `matured`, and the next pass
+  anchors it as any record (tried first with the trial key's `matured` and anchor, as below). Otherwise, unless a
+  recovery was cancelled in the last 259,200 seconds or the notices held have reached `MAX_RECORDS`, it gives
+  `notice` of the held recovery that verifiers would follow were it matured and anchored (at most one: a threshold is a majority of the parties, and each party holds one proposal per `prev`). At a
+  settlement, the cancels, notices and cancellations of that `prev` go with its proposals, except the last
+  `cancelled` (the cooling-off runs from it) and the `matured` of the outcome (the state is replayed with it). Its own view leaves out contest anchors, as the model's does. It signs
   only what it keeps, as a CT log signs only what it logs: each candidate anchor is tried signed by a trial key (the
   Ed25519 key of 32 zero bytes, which no verifier pins and a configuration may not), in a copy of the witness keys
   with the witness key's own windows, and `sign` is called only for the one kept. No valid anchor exists that the log
@@ -486,8 +583,8 @@ the network and the transparency log are the service's, and the signing key stay
 **The witness service (`witness/service.js`, not core)** puts these behind a small HTTP API, fetch-style (a
 `Request` in, a `Response` out). Records the witness signs wait in an outbox until the log has taken them, and the
 outbox is appended again, the same texts, before anything else is done for the identity: a log that took an entry
-but whose answer was lost never leads the witness to sign a rival (review round 8). Checked by TLC (`model/tla/WitnessOutbox.tla`): with three requests for one identity in flight, any of them dying at any step and the log losing any answer, the log never holds two rival records, no request is answered with, and the records served never hold, what the log lacks; without any one of six rules of `commit` (among them the store's one-at-a-time update, which the service only assumes) one of those fails. Endpoints: `POST /v1/records` (`{ identity, type, text }`; a root, membership, contest or
-freeze), `POST /v1/revocations` (`{ identity, text, delegation? }`), `POST /v1/delegations` (`{ identity, text }`;
+but whose answer was lost never leads the witness to sign a rival (review round 8). Checked by TLC (`model/tla/WitnessOutbox.tla`): with three requests for one identity in flight, any of them dying at any step and the log losing any answer, the log never holds two rival records, no request is answered with, and the records served never hold, what the log lacks; without any one of six rules of `commit` (among them the store's one-at-a-time update, which the service only assumes) one of those fails. Endpoints: `POST /v1/records` (`{ identity, type, text }`; a root, membership, contest,
+freeze or cancel; with a recovery party's signature, `root` may carry the party's root record), `POST /v1/revocations` (`{ identity, text, delegation? }`), `POST /v1/delegations` (`{ identity, text }`;
 answered with the `logged` record, appended to the log first when it is new), `GET /v1/identities/{id}/records` (what R8 needs)
 and `GET /v1/identities/{id}/head` (a head, reused for `headInterval` seconds while nothing changes; a resubmission
 that changes nothing, such as a record already held, leaves it as it is); `tick()`
@@ -588,8 +685,11 @@ Inside a record nothing is passed over (F2).
 
 - **F6 THE HEAD ALONE:** `v.verifyHead(head, call)`, with a call as for `verifyDelegation`, applies F5's head checks
   only — `head`, `stale`, `identity`, `equivocation`, under `now`, `minHeadAt` and `lastHead` — and returns
-  `{ ok: true, identity, at, epoch, memberships, authority, revoked }` (the head's own fields, its lists frozen and
-  as the head has them) or exactly the refusal `verifyDelegation` would give for that head. A root is in a fresh
+  `{ ok: true, identity, at, epoch, memberships, authority, revoked, recovering }` (the head's own fields, its lists
+  frozen and as the head has them; `recovering` is the recovery under notice the head carries, `{ record, at }`, or
+  null: R11) or exactly the refusal `verifyDelegation` would give for that head. A head's `recovering`, if
+  present, is `{ at, record }` and nothing else, or the head is refused; decision 10's consistency does not read it.
+  A root is in a fresh
   head's `authority` only once the change that added it has settled (R6), so that is the offline evidence that a root
   is one of the identity's now. A relying party
   may remember any head that verifies, whatever else a request carries, as a TUF client keeps any metadata that
@@ -827,8 +927,14 @@ worker's. A worker is handed its delegation only once the change is saved, so no
 promise (an old key retired) that was not kept. What was reviewed is signed only while unexpired, and handed over
 only if still unexpired when the passkey answers. An added passkey's change, once signed, is submitted; its hand-off
 is withheld if it was withdrawn meanwhile. `id/records.js` builds every record
-with the core's functions and refuses first what the core would. Not yet: removing a root, freezes and contests, and
-the I1–I3 window protocol for apps.
+with the core's functions and refuses first what the core would. Of R11 the page has this much: on load, and
+whenever what it stores changes, it asks the witness for the identity's records and shows a recovery under notice
+with the time it takes effect and a cancel one prompt away (the record the cancel names is shown, I4); a witness
+that gives no answer is said, since a notice not shown is then not known to be absent; a change that adds a
+passkey states the designation in force again (a record without one designates none) and shows it, as a change
+handed over to co-sign does. Recovery parties are designated at the page, and a designation ended, as the bullet
+on them below says, and a recovery is started there; a new identity is asked about at the witness as soon as it is
+registered. Not yet: removing a root, freezes and contests, and the I1–I3 window protocol for apps.
 
 - The id origin is a dedicated host serving nothing else, with no subdomains. `rp_id` and the exact origin are
   deployment configuration (meta tags, as the witness's URL and keys are), compared exactly; no suffix or wildcard
@@ -867,6 +973,39 @@ its own), and a registration or a co-signature the witness took marks only the r
 - **I3 AUDIENCE FROM THE CHANNEL:** for a delegation an app requests, `aud` is the request's `event.origin`. An app
   cannot name a different audience. A machine delegation has no requesting app: the user chooses its `aud` on the id
   page, and the page shows it under I4.
+- **Recovery parties at the id page (R11; proposed with it).** A party's page makes a **recovery card**, one line
+  of text: its root record and a new 32-byte salt, a new one for each card so that two people who designate the same
+  party show nothing in common. The salt is kept beside the party's root in the page's store before the card is
+  shown (at most 32), since on the day the party acts the one it acts for may have nothing left; a card is not
+  secret from the one it was given to, and whoever keeps a copy can give it back to a party whose browser lost it.
+  The owner's page takes 1 to 3 cards and the wait, and builds the designating record: the same roots, the cards'
+  commitments, a majority of them as threshold. Before the page signs it, each party
+  shows it holds its key: an ordinary root assertion (W0–W6) covering the designating record's **possession value**,
+  hex SHA-256(`UTF-8("muid-possession\n")` ‖ the record id as 32 raw bytes), which the page
+  checks under the party's root record, this `rp_id` and origin, along with the root id and salt opening the
+  commitment the record carries. The value is not the record's id because an assertion over a record's id, beside
+  the salt the card's holder already has, is that party's signature on the record (R11): a check made over ids
+  would let whoever holds a card collect a recovery's signatures by asking for checks. A possession value is no
+  record's id, so what a party signs for a check signs nothing else. A wrong id, a root under another `rp_id`, or a passkey that no longer exists fails
+  there, not on the day everything else is lost. The assertion is discarded, never sent to the witness: published,
+  it would name the party the commitment hides, and it carries no authority (R11). With more than one root the
+  record is handed to the others to co-sign, and a root co-signs there only the current membership's successor with
+  the roots as they are, shown from its payload (I4). The page offers the same check
+  later over the current membership, since a key shown once may be gone since. *Starting a recovery:* one who
+  has lost every passkey makes a new one as a joining passkey does, names the identity, and is shown the recovery
+  from its payload: that passkey as the identity's only root, the designation in force stated again (the parties
+  who restored it stay its parties until the owner says otherwise). The request goes to the parties with the new
+  passkey's fingerprint. A party's page reads the request against the identity as the witness holds it (the
+  settled membership's successor, nothing pending), finds among the salts it kept the one that opens a commitment
+  there, or takes it from the card given back, and shows the identity, the roots the recovery installs with their
+  fingerprints, and the wait; the party signs only if sure who is asking, which no record can check. Its signature
+  goes to the witness with its root record. The new passkey signs after the parties (R11): its signature is kept
+  and sent as a co-signature is, with its root record the first time the witness lacks it, and sent again until
+  taken. While the recovery is under notice that passkey's page says what it waits for and offers no cancel, which
+  only a root of the settled membership can make. The page shows a notice of recovery
+  whenever a head carries one, with a cancel one prompt away; and it tells whoever designates what R11's limits (b)
+  and (c) mean for them. An institution acting as a party should hold more than one designated key, and one root
+  for each person it backs if it would not have them linked once it has acted for one.
 - **I4 WHAT YOU SEE IS WHAT YOU SIGN:** the page renders every record in `covers` — a delegation's `agent`, `aud`, `scopes`
   and `exp`; a membership change's added and removed roots; what a contest or freeze stops — from
   the exact payloads whose ids become the challenge; nothing is computed between display and signing.
@@ -1022,6 +1161,13 @@ is the demo's limit, by design, and no property of the core or the adapter depen
    - a service that issues attestations (A1–A4 and decision 8 state what one must sign; the request record it
      would name is not specified);
    - longer unattended running (decision 13, Part B).
+15. **Recovery parties — decided in principle; R11 proposed for review.** Recovery through someone
+   trusted is what most people will rely on (printed recovery codes are used successfully by few of those who need
+   them), so it is in version 1 rather than left to a later one, and it is built on R1–R7 instead of beside them: a
+   recovery waits under notice before it becomes an ordinary record, so cancelling one reverts nothing. Open for the
+   owner: the bounds of the window (3 to 90 days) and its default (14 days); up to three parties; the cooling-off (3
+   days). The model and its tests came first; the core and the witness now follow R11, each tested against the
+   model, and the id page is next.
 
 ## 10. What the reputation layer consumes (not core)
 
@@ -1065,10 +1211,10 @@ reputation layer.
 
 ## 11. Budget
 
-Trusted core ≤ 2,100 lines, so that it stays reviewable in one sitting. The budget is raised deliberately when
+Trusted core ≤ 2,200 lines, so that it stays reviewable in one sitting. The budget is raised deliberately when
 clarity needs it, and never met by compressing comments. It was raised from 1,800 for the transparency-log checks
 (`src/merkle.js`, `src/note.js`), whose adoption is to delete decision 10's rule, and from 2,000 for claims as DPoP
-proofs (C1) and logged delegations (R10).
+proofs (C1) and logged delegations (R10), and from 2,100 for recovery parties (R11).
 
 ## 12. Automated assurance
 

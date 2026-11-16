@@ -369,6 +369,37 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   without a majority; new roots with authority while pending; a freeze lifted at anchoring; settlements ignored; one
   of two anchored rivals chosen; root assertions not verified; the revocation cap applied only after the whole list is
   read; a pending epoch in the head as if settled.
+- **Recovery parties (R11; `R11-recovery`, `R11-fields`), with the model as oracle as above.** The model's own
+  scenario, for one party and for two of two, step by step: designated, one of two signed, asked, cancelled, asked
+  again after the cooling-off, matured, settled; `membershipState` gives the model's answer at each step (the
+  membership, the authority, the designation, the recovery under notice), in every subset of the records after the
+  cancel, and in every subset of a recovery that matured and settled. A root named as its own membership's party
+  does not count, alone or beside a real party, whatever a lying witness says. Random walks (150, up to twelve
+  moves) by the owner, a thief with one root, the parties, the clock and a lying witness that signs notices,
+  cancellations, maturities, anchors and settlements of its choosing: the model's answer after every move and on a
+  partial view, and no forked view of the honest witness's items. The generator, run through the model alone at
+  the pinned seed, must reach a notice, a cancellation, a maturity, a completed recovery, a forged notice, and
+  dead, frozen, pending and settled states.
+  One field at a time: the commitment against SHA-256 computed apart from the core, and one pinned value; every
+  designation out of form (no party, four, unsorted, repeated, not ids, a threshold of zero, below a majority or
+  above the parties, a window a second under three days or over ninety, other keys, missing keys, not an object) is
+  no membership record, and each bound is accepted exactly; a recovery fails with the party's plain signature,
+  another salt, a malformed salt, an undesignated root, another key's assertion, the added root unsigned, no
+  `matured`, a `matured` of another record, identity, key or time, or no anchor; a party that adds itself signs
+  once, and a plain signature beside its salted one changes nothing in either order; one party committed to twice
+  counts once; a salt on a contest or a freeze makes it no record; a successor that names no designation has none;
+  the notice shown is the latest not cancelled and not anchored, of a held successor of the settled membership, the
+  least id on a tie, in either order given; a head carries it and has no such field without one; the three new
+  lists are bounded as the rest.
+- **Recovery twins (30 more, 42 in all):** a recovery without `matured`; any one party; a root as its own party; a
+  party counted twice; added roots unsigned; a membership that designated nobody; the commitment's domain, or its
+  salt left out; a plain signature hiding a salted one; any text as a salt; a salt on any record type; a
+  designation inherited; four parties, unsorted parties, a minority threshold, zero, above the parties, a short or
+  a long window, other keys; a notice shown after its cancel, after its anchor, of another `prev`, of a record not
+  held, the earliest, the greater id; a notice read as a cancellation or as a maturity; a head without the notice,
+  or with an undefined one. The first complete run caught 40 of 41: a salt accepted on a contest or freeze had no
+  test, and has one now. A twin's run is stopped at its first failing test once one test has passed (the twin is
+  caught, and the suite ran), so the harness takes minutes, not the suite's length for each twin.
 
 
 ## 4g. Layer 8 — the verifier (`src/verifier.js`): F1–F5, R9
@@ -457,6 +488,44 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   does not revive it), for the delegation that was retired and for one signed after under a new key; another name,
   and the same name under another identity, are unaffected. Twins: retirement ignored; the agent named without its
   identity.
+
+## 4g2. Recovery parties in the model (`model/settled.mjs`, `tests/model/R11`): R11, proposed
+
+The executable model gained R11 before any code did. A designation `{ parties, k, w }` rides a membership record;
+a recovery is a successor signed by k of the parties and every root it adds; the model's witness gives notice of
+one at a time, honours a cancel by any root of the settled membership, signs that a recovery matured after its
+window, and only then anchors it; after a cancel it gives no notice for the cooling-off. Twelve tests:
+
+- a designation is an ordinary change, and one out of form is no membership;
+- with every root lost the party recovers the identity, at exactly its window and then the contest window, for the
+  shortest and the longest window;
+- any one root cancels, and the identity is as it was however long after; a cancel by a party or a stranger is
+  nothing;
+- a rogue party, explored with the clock over every state it reaches in four moves: the identity never ends,
+  nothing matures inside its window, until something matures the identity is as it was, and at every state under
+  notice one root's cancel puts it back; unanswered, the party has the identity (the stated limit, shown reached);
+- after maturity a cancel is not honoured and a contest ends the identity;
+- a thief with one root blocks three recoveries in turn, each waiting out the cooling-off, and in every state that
+  root alone reaches the identity is as it was or frozen;
+- a threshold of two is not met by one party, or by two on different records, or by a party not designated;
+- parties' signatures do not make a majority of the roots;
+- one notice at a time, none for the cooling-off after a cancel, and over every state a party and a cancelling
+  owner reach in six moves the notices never outrun the clock (states with a second notice are reached);
+- an ordinary change voids a recovery under notice;
+- no view of the records is forked, with a recovery under notice, cancelled, matured or settled, and a view
+  without the witness's `matured` is behind.
+
+Negative controls, one for each rule (`withRules`): without `cancel`, an owner who answers loses the identity;
+without `mature`, a recovery is anchored the moment it is noticed; without `threshold`, one of two parties starts
+one; without `noVote`, parties outvote the roots; without `cool`, a cancelled party is noticed again at once.
+By hand, once: three faults planted in the model's witness (the window one tick long, a cancel by anyone, the
+cooling-off one tick short) each failed these tests; a fourth (a cancelled recovery still under notice) made the
+witness loop for ever, which a test run shows only as a hang. Since then: `k` must be a majority of the parties
+(review against deployed guardian schemes); a party that is a root of the membership naming it is no longer a
+malformed record but a party that counts for nothing, since a real record names commitments and cannot be refused
+for it; and the model's witness takes `pick` for the recovery it gives notice of, as for the record it anchors.
+The core (§4f) and the witness (§4j) are tested against this model as their oracle. Not yet: the id page, and a
+proof.
 
 ## 4h. The relying-party adapter (`adapter/`, not core): issue #21
 
@@ -664,6 +733,33 @@ envelopes made by the real `seal` and `wrap` and `sig.root` a real passkey-shape
   the core counts toward a quorum of one, with the witness's clock as the time. A body of 65,536 bytes, and one
   streamed without a length, are refused with 413 and add no entry; one of 65,535 bytes (the most a C2SP tlog-tiles
   entry bundle holds) is appended and proved.
+- Recovery parties (R11; `W11-recovery`, `W12-recovery-model`, and through the service in `S1`). By hand: a
+  recovery signed by the party is put under notice, never anchored, and nothing changes but that every head says
+  so; each refusal of a party's signature by name (no root record, another's root record, no salt, another salt,
+  an undesignated root, a root of the membership, a forged assertion, a malformed salt, a salt on a contest, a
+  membership that designated nobody, a designation out of form, anything pending); with two of two, one party
+  starts nothing and the added root signs only after both; any one root's cancel is answered with `cancelled`, the
+  identity is as it was, and that record is never noticed again, while a cancel of anything else, by a party, by the
+  added root, forged or malformed is refused, and a second cancel changes nothing; no notice for three days after
+  a cancel, to the second, and the last cancellation outlives a settlement; a party cannot leave a recovery under
+  notice, and can leave one below its threshold; maturity at exactly the window (three days and seven), anchored in
+  the same step, no head while no root has authority, the settlement a contest window later, and what is kept
+  replays to the same state; a contest by the old root ends the identity; a cancel held when the window has passed
+  still cancels; an ordinary change voids a recovery and its records go at settlement; notices stop at the 256th.
+  Against the model: 120 random walks of up to twelve moves over four designations (one party; one party with two
+  roots; two of two; two of three), by the owner, a thief with one root, the parties and the clock. Every record
+  goes through admission; what the witness signs is, text for text, the model's translated (anchors, settlements,
+  notices, cancellations, maturities), and the state and the recovery under notice read from its holding are the
+  model's. A refusal must change nothing the model's witness would say, but for the witness's own two rules
+  (a withdrawn proposal stays withdrawn; a signer is held to a record its majority or its parties' threshold has
+  signed). At the pinned seed the walks must reach a notice, a cancellation, a maturity, a completed recovery, a
+  dead identity, a refusal and a party held to its recovery.
+- **Found by these tests and by review of the change.** Advancing a dead identity threw once recoveries were
+  looked for (review; it would have stopped `tick()` for every identity after it). And, older than R11: a witness
+  whose key's window had ended signed a settlement no verifier takes, so the record stayed pending and the same
+  settlement was signed again at every pass, 256 times, after which the holding could not be read (`records`). The
+  walk met it by outliving the fixtures' witness key. The witness now refuses to sign at a time outside its key's
+  window: the step fails, as a `sign` that gives no valid signature does, and nothing is kept.
 - Twins (`tests/meta/witness-twins.test.mjs`, 42): each admission rule dropped in turn; the anchor kept unchecked;
   settlement inside the window; contests never anchored, anchored unchecked, or ignored at
   settlement; the witness's view counting contest anchors; a settlement ending the step; `sign` unchecked; heads
@@ -713,6 +809,38 @@ What `WitnessOutbox.tla` assumes of the store is tested of the SQLite one, with 
   both ways; the W1 challenge as the core computes it; the assertion object verified by `checkRootAssertion`; a
   delegation signed by the passkey and the worker accepted by `checkDelegation`; each refusal the core would make
   refused first, with its message.
+- `records.js` for recovery parties (R11; `P4-recovery.test.mjs`), through the witness: a party's commitment as the
+  core computes it; a designation the page builds taken by the witness, settled, and read back as the one in force;
+  each refusal R11 would make refused first; a party's possession check failing for another key, record, origin or
+  rp ID; adding a root restating the designation in force (a record without one designates none, so the page's
+  own change would otherwise have ended it); ending a designation; a party's signature starting a recovery, the
+  notice and its maturity read back, and the page's cancel answered with `cancelled`. The possession value is
+  computed apart and compared; an assertion over the record's own id fails the check; and what a party signs for a
+  check, put beside its card's salt as a signature on a recovery, is refused by the witness where the real
+  signature is taken. A recovery card read back, and each thing that is no card; the kept salts bounded and read
+  back as untrusted; a change to co-sign that alters the identity, `prev`, epoch or roots refused, and one that
+  sets or ends the designation co-signed through the witness by two roots.
+- The designation screens in Chrome (`P2`, two tests): a party's page makes cards, each with a new salt kept
+  before it is shown, and no card past 32; the owner's page refuses what R11 would, shows the change from its
+  payload, withdraws on any edit, and signs nothing until each party's answer checks; the party's page signs the
+  possession value and nothing before a review; the designation settles at the witness and is shown on reload; the
+  later check counts who showed and refuses a card that is not designated; the party the page made then recovers
+  the identity in Node with its card's salt, and the owner's page shows the notice; ending the designation. With
+  two passkeys: the change is handed over, the other passkey refuses one that touches the roots, epoch or `prev`,
+  co-signs the right one, and a refusing witness leaves no earlier status standing.
+- Starting a recovery (`P4`, and `P2` with three devices): the request built for a new passkey and each thing
+  that refuses it; a party's reading of it against the identity, the salt found among those kept, and each
+  refusal; through the witness, the new root's record unnamed and its signature refused until the parties' threshold
+  has signed. In Chrome: the new device asks, signs too early and is kept waiting; the party's page refuses what is
+  no request, a card that is another passkey's, and a browser that lost the salt until the card is given back; it
+  shows the fingerprint the new device shows; the kept signature is sent again with its root record and no second
+  prompt; the new passkey's page offers no cancel and the owner's does; uncancelled, the identity is the new
+  passkey's, which authorises a worker under the recovered membership.
+- R11 at the page in Chrome (`P2-page.test.mjs`): a designation and a recovery made in Node with the page's own
+  record builders, the identity's passkey signing by its key read from the virtual authenticator. The notice is
+  shown on load and in another tab, with the record and both times; a witness that is down is said and no notice
+  shown, then asked again; a refused cancel is said and the notice stays; one prompt cancels it, the witness says
+  `cancelled`, and the identity is as it was; an added passkey's review shows the designation the change states.
 - The page in Chrome (`P2-page.test.mjs`, playwright-core driving the installed Chrome, a virtual authenticator
   through the DevTools WebAuthn domain): create and authorise, the result accepted by the core, then through the
   witness's head by the relying party's verifier; a resident credential named as asked; the identity remembered;
@@ -749,7 +877,9 @@ What `WitnessOutbox.tla` assumes of the store is tested of the SQLite one, with 
   wait is cut to 15 s and every test to 60 s, and once one test fails or times out, the rest fail at once. Without
   this, a broken page made each test wait out its limits in turn, and the mutant was counted only when Stryker's
   own timeout ran out.
-- Twins (`tests/meta/id-twins.test.mjs`, 113 in all): the challenge's domain, any algorithm, unsorted scopes, an unbounded
+- Twins (`tests/meta/id-twins.test.mjs`, 157 in all; 44 are R11's: a designation dropped when a passkey is added or
+  hidden from a co-signer, an own passkey or a minority designated, possession unchecked, a cancel of another record,
+  a wrong maturity, a notice or a silent witness not shown, an unreadable or unverified answer taken for none, a late answer about another root published, an unregistered root asked about, what a review leaves out; a possession check over the record's own id, at the records and at the party's page; salts of any form or without limit; a card shown unkept; one party of several enough; a co-signature of a change of roots, or of any change; parties' answers unchecked; an edit or a stale status kept; an undesignated card checked; a hand-off withheld; a joining passkey offering cards; a new identity not asked about; a recovery that drops the designation or is asked over another; a party shown a request for another state of the identity, or one it is no party of, or without the roots or fingerprints it installs, or taking another passkey's card; a party's or the new passkey's root record withheld; the incoming passkey offered a cancel): the challenge's domain, any algorithm, unsorted scopes, an unbounded
   lifetime, an unchecked audience, an edit that keeps the review, a late signature kept, verification preferred,
   any passkey, a credential that is not resident, inline scripts allowed, hidden parts shown; attest granted; a change co-signed that does not add
   this passkey, an edit of the new root kept, authority unchecked, delegations under the first membership, the root
@@ -930,7 +1060,8 @@ What `WitnessOutbox.tla` assumes of the store is tested of the SQLite one, with 
   is run nightly as the walks' own control. Eleven negative controls, one per rule of the page turned off, each at the
   two-tab bound and each reporting the invariant named beside it in `.github/scripts/tlc.sh`. `IdRoot` is the
   stored root: making one, registering it, co-signing as a joining root, with a notice, a reload or the browser's
-  storage being cleared between any two steps: 276,490 distinct states, no error; four controls, two of them the
+  storage being cleared between any two steps, and recovery cards asked for (each salt kept by one write before
+  its card is shown, at most as many as are kept): 4,426,345 distinct states, no error; six controls, two of them the
   page as it was before #74. Before it was complete the page model found the two single-tab gaps above. What this
   does not show: anything about the JavaScript itself, or beyond the bounds, or about one agent's rows at two
   audiences or two agents (those configurations are sampled, not completed). The tie to the code is by faults: a guard
