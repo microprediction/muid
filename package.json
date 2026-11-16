@@ -16,6 +16,7 @@
     "./encoding": "./src/encode.js",
     "./origin": "./src/origin.js",
     "./root": "./src/root.js",
+    "./ed25519": "./src/ed25519.js",
     "./adapter": "./adapter/relying-party.js",
     "./adapter/stores": "./adapter/stores.js",
     "./witness": "./witness/witness.js",

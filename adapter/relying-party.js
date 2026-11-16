@@ -3,7 +3,10 @@
 // - replay: a claim id is consumed by one atomic insert-if-absent, before the protected action runs (as a DPoP
 //   server's jti store, RFC 9449 §11.1);
 // - head memory: the last head accepted for an identity is passed to the verifier and only ever moves forward (as a
-//   TUF client's stored metadata).
+//   TUF client's stored metadata);
+// - revocation memory: what any head that verified revoked is kept, and passed to the verifier with the call's own
+//   list, for `revocationMemory` seconds past the newest head that carried it (R10: a revocation seen holds whatever
+//   a later head says). Set it to the verifier's maxLifetime or more: no delegation a kept target named outlives it.
 // The records are verified inside one store transaction, against the memory as it stands there, which then advances
 // the head and consumes the claim: a database store holds its write lock for one verification. Storage that fails is
 // refused as `storage`, and the protected action does not run.
@@ -33,8 +36,9 @@ function readGiven (given) {
   return undefined
 }
 
-export function relyingParty ({ verifier, store, clock }) {
+export function relyingParty ({ verifier, store, clock, revocationMemory = 2592000 }) {
   if (typeof clock !== 'function') throw new TypeError('the adapter needs clock(): this instance\'s time in seconds')
+  if (!Number.isSafeInteger(revocationMemory) || revocationMemory < 0) throw new TypeError('revocationMemory must be a number of seconds')
   // `check(call)` under the remembered { head, at }, if any. A stored head the verifier cannot read (corrupt, or
   // signed by a witness key since removed from its configuration) still bounds rollback: its time becomes
   // minHeadAt. A malformed call has already thrown in the checks before the transaction; anything the verifier throws
@@ -50,12 +54,13 @@ export function relyingParty ({ verifier, store, clock }) {
     }
   }
 
-  async function accept (method, records, rawCall) {
+  // `verify(given, call)` is the verifier's check of the request; `claim` says whether what it accepts is consumed.
+  async function accept (verify, claim, records, rawCall) {
     const call = readCall(rawCall)
     const given = readGiven(records)
     // Without memory first, outside the lock. Memory only adds refusals, so a request refused here is refused; it
     // takes the lock only to remember its head, when that head verifies and is newer than the memory (F6).
-    const pre = verifier[method](given, call)
+    const pre = verify(given, call)
     const seen = verifier.verifyHead(given?.head, call)
     if (!seen.ok) return refusal(pre.reason)
     if (!pre.ok) {
@@ -67,20 +72,29 @@ export function relyingParty ({ verifier, store, clock }) {
       }
       // Nothing to remember: the memory is later, or is this very head. The reason is the one the memory gives.
       if (stored !== undefined && (stored.at > seen.at || stored.head === given.head)) {
-        return refusal(withMemory((c) => verifier[method](given, c), call, stored).reason)
+        return refusal(withMemory((c) => verify(given, c), call, stored).reason)
       }
     }
     let outcome
     try {
       outcome = await store.transaction((tx) => {
         const stored = tx.lastHead(seen.identity) // the store's: a failure here is refused as storage
+        let now
+        try {
+          now = clock()
+        } catch (e) {
+          return { thrown: e } // the clock's: rethrown below, as the verifier's is
+        }
+        if (!Number.isSafeInteger(now) || now < 0) return { thrown: new TypeError('clock() must give a time in seconds') }
+        // What the presented head revokes is kept whether or not the head may follow the memory: it verified alone,
+        // so the witness signed it. The request is then judged with everything kept for the identity. Both are the
+        // store's, as the memory's read is.
+        tx.revoke(seen.identity, Array.from(seen.revoked), seen.at + revocationMemory)
+        const current = { ...call, now, revoked: [...call.revoked, ...tx.revocations(seen.identity, now)] }
         let head, r
         try {
-          const now = clock()
-          if (!Number.isSafeInteger(now) || now < 0) throw new TypeError('clock() must give a time in seconds')
-          const current = { ...call, now }
           head = withMemory((c) => verifier.verifyHead(given.head, c), current, stored)
-          r = withMemory((c) => verifier[method](given, c), current, stored)
+          r = withMemory((c) => verify(given, c), current, stored)
         } catch (e) {
           return { thrown: e } // the verifier's, not the store's: rethrown below
         }
@@ -95,7 +109,7 @@ export function relyingParty ({ verifier, store, clock }) {
         }
         if (!r.ok) return refusal(r.reason)
         if (!pre.ok) return refusal(pre.reason) // refused at the call's time, whatever the clock says
-        if (method === 'verifyClaim' && !tx.consume(r.id, r.until)) return refusal('replay')
+        if (claim && !tx.consume(r.id, r.until)) return refusal('replay')
         return r
       })
     } catch {
@@ -106,16 +120,21 @@ export function relyingParty ({ verifier, store, clock }) {
   }
 
   // A delegation alone (a request that carries no claim): verified, and the head remembered.
-  const acceptDelegation = (given, call) => accept('verifyDelegation', given, call)
+  const acceptDelegation = (given, call) => accept(verifier.verifyDelegation, false, given, call)
+
+  // A head alone (F6), as another relying party hands over the newest it accepted: judged against the memory as any
+  // head is, and remembered if it may follow. A split between two parties' views is refused as `equivocation` at
+  // whichever sees the other's head. Only `given.head` is read.
+  const acceptHead = (given, call) => accept((g, c) => verifier.verifyHead(g?.head, c), false, given, call)
 
   // A claim: verified, consumed atomically, and only then `action(result)` run, once. If the action fails, the claim
   // stays consumed and the error propagates: the delegate makes a new claim.
   async function acceptClaim (given, call, action) {
-    const r = await accept('verifyClaim', given, call)
+    const r = await accept(verifier.verifyClaim, true, given, call)
     if (!r.ok) return r
     const value = await action(r)
     return Object.freeze({ ok: true, id: r.id, until: r.until, body: r.body, delegation: r.delegation, value })
   }
 
-  return Object.freeze({ acceptDelegation, acceptClaim })
+  return Object.freeze({ acceptDelegation, acceptClaim, acceptHead })
 }

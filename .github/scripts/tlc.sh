@@ -79,6 +79,8 @@ MCAdapter AdapterNoDelegationCheck NoExpiredAuthorizationAtCommit
 MCAdapter AdapterNoHeadCheck NoExpiredAuthorizationAtCommit
 MCAdapter AdapterNoKeyCheck NoExpiredAuthorizationAtCommit
 MCAdapter AdapterBoundTighter FreshnessBound
+MCAdapter AdapterDishonestWitness pass
+MCAdapter AdapterNoRevocationMemory NoRevival
 MCIdPage IdPage pass
 MCIdPage IdPageNoTransactional NoLostUpdate
 MCIdPage IdPageNoFreshWrite NoResurrection

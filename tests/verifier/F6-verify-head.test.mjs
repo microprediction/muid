@@ -30,13 +30,17 @@ function head (at, over = {}) {
 const lg = envelope.seal('logged', { identity: IDENTITY, delegation: del.id, at: NOW - 10 })
 const logged = envelope.wrap(lg.payload, { signature: hex(ed25519.sign(envelope.signedBytes(lg.payload), W)), witness: WITNESS })
 const CALL = Object.freeze({ now: NOW, scope: 'post', revoked: [] })
-const plain = (r) => ({ ...r })
+// A result as plain data. The list of what a head revokes is the head body's own: frozen, an array, with no prototype.
+const plain = (r) => (r.revoked === undefined ? { ...r } : { ...r, revoked: Array.from(r.revoked), memberships: Array.from(r.memberships), authority: Array.from(r.authority) })
 
 test('a head that verifies gives its identity and time, whatever else a request would carry', () => {
-  assert.deepEqual(plain(v.verifyHead(head(NOW - 100), CALL)), { ok: true, identity: IDENTITY, at: NOW - 100, recovering: null })
+  assert.deepEqual(plain(v.verifyHead(head(NOW - 100), CALL)), { ok: true, identity: IDENTITY, at: NOW - 100, epoch: 1, memberships: [IDENTITY], authority: [ROOT], revoked: [], recovering: null })
   const revoking = head(NOW - 50, { revoked: [del.id] })
-  assert.deepEqual(plain(v.verifyHead(revoking, CALL)), { ok: true, identity: IDENTITY, at: NOW - 50, recovering: null }, 'one that revokes the delegation')
+  assert.deepEqual(plain(v.verifyHead(revoking, CALL)), { ok: true, identity: IDENTITY, at: NOW - 50, epoch: 1, memberships: [IDENTITY], authority: [ROOT], revoked: [del.id], recovering: null }, 'one that revokes the delegation: what it revokes is given')
   assert.deepEqual(plain(v.verifyDelegation({ delegation, root, logged, head: revoking }, CALL)), { ok: false, reason: 'revoked' })
+  const list = v.verifyHead(revoking, CALL).revoked
+  const stated = v.verifyHead(revoking, CALL)
+  for (const l of [list, stated.memberships, stated.authority]) assert.ok(Array.isArray(l) && Object.isFrozen(l) && Object.getPrototypeOf(l) === null)
 })
 
 // R11: a head signed while a recovery is under notice carries it, and verifyHead gives it; nothing else changes.
@@ -44,7 +48,7 @@ test('a head with a recovery under notice gives that notice; the delegation veri
   const record = 'a7'.repeat(32)
   const noticed = head(NOW - 100, { recovering: { record, at: NOW - 5000 } })
   const r = v.verifyHead(noticed, CALL)
-  assert.deepEqual(JSON.parse(JSON.stringify(r)), { ok: true, identity: IDENTITY, at: NOW - 100, recovering: { record, at: NOW - 5000 } })
+  assert.deepEqual(JSON.parse(JSON.stringify(r)), { ok: true, identity: IDENTITY, at: NOW - 100, epoch: 1, memberships: [IDENTITY], authority: [ROOT], revoked: [], recovering: { record, at: NOW - 5000 } })
   assert.ok(Object.isFrozen(r.recovering))
   assert.equal(v.verifyDelegation({ delegation, root, logged, head: noticed }, CALL).ok, true)
   // A head may follow one with a notice, or one without: a notice is no part of decision 10's consistency.

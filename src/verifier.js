@@ -217,14 +217,16 @@ export function verifier (config) {
     return accept({ id: d.id, body: b, agent })
   }
 
-  // F6: a head alone, under the same call: { ok, identity, at, recovering }, or F5's head refusal. A relying party
-  // may remember any head that verifies, whatever else a request carries. `recovering` is the recovery under notice
-  // the head carries (R11), { record, at }, or null: it changes nobody's authority, and is there to be shown.
+  // F6: a head alone, under the same call: what it states ({ ok, identity, at, epoch, memberships, authority,
+  // revoked, recovering }), or F5's head refusal. A relying party may remember any head that verifies, and what it
+  // revokes (R10), whatever else a request carries. `recovering` is the recovery under notice the head carries
+  // (R11), { record, at }, or null: it changes nobody's authority, and is there to be shown.
   function verifyHead (head, call) {
     const h = checkHead(head, readCall(call, false, cfg))
     if (h.ok === false) return h
     const n = h.recovering
-    return accept({ identity: h.identity, at: h.at, recovering: n === undefined ? null : freeze({ record: n.record, at: n.at }) })
+    return accept({ identity: h.identity, at: h.at, epoch: h.epoch, memberships: h.memberships, authority: h.authority, revoked: h.revoked,
+      recovering: n === undefined ? null : freeze({ record: n.record, at: n.at }) })
   }
 
   function verifyDelegation (records, call) {

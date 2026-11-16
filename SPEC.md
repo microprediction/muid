@@ -652,6 +652,10 @@ deployments) are the values of decisions 1, 3 and 7. Per call,
 identity. `scope` is the one scope the request needs; `revoked` lists further revoked record ids, subject keys or light identity ids (D8) the
 relying party holds; `minHeadAt` (optional) refuses heads older than one it has already seen; `lastHead` (optional)
 is the text of the newest head the relying party has accepted for the identity, which it keeps (decision 10).
+The records of a call are read by name, and a member the verifier does not name is not read. A later version may
+name more (a proof that the head is logged, for one), so a delegate may send records that an older verifier passes
+over, and whatever carries records from a delegate to a relying party should carry them as a set that can grow.
+Inside a record nothing is passed over (F2).
 
 - **F1 SYNCHRONOUS AND PURE:** no `await`, no clock, no storage, no network inside a decision.
 - **F2 DENY BY DEFAULT:** every branch that is not an explicit accept is a reject. An unknown field is a reject.
@@ -681,9 +685,13 @@ is the text of the newest head the relying party has accepted for the identity, 
 
 - **F6 THE HEAD ALONE:** `v.verifyHead(head, call)`, with a call as for `verifyDelegation`, applies F5's head checks
   only — `head`, `stale`, `identity`, `equivocation`, under `now`, `minHeadAt` and `lastHead` — and returns
-  `{ ok: true, identity, at, recovering }` (`recovering` is the recovery under notice the head carries, `{ record,
-  at }`, or null: R11) or exactly the refusal `verifyDelegation` would give for that head. A head's `recovering`, if
-  present, is `{ at, record }` and nothing else, or the head is refused; decision 10's consistency does not read it. A relying party
+  `{ ok: true, identity, at, epoch, memberships, authority, revoked, recovering }` (the head's own fields, its lists
+  frozen and as the head has them; `recovering` is the recovery under notice the head carries, `{ record, at }`, or
+  null: R11) or exactly the refusal `verifyDelegation` would give for that head. A head's `recovering`, if
+  present, is `{ at, record }` and nothing else, or the head is refused; decision 10's consistency does not read it.
+  A root is in a fresh
+  head's `authority` only once the change that added it has settled (R6), so that is the offline evidence that a root
+  is one of the identity's now. A relying party
   may remember any head that verifies, whatever else a request carries, as a TUF client keeps any metadata that
   verifies: a head that revokes a delegation is remembered even from the request it refuses (§7).
 - **C1 CLAIMS (decision 1: ephemeral; a DPoP proof, RFC 9449):** a **claim** `{ delegation, scope, htm, htu, nonce,
@@ -828,6 +836,22 @@ verifies the request against the same memory and consumes the claim id; only the
 once. Heads of one second may arrive in either order (F5): of two, the memory keeps the one the verifier ranks later
 (decision 10 orders any two that differ, so a new head accepted after the stored one of its second replaces it). Anyone holding a fresh head can move the memory forward;
 that only obliges delegates to present heads at least as fresh, which the witness serves.
+The adapter also keeps what heads revoked (R10: a revocation a relying party has seen holds whatever a later head
+says). In the transaction, what the presented head revokes is kept for its identity, whether or not that head may
+follow the memory, since a head that verified alone was signed by the witness; the request is then verified with
+everything kept for the identity added to the call's own `revoked`. A target is kept `revocationMemory` seconds
+past the newest head that carried it (30 days by default; set it to the verifier's `maxLifetime` or more, so that no
+delegation it named outlives it), and at most 256 are kept for an identity, as the witness keeps. A witness that
+never puts a revocation in any head it shows a relying party is not caught by this: that party's bound is the
+delegation's expiry (F4).
+`acceptHead` takes a head alone (F6) and judges and remembers it in the same way, with no delegation or claim.
+Decision 10's rule sees a split only within what one relying party has seen; parties that keep separate stores may
+therefore hand each other the newest head each has accepted for an identity. The head received is always the one
+judged, against the receiver's own memory, never given as memory: if the witness showed the two parties memberships
+that cannot both be true, one of them refuses the other's head as `equivocation` and holds both signed heads. A
+later head that leaves out a revocation an earlier one carried is not an equivocation (decision 10 orders
+revocations only within a second), but what a handed-over head revokes is kept as above, so the delegation is
+refused at the receiver all the same.
 Consumption is an insert-if-absent (a unique key, as DPoP's `jti` store), the head moves only to a later `at` (a
 conditional update, as TUF's stored metadata), and the transaction serialises requests (`BEGIN IMMEDIATE` for the
 database store, which holds its write lock for one verification), so of any number of instances receiving one claim

@@ -20,15 +20,15 @@ const IMPORTS = [["from '../" + "src/envelope.js'", "from '" + new URL('../../sr
 // [name, bug class, file, [find, replace] pairs]
 const TWINS = [
   ['verified-at-request-start', 'the transaction verifies at the time the request arrived, whatever the clock says then (model/tla/Adapter.tla)', 'relying-party.js',
-    [['          const current = { ...call, now }\n', '          const current = call\n']]],
+    [['const current = { ...call, now, revoked:', 'const current = { ...call, revoked:']]],
   ['call-time-ignored', "a request the call's time refuses is accepted when the clock, behind it, does not", 'relying-party.js',
     [["        if (!pre.ok) return refusal(pre.reason) // refused at the call's time, whatever the clock says\n", '']]],
   ['clock-unchecked', 'a clock that gives no time is passed on as a time', 'relying-party.js',
-    [["          if (!Number.isSafeInteger(now) || now < 0) throw new TypeError('clock() must give a time in seconds')\n", '']]],
+    [["        if (!Number.isSafeInteger(now) || now < 0) return { thrown: new TypeError('clock() must give a time in seconds') }\n", '']]],
   ['memory-not-read-in-transaction', 'the transaction verifies without the memory as it stands there', 'relying-party.js',
     [['const stored = tx.lastHead(seen.identity)', 'const stored = undefined']]],
   ['consume-ignored', 'a claim already consumed is accepted again', 'relying-party.js',
-    [["if (method === 'verifyClaim' && !tx.consume(r.id, r.until)) return refusal('replay')", "if (method === 'verifyClaim') tx.consume(r.id, r.until)"]]],
+    [["if (claim && !tx.consume(r.id, r.until)) return refusal('replay')", "if (claim) tx.consume(r.id, r.until)"]]],
   ['storage-failure-ignored', 'a failed transaction is taken as success', 'relying-party.js',
     [["      })\n    } catch {\n      return refusal('storage')", "      })\n    } catch {\n      return pre"]]],
   ['no-head-memory', 'the stored head is not passed to the verifier', 'relying-party.js',
@@ -48,9 +48,37 @@ const TWINS = [
   ['tie-keeps-first', 'of two heads of one second, the first seen is kept', 'relying-party.js',
     [['            tx.replaceHead(seen.identity, given.head, seen.at, stored.head)\n', '']]],
   ['reason-without-memory', 'a request refused before the lock gives its reason without the memory', 'relying-party.js',
-    [['        return refusal(withMemory((c) => verifier[method](given, c), call, stored).reason)', '        return refusal(pre.reason)']]],
+    [['        return refusal(withMemory((c) => verify(given, c), call, stored).reason)', '        return refusal(pre.reason)']]],
   ['nonce-dropped', "the request's nonce is not passed to the verifier", 'relying-party.js', [['return { now, scope, method, url, nonce, contentDigest,', 'return { now, scope, method, url, contentDigest,']]],
   ['call-spread', 'the call is copied with a spread, dropping inherited fields', 'relying-party.js', [['const call = readCall(rawCall)', 'const call = { ...rawCall }']]],
+  ['head-alone-unremembered', 'a head handed over alone is judged without the memory, and not remembered', 'relying-party.js',
+    [['const acceptHead = (given, call) => accept((g, c) => verifier.verifyHead(g?.head, c), false, given, call)', 'const acceptHead = async (given, call) => verifier.verifyHead(given?.head, readCall(call))']]],
+  ['head-alone-consumed', 'a head handed over alone is treated as a claim to consume', 'relying-party.js',
+    [['const acceptHead = (given, call) => accept((g, c) => verifier.verifyHead(g?.head, c), false, given, call)', 'const acceptHead = (given, call) => accept((g, c) => verifier.verifyHead(g?.head, c), true, given, call)']]],
+  ['revocations-forgotten', 'what a head revokes is not kept: a later head without it revives the delegation', 'relying-party.js',
+    [['        tx.revoke(seen.identity, Array.from(seen.revoked), seen.at + revocationMemory)\n', '']]],
+  ['revocations-unused', 'what is kept as revoked is not passed to the verifier', 'relying-party.js',
+    [['revoked: [...call.revoked, ...tx.revocations(seen.identity, now)] }', 'revoked: [...call.revoked] }']]],
+  ['revocations-replace-the-call', "what is kept as revoked replaces the call's own list", 'relying-party.js',
+    [['revoked: [...call.revoked, ...tx.revocations(seen.identity, now)] }', 'revoked: [...tx.revocations(seen.identity, now)] }']]],
+  ['revocations-lapse-with-the-head', 'a revocation is kept only until the time of the head that carried it', 'relying-party.js',
+    [['seen.at + revocationMemory)', 'seen.at)']]],
+  ['memory-revocation-shortened', 'the memory store lets an older head shorten how long a revocation is kept', 'stores.js',
+    [['kept.set(t, Math.max(until, kept.get(t) ?? 0))', 'kept.set(t, until)']]],
+  ['sqlite-revocation-shortened', 'the database store lets an older head shorten how long a revocation is kept', 'stores.js',
+    [[' WHERE excluded.until > revoked.until', '']]],
+  ['memory-revocations-unbounded', 'the memory store keeps any number of revocations for an identity', 'stores.js',
+    [['.slice(0, MAX_REVOKED)', '']]],
+  ['sqlite-revocations-unbounded', 'the database store keeps any number of revocations for an identity', 'stores.js',
+    [['      trim.run(identity)\n', '']]],
+  ['memory-revocations-shared', "the memory store gives one identity's revocations to every identity", 'stores.js',
+    [['return [...revoked.get(identity) ?? new Map()].filter', 'return [...revoked.values()].flatMap((m) => [...m]).filter']]],
+  ['sqlite-revocations-shared', "the database store gives one identity's revocations to every identity", 'stores.js',
+    [["'SELECT target FROM revoked WHERE identity = ? AND until > ? ORDER BY target'", "'SELECT target FROM revoked WHERE identity IS NOT ? AND until > ? ORDER BY target'"]]],
+  ['memory-revocations-never-lapse', 'the memory store never drops a lapsed revocation', 'stores.js',
+    [['        for (const [t, until] of kept) if (until <= now) kept.delete(t)\n', '']]],
+  ['sqlite-revocations-never-lapse', 'the database store never drops a lapsed revocation', 'stores.js',
+    [['      lapse.run(now)\n', '']]],
   ['memory-head-regresses', 'the memory store replaces a head with an older one', 'stores.js', [['if (old === undefined || at > old.at) heads.set', 'heads.set']]],
   ['sqlite-head-regresses', 'the database store replaces a head with an older one', 'stores.js', [[' WHERE excluded.at > heads.at', '']]],
   ['memory-no-grace', 'the memory store expires claim ids at until', 'stores.js', [['if (until + grace <= now) consumed.delete(id)', 'if (until <= now) consumed.delete(id)']]],
@@ -104,7 +132,7 @@ test('adapter broken twins', { timeout: 900_000 }, async (t) => {
       assert.ok(r.pass >= 20, `control: only ${r.pass} tests ran`)
     })
     const jobs = TWINS.map(([name, why, file, edits]) => [name, why, generate(name, file, edits)])
-    assert.equal(jobs.length, 24, 'twin count')
+    assert.equal(jobs.length, 38, 'twin count')
     const results = []
     const queue = [...jobs]
     const workers = Math.max(1, Math.floor(availableParallelism() / 4))
