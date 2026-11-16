@@ -144,7 +144,7 @@ test('the current membership, from what the witness holds', () => {
   const r = rootRecord(SPKI, -7, RP_ID)
   const records = { roots: [r.text], memberships: [], contests: [], freezes: [], anchors: [], settlements: [] }
   const s = currentMembership(records, { identity: r.identity, rpId: RP_ID, origin: ORIGIN, witnessKeys: KEYS })
-  assert.deepEqual(s, { membership: r.identity, epoch: 1, roots: [r.id], authority: [r.id], pending: false })
+  assert.deepEqual(s, { membership: r.identity, epoch: 1, roots: [r.id], authority: [r.id], pending: false, recovery: null, recovering: null })
   assert.throws(() => currentMembership({ roots: [] }, { identity: r.identity, rpId: RP_ID, origin: ORIGIN, witnessKeys: KEYS }),
     { message: 'the witness holds no record of this identity' })
   // A contested change ends the identity.

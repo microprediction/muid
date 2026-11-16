@@ -903,8 +903,14 @@ worker's. A worker is handed its delegation only once the change is saved, so no
 promise (an old key retired) that was not kept. What was reviewed is signed only while unexpired, and handed over
 only if still unexpired when the passkey answers. An added passkey's change, once signed, is submitted; its hand-off
 is withheld if it was withdrawn meanwhile. `id/records.js` builds every record
-with the core's functions and refuses first what the core would. Not yet: removing a root, freezes and contests, and
-the I1–I3 window protocol for apps.
+with the core's functions and refuses first what the core would. Of R11 the page has this much: on load, and
+whenever what it stores changes, it asks the witness for the identity's records and shows a recovery under notice
+with the time it takes effect and a cancel one prompt away (the record the cancel names is shown, I4); a witness
+that gives no answer is said, since a notice not shown is then not known to be absent; a change that adds a
+passkey states the designation in force again (a record without one designates none) and shows it, as a change
+handed over to co-sign does. Not yet: designating recovery parties at the page (`id/records.js` builds and checks
+the records; the screens are not made), removing a root, freezes and contests, and the I1–I3 window protocol for
+apps.
 
 - The id origin is a dedicated host serving nothing else, with no subdomains. `rp_id` and the exact origin are
   deployment configuration (meta tags, as the witness's URL and keys are), compared exactly; no suffix or wildcard
