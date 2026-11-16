@@ -22,7 +22,8 @@
     "./witness": "./witness/witness.js",
     "./witness/service": "./witness/service.js",
     "./witness/holdings": "./witness/holdings.js",
-    "./witness/log": "./witness/log.js"
+    "./witness/log": "./witness/log.js",
+    "./testing": "./testing/index.js"
   },
   "scripts": {
     "test": "node --test --test-timeout=600000 --test-force-exit \"tests/!(meta)/*.test.mjs\"",
