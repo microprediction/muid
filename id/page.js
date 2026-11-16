@@ -5,7 +5,7 @@
 // record and the credential id are kept in this browser only. The workers it authorised are remembered here too, so
 // that one assertion renews up to eight of them at once (decision 3).
 import { openStore } from './store.js'
-import { rootRecord, challenge, assertion, delegation, handOff, b64u, fromB64u, currentMembership, addRoot, rootSigned, changeToSign, fingerprint, storedRoot, cosignedIdentity, storedWorkers, remember, retired, renewals, cancel, maturesAt } from './records.js'
+import { rootRecord, challenge, assertion, delegation, handOff, b64u, fromB64u, currentMembership, addRoot, rootSigned, changeToSign, fingerprint, storedRoot, cosignedIdentity, storedWorkers, remember, retired, renewals, cancel, maturesAt, card, kept, newSalt, fromCard, majority, possessionId, shows, designate, undesignate, designated, recoveryChange, MAX_SALTS } from './records.js'
 
 const $ = (id) => document.getElementById(id)
 const meta = (name) => document.querySelector(`meta[name="${name}"]`).content
@@ -49,7 +49,7 @@ async function refresh () {
 }
 // Stryker disable next-line ObjectLiteral: nothing shown differs; without the nulls a signing button (hidden) pressed
 // before any review throws where it would return, and does nothing either way
-const pending = { delegation: null, change: null, cosign: null, renewal: null }
+const pending = { delegation: null, change: null, cosign: null, renewal: null, designation: null, recoveryCosign: null, proof: null }
 
 // A change to the stored root, made only while storage holds the root it was decided for (`mine`, its id: null
 // when one is being created): another's root is adopted, never overwritten. Whether the change was made.
@@ -142,6 +142,8 @@ function show () {
   $('identity').hidden = root === null || joining
   $('add-root').hidden = root === null || joining
   $('authorise').hidden = root === null || joining
+  $('recovery').hidden = root === null || joining
+  $('party').hidden = root === null || joining
   $('renew').hidden = root === null || joining || workers.length === 0
   listWorkers()
   $('pending').hidden = !unregistered()
@@ -150,6 +152,10 @@ function show () {
   const under = noticed !== null && noticed.root === root?.id ? noticed.state : null
   $('recovery-notice').hidden = under === null
   $('notice-unchecked').hidden = !unchecked || root === null || joining
+  // The designation in force and the membership a party's check is made over, as the witness last gave them.
+  const now = known !== null && known.root === root?.id ? known.state : null
+  $('recovery-now').textContent = now === null ? 'not known' : designation(now.recovery)
+  $('recheck-code').textContent = now === null ? '' : now.membership
   if (under !== null) {
     $('notice-at').textContent = when(under.recovering.at)
     $('notice-matures').textContent = when(maturesAt(under))
@@ -193,6 +199,7 @@ async function membership () {
 // may change it. `noticed` is the state it was read from, for the root it was read for; `unchecked`, that the
 // witness gave no answer, which is said: a notice not shown is then not known to be absent.
 let noticed = null
+let known = null
 let unchecked = false
 async function notice () {
   const r = root
@@ -213,6 +220,7 @@ async function notice () {
   // held here, so it must not hide or replace that root's newer notice.
   if (root?.id !== r.id) return
   noticed = s !== null && s.recovering !== null ? { root: r.id, state: s } : null
+  known = s !== null ? { root: r.id, state: s } : null
   unchecked = failed
   show()
 }
@@ -255,7 +263,10 @@ function withdraw () {
   pending.change = null
   pending.cosign = null
   pending.renewal = null
-  for (const id of ['review-panel', 'handoff', 'add-panel', 'add-handoff', 'cosign-panel', 'renew-panel', 'renew-handoffs']) $(id).hidden = true
+  pending.designation = null
+  pending.recoveryCosign = null
+  pending.proof = null
+  for (const id of ['review-panel', 'handoff', 'add-panel', 'add-handoff', 'cosign-panel', 'renew-panel', 'renew-handoffs', 'designate-panel', 'designate-handoff', 'recovery-cosign-panel', 'proof-panel', 'proof']) $(id).hidden = true
   $('error').textContent = ''
 }
 
@@ -294,13 +305,15 @@ async function register () {
   try {
     await submit(r.identity, 'root', r.text)
     if (await keepRoot(r.id, (kept) => ({ ...kept, registered: true }))) $('status').textContent = 'Registered with the witness.'
-  } catch (e) { fail(e) }
+  } catch (e) { fail(e); return }
+  // Now the witness knows the identity: what it holds for it (its designation, a recovery under notice) is asked.
+  notice()
 }
 
 $('create-button').addEventListener('click', () => create(false))
 $('register-retry').addEventListener('click', () => { $('error').textContent = ''; register() })
 $('join-button').addEventListener('click', () => create(true))
-for (const id of ['agent', 'subject', 'aud', 'scopes', 'days', 'new-root', 'cosign-payload']) $(id).addEventListener('input', withdraw)
+for (const id of ['agent', 'subject', 'aud', 'scopes', 'days', 'new-root', 'cosign-payload', 'party-cards', 'recovery-days', 'recovery-cosign-payload', 'proof-code']) $(id).addEventListener('input', withdraw)
 
 $('review').addEventListener('click', async () => {
   withdraw()
@@ -471,6 +484,135 @@ $('notice-cancel').addEventListener('click', async () => {
 })
 $('notice-retry').addEventListener('click', notice)
 
+// R11, designating: the parties' cards and the wait make a membership change with the same roots, shown from its
+// payload (I4). Before it is signed each party shows that it holds its passkey (SPEC §8); what they give back is
+// checked here and goes nowhere. Ending a designation is the same change without one.
+const lines = (id) => $(id).value.split('\n').map((t) => t.trim()).filter((t) => t !== '')
+async function reviewDesignation (ending) {
+  withdraw()
+  const asked = withdrawals
+  try {
+    const cards = lines('party-cards')
+    const window = Math.round(Number($('recovery-days').value) * DAY)
+    const current = await state()
+    if (asked !== withdrawals) return // withdrawn while the witness was asked
+    const parties = ending ? [] : cards.map((t) => fromCard(t, rpId))
+    const c = ending ? undesignate({ identity: root.identity, state: current })
+      : designate({ identity: root.identity, state: current, parties, threshold: majority(parties.length), window })
+    pending.designation = { ...c, parties, alone: current.roots.length === 1 }
+    $('designate-recovery').textContent = designation(c.body.recovery)
+    $('designate-roots').textContent = c.body.roots.join(' ')
+    $('designate-epoch').textContent = String(c.body.epoch)
+    $('designate-code').textContent = c.id
+    $('designate-proofs-part').hidden = ending
+    $('designate-panel').hidden = false
+  } catch (e) { if (asked === withdrawals) fail(e) } // a refusal of what was withdrawn is not shown
+}
+$('designate-review').addEventListener('click', () => reviewDesignation(false))
+$('undesignate-review').addEventListener('click', () => reviewDesignation(true))
+
+$('designate-sign').addEventListener('click', async () => {
+  const c = pending.designation
+  if (c === null) return
+  $('error').textContent = ''
+  $('status').textContent = '' // what is said next is said of this signing
+  try {
+    const proofs = lines('designate-proofs')
+    const unshown = c.parties.filter((p) => !proofs.some((t) => shows(p, t, { record: c.id, rpId, origin: ORIGIN }))).length
+    if (unshown > 0) throw new Error(`${unshown} of the parties have not shown that they hold their passkey`)
+    const a = await sign([c.id])
+    if (pending.designation !== c) return
+    await submit(root.identity, 'membership', rootSigned(c.payload, root.id, a))
+    if (pending.designation !== c) return
+    $('designate-handoff').value = c.payload
+    $('designate-handoff').hidden = c.alone
+    $('status').textContent = c.alone ? 'Signed. The change settles once its contest window has passed.' : 'Signed. Co-sign this change with your other passkeys.'
+  } catch (e) { fail(e) }
+})
+
+// The same check later, over the current membership: a passkey shown once may be gone since.
+$('recheck').addEventListener('click', async () => {
+  withdraw()
+  $('status').textContent = ''
+  const asked = withdrawals
+  try {
+    const parties = lines('party-cards').map((t) => fromCard(t, rpId))
+    const proofs = lines('recheck-proofs')
+    const current = await state()
+    if (asked !== withdrawals) return // withdrawn while the witness was asked
+    if (parties.length === 0) throw new Error('paste the recovery cards of the parties to check')
+    if (!parties.every((p) => designated(current.recovery, p))) throw new Error("a card here is not one of this identity's recovery parties")
+    const held = parties.filter((p) => proofs.some((t) => shows(p, t, { record: current.membership, rpId, origin: ORIGIN }))).length
+    $('status').textContent = `${held} of ${parties.length} of these parties showed that they hold their passkey.`
+  } catch (e) { if (asked === withdrawals) fail(e) }
+})
+
+// A change to the designation made with another of the identity's passkeys, co-signed here: only one that keeps
+// the roots as they are, shown from its payload (I4).
+$('recovery-cosign-review').addEventListener('click', async () => {
+  withdraw()
+  const asked = withdrawals
+  try {
+    const payload = $('recovery-cosign-payload').value.trim()
+    const current = await state()
+    if (asked !== withdrawals) return // withdrawn while the witness was asked
+    const c = recoveryChange(payload, { identity: root.identity, state: current })
+    pending.recoveryCosign = c
+    $('recovery-cosign-recovery').textContent = designation(c.body.recovery)
+    $('recovery-cosign-roots').textContent = c.body.roots.join(' ')
+    $('recovery-cosign-epoch').textContent = String(c.body.epoch)
+    $('recovery-cosign-panel').hidden = false
+  } catch (e) { if (asked === withdrawals) fail(e) }
+})
+$('recovery-cosign-sign').addEventListener('click', async () => {
+  const c = pending.recoveryCosign
+  if (c === null) return
+  $('error').textContent = ''
+  $('status').textContent = '' // what is said next is said of this signing
+  try {
+    const a = await sign([c.id])
+    if (pending.recoveryCosign !== c) return
+    await submit(root.identity, 'membership', rootSigned(c.payload, root.id, a))
+    $('status').textContent = 'Co-signed. The change settles once its contest window has passed.'
+  } catch (e) { fail(e) }
+})
+
+// R11, as a party: a recovery card is this passkey's root record and a new salt. The salt is kept before the card
+// is shown: on the day this passkey recovers someone, nobody else may have it.
+$('card-make').addEventListener('click', async () => {
+  $('error').textContent = ''
+  const r = root
+  try {
+    const salt = newSalt()
+    if (!await keepRoot(r.id, (now) => ({ ...now, salts: kept(now.salts, salt) }))) return
+    if (!root.salts.includes(salt)) throw new Error(`this passkey has given out ${MAX_SALTS} recovery cards, the most it keeps`)
+    $('card').value = card(r.text, salt)
+    $('card').hidden = false
+  } catch (e) { fail(e) }
+})
+// A party shows that it holds its passkey: what is signed is the code's possession value, which is no record's id
+// and so signs nothing else.
+$('proof-review').addEventListener('click', () => {
+  withdraw()
+  try {
+    const record = $('proof-code').value.trim()
+    pending.proof = { id: possessionId(record) }
+    $('proof-shown').textContent = record
+    $('proof-panel').hidden = false
+  } catch (e) { fail(e) }
+})
+$('proof-sign').addEventListener('click', async () => {
+  const p = pending.proof
+  if (p === null) return
+  $('error').textContent = ''
+  try {
+    const a = await sign([p.id])
+    if (pending.proof !== p) return
+    $('proof').value = JSON.stringify(a)
+    $('proof').hidden = false
+  } catch (e) { fail(e) }
+})
+
 // SPEC §7: without its storage the page offers nothing. What another tab of this origin stores is followed here, so
 // a page open since before cannot act on a stale root or a stale list.
 if (REFUSAL === undefined) {
@@ -479,7 +621,7 @@ if (REFUSAL === undefined) {
     // cleared it): whatever is open is withdrawn, and the page offers nothing more until it is loaded again.
     store = await openStore('muid', () => {
       withdraw()
-      for (const id of ['create', 'identity', 'authorise', 'renew', 'add-root', 'joining', 'pending', 'recovery-notice', 'notice-unchecked']) $(id).hidden = true
+      for (const id of ['create', 'identity', 'authorise', 'renew', 'add-root', 'joining', 'pending', 'recovery-notice', 'notice-unchecked', 'recovery', 'party']) $(id).hidden = true
       REFUSAL = 'A newer version of this page has taken its storage, or the browser has cleared it: reload this page.'
       show()
     })

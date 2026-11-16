@@ -397,7 +397,7 @@ is `{ root, salt, assertion }`; a root-signed **cancel** is `{ identity, record 
   required by the verifier, as OCSP must-staple and short-lived certificates do: revocation is then "stop issuing",
   with no list, no per-root accounting and no bucket on the safety path.
 - **R11 RECOVERY PARTIES (decision 15; proposed: `model/settled.mjs` states it and `tests/model/R11` checks it; the
-  core and the witness implement it, each tested against that model; the id page does not yet).** An owner who has lost every root has nobody left to
+  core and the witness implement it, each tested against that model; the id page designates parties, shows a notice and cancels, and does not yet start a recovery).** An owner who has lost every root has nobody left to
   sign for them (R1). A membership may therefore designate recovery parties, who can restore the identity and do
   nothing else, as wallets' guardians do (Argent) and as a queued change that anyone entitled may cancel does
   (Zodiac Delay, Candide's recovery module).
@@ -908,9 +908,11 @@ whenever what it stores changes, it asks the witness for the identity's records 
 with the time it takes effect and a cancel one prompt away (the record the cancel names is shown, I4); a witness
 that gives no answer is said, since a notice not shown is then not known to be absent; a change that adds a
 passkey states the designation in force again (a record without one designates none) and shows it, as a change
-handed over to co-sign does. Not yet: designating recovery parties at the page (`id/records.js` builds and checks
-the records; the screens are not made), removing a root, freezes and contests, and the I1–I3 window protocol for
-apps.
+handed over to co-sign does. Recovery parties are designated at the page, and a designation ended, as the bullet
+on them below says; a new identity is asked about at the witness as soon as it is registered. Not yet: starting a
+recovery at the page (a party's signature on one is built and tested in `id/records.js`; the screens for the one
+who lost every passkey, and for the party who signs, are not made), removing a root, freezes and contests, and the
+I1–I3 window protocol for apps.
 
 - The id origin is a dedicated host serving nothing else, with no subdomains. `rp_id` and the exact origin are
   deployment configuration (meta tags, as the witness's URL and keys are), compared exactly; no suffix or wildcard
@@ -949,12 +951,24 @@ its own), and a registration or a co-signature the witness took marks only the r
 - **I3 AUDIENCE FROM THE CHANNEL:** for a delegation an app requests, `aud` is the request's `event.origin`. An app
   cannot name a different audience. A machine delegation has no requesting app: the user chooses its `aud` on the id
   page, and the page shows it under I4.
-- **Recovery parties at the id page (R11; proposed with it).** Before the page signs a designation, each party
-  shows it holds its key: an ordinary root assertion (W0–W6) covering the designating record's id, which the page
+- **Recovery parties at the id page (R11; proposed with it).** A party's page makes a **recovery card**, one line
+  of text: its root record and a new 32-byte salt, a new one for each card so that two people who designate the same
+  party show nothing in common. The salt is kept beside the party's root in the page's store before the card is
+  shown (at most 32), since on the day the party acts the one it acts for may have nothing left; a card is not
+  secret from the one it was given to, and whoever keeps a copy can give it back to a party whose browser lost it.
+  The owner's page takes 1 to 3 cards and the wait, and builds the designating record: the same roots, the cards'
+  commitments, a majority of them as threshold. Before the page signs it, each party
+  shows it holds its key: an ordinary root assertion (W0–W6) covering the designating record's **possession value**,
+  hex SHA-256(`UTF-8("muid-possession\n")` ‖ the record id as 32 raw bytes), which the page
   checks under the party's root record, this `rp_id` and origin, along with the root id and salt opening the
-  commitment the record carries. A wrong id, a root under another `rp_id`, or a passkey that no longer exists fails
+  commitment the record carries. The value is not the record's id because an assertion over a record's id, beside
+  the salt the card's holder already has, is that party's signature on the record (R11): a check made over ids
+  would let whoever holds a card collect a recovery's signatures by asking for checks. A possession value is no
+  record's id, so what a party signs for a check signs nothing else. A wrong id, a root under another `rp_id`, or a passkey that no longer exists fails
   there, not on the day everything else is lost. The assertion is discarded, never sent to the witness: published,
-  it would name the party the commitment hides, and it carries no authority (R11). The page offers the same check
+  it would name the party the commitment hides, and it carries no authority (R11). With more than one root the
+  record is handed to the others to co-sign, and a root co-signs there only the current membership's successor with
+  the roots as they are, shown from its payload (I4). The page offers the same check
   later over the current membership, since a key shown once may be gone since; it shows a notice of recovery
   whenever a head carries one, with a cancel one prompt away; and it tells whoever designates what R11's limits (b)
   and (c) mean for them. An institution acting as a party should hold more than one designated key, and one root

@@ -28,6 +28,8 @@ const FAULTS = {
     CasRoot: ['root-overwritten'],
     OwnOnly: ['create-loser-registers'],
     MarkSent: ['registration-marks-any-root', 'cosign-marks-any-root'],
+    KeptShown: ['card-shown-unkept'],
+    CapSalts: ['salts-unbounded'],
   },
   WitnessOutbox: {
     SettleFirst: ['outbox-ignored'],

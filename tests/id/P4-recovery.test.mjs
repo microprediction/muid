@@ -7,8 +7,9 @@ import * as wf from '../witness/fixtures.mjs'
 import { saltOf, secretOf, commitmentOf } from '../membership/translate.mjs'
 import { make } from '../assertion/helpers.mjs'
 import { membership, envelope } from '../impl.mjs'
+import { createHash } from 'node:crypto'
 
-const { party, designate, undesignate, possession, designated, cancel, maturesAt, partySigned, rootSigned, currentMembership, addRoot, changeToSign, DEFAULT_RECOVERY_WINDOW } = records
+const { party, designate, undesignate, possession, possessionId, shows, card, fromCard, kept, newSalt, majority, recoveryChange, storedRoot, MAX_SALTS, designated, cancel, maturesAt, partySigned, rootSigned, currentMembership, addRoot, changeToSign, DEFAULT_RECOVERY_WINDOW } = records
 const { IDENTITY, BASE, WINDOW, w } = wf
 const { rpId: RP_ID, origin: ORIGIN } = wf.CTX
 const MIN = membership.MIN_RECOVERY_WINDOW
@@ -21,6 +22,8 @@ const admit = (held, type, text, root) => {
   assert.equal(r.ok, true, `refused ${type}: ${r.reason}`)
   return r.held
 }
+// Roots a and b, settled at T0.
+const two = () => w.advance(w.advance(wf.withM2(), BASE).held, T0).held
 // Root a's identity with g designated (or `letters`), settled at T0.
 function designatedBy (letters = ['g'], threshold = 1, window = DEFAULT_RECOVERY_WINDOW) {
   const start = wf.start()
@@ -70,16 +73,91 @@ test('what R11 would refuse of a designation, the page refuses first', () => {
   for (const window of [MIN, membership.MAX_RECOVERY_WINDOW]) assert.equal(of({ window })().body.recovery.window, window)
 })
 
-test("a party shows it holds its key over the designating record; another key, record, origin or rp ID fails there", () => {
+test("a party shows it holds its key over the designating record's possession value; another key, record, origin or rp ID fails there", () => {
   const d = designate({ identity: IDENTITY, state: current(wf.start()), parties: [P('g')], threshold: 1, window: MIN })
   const ctx = { record: d.id, rpId: RP_ID, origin: ORIGIN }
-  assert.equal(possession(P('g'), by('g', d.id), ctx), undefined)
+  // The value signed, computed here apart: the domain's bytes, then the record id's.
+  const value = createHash('sha256').update('muid-possession\n').update(Buffer.from(d.id, 'hex')).digest('hex')
+  assert.equal(possessionId(d.id), value)
+  for (const bad of [undefined, '', d.id.toUpperCase(), d.id + '0', d.id.slice(1), [d.id]]) assert.throws(() => possessionId(bad), { message: 'a record id is 64 lowercase hex digits' })
+  assert.equal(possession(P('g'), by('g', value), ctx), undefined)
   const fails = { message: /^the party's passkey did not sign this: / }
-  assert.throws(() => possession(P('g'), by('h', d.id), ctx), fails)
-  assert.throws(() => possession(P('g'), by('g', IDENTITY), ctx), fails)
-  assert.throws(() => possession(P('g'), by('g', d.id), { ...ctx, origin: 'https://other.example' }), fails)
-  assert.throws(() => possession(P('g'), by('g', d.id), { ...ctx, rpId: 'other.example' }), fails)
+  assert.throws(() => possession(P('g'), by('h', value), ctx), fails)
+  assert.throws(() => possession(P('g'), by('g', d.id), ctx), fails, 'the record id itself is not what is signed')
+  assert.throws(() => possession(P('g'), by('g', possessionId(IDENTITY)), ctx), fails)
+  assert.throws(() => possession(P('g'), by('g', value), { ...ctx, origin: 'https://other.example' }), fails)
+  assert.throws(() => possession(P('g'), by('g', value), { ...ctx, rpId: 'other.example' }), fails)
   assert.throws(() => possession(P('g'), {}, ctx), fails)
+  // What a party gives back is that assertion as text; anything else shows nothing.
+  assert.equal(shows(P('g'), JSON.stringify(by('g', value)), ctx), true)
+  for (const text of [JSON.stringify(by('h', value)), JSON.stringify(by('g', d.id)), '{', '', 'null']) assert.equal(shows(P('g'), text, ctx), false, text)
+  assert.equal(shows(P('h'), JSON.stringify(by('g', value)), ctx), false)
+})
+
+test("what a party signed to show its passkey is held is no signature on a recovery, with its card's salt beside it", () => {
+  // Whoever holds a party's card holds its salt. Were the possession check made over a record's id, that party's
+  // answer about a recovery record would be its signature on it. The witness takes the real one and not this.
+  const { held } = designatedBy(['g'], 1, MIN)
+  const R = envelope.seal('membership', { identity: IDENTITY, prev: current(held).membership, epoch: 3, roots: [wf.rootId('n')] })
+  const answer = by('g', possessionId(R.id))
+  const r = w.admit(held, 'membership', partySigned(R.payload, P('g'), answer), wf.rootText('g'))
+  assert.equal(r.ok, false)
+  assert.equal(w.admit(held, 'membership', partySigned(R.payload, P('g'), by('g', R.id)), wf.rootText('g')).ok, true)
+})
+
+test('a recovery card is the party\'s root record and salt on one line; its salt is kept, up to 32; a majority is more than half', () => {
+  const salt = newSalt()
+  assert.match(salt, /^[0-9a-f]{64}$/)
+  assert.notEqual(newSalt(), salt)
+  const text = card(wf.rootText('g'), saltOf('g'))
+  assert.equal(text.includes('\n'), false)
+  assert.deepEqual(JSON.parse(text), { root: wf.rootText('g'), salt: saltOf('g') })
+  assert.deepEqual(fromCard(text, RP_ID), P('g'))
+  for (const bad of ['', '{', 'null', '[]', '7', '"x"', JSON.stringify({ salt: saltOf('g') }), JSON.stringify({ root: 7, salt: saltOf('g') }), JSON.stringify([wf.rootText('g')])]) {
+    assert.throws(() => fromCard(bad, RP_ID), { message: 'that is not a recovery card' }, bad)
+  }
+  assert.throws(() => fromCard(JSON.stringify({ root: wf.rootText('g') }), RP_ID), { message: 'a salt is 64 lowercase hex digits' })
+  assert.throws(() => fromCard(JSON.stringify({ root: 'x', salt: saltOf('g') }), RP_ID), { message: /^that is not a root record: / })
+  assert.throws(() => fromCard(text, 'other.example'), { message: /^that is not a root record: / })
+  assert.deepEqual(kept(undefined, 'a'), ['a'])
+  assert.deepEqual(kept(['a'], 'b'), ['a', 'b'])
+  assert.equal(MAX_SALTS, 32)
+  const full = Array.from({ length: 32 }, (_, i) => String(i))
+  assert.equal(kept(full.slice(1), 'z').length, 32)
+  assert.equal(kept(full, 'z'), full, 'as they were')
+  assert.deepEqual([1, 2, 3].map(majority), [1, 2, 2])
+  // Kept beside the root, read back as untrusted.
+  const root = { credential: 'c', identity: IDENTITY, text: wf.rootText('a') }
+  const salts = Array.from({ length: 32 }, () => newSalt())
+  assert.deepEqual(storedRoot({ ...root, salts }, RP_ID).salts, salts)
+  assert.deepEqual(storedRoot({ ...root, salts: [] }, RP_ID).salts, [])
+  for (const bad of [null, 'x', {}, [7], ['ab'], [salts[0].toUpperCase()], [...salts, newSalt()]]) assert.equal(storedRoot({ ...root, salts: bad }, RP_ID), null, JSON.stringify(bad))
+})
+
+test('a change to co-sign with another passkey sets or ends the designation and nothing else', () => {
+  const state = current(two())
+  const ctx = { identity: IDENTITY, state }
+  const d = designate({ ...ctx, parties: [P('g')], threshold: 1, window: MIN })
+  assert.deepEqual(recoveryChange(d.payload, ctx), { body: d.body, id: d.id, payload: d.payload })
+  const fails = { message: "that change does more than set this identity's recovery parties" }
+  const of = (x) => envelope.seal('membership', { ...d.body, ...x }).payload
+  assert.throws(() => recoveryChange(of({ identity: wf.identityFor('b') }), ctx), fails)
+  assert.throws(() => recoveryChange(of({ prev: IDENTITY }), ctx), fails)
+  assert.throws(() => recoveryChange(of({ epoch: d.body.epoch + 1 }), ctx), fails)
+  assert.throws(() => recoveryChange(of({ roots: [wf.rootId('a')] }), ctx), fails)
+  assert.throws(() => recoveryChange(of({ roots: [...d.body.roots, wf.rootId('n')].sort() }), ctx), fails)
+  assert.throws(() => recoveryChange(d.payload, { ...ctx, state: { ...state, pending: true } }), { message: 'a change is already pending: wait for it to settle' })
+  assert.throws(() => recoveryChange('nonsense', ctx), { message: 'that is not a membership change' })
+  // Both passkeys' signatures on it make the designation; ending it is co-signed the same way.
+  let h = admit(two(), 'membership', rootSigned(d.payload, wf.rootId('a'), by('a', d.id)))
+  assert.equal(current(h).pending, false, 'one of two is no change yet')
+  assert.equal(recoveryChange(d.payload, { identity: IDENTITY, state: current(h) }).id, d.id)
+  h = admit(h, 'membership', rootSigned(d.payload, wf.rootId('b'), by('b', d.id)))
+  const t = T0 + 10 * WINDOW
+  const after = current(w.advance(w.advance(h, t).held, t + WINDOW).held)
+  assert.deepEqual(after.recovery, d.body.recovery)
+  const u = undesignate({ identity: IDENTITY, state: after })
+  assert.equal('recovery' in recoveryChange(u.payload, { identity: IDENTITY, state: after }).body, false)
 })
 
 test('adding a root states the designation in force again; a change shown to co-sign shows it; ending it is a change without one', () => {

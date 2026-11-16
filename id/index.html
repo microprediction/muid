@@ -73,6 +73,58 @@
     </div>
     <textarea id="add-handoff" readonly hidden aria-label="Give this to the other device to co-sign"></textarea>
   </section>
+  <section id="recovery" hidden>
+    <h2>Recovery parties</h2>
+    <p>People or services you trust who, together, can replace this identity's passkeys if you lose them all. Designated now: <span id="recovery-now">not known</span>.</p>
+    <label>Their recovery cards, one on each line (1 to 3) <textarea id="party-cards" spellcheck="false"></textarea></label>
+    <label>Days a recovery waits before it takes effect <input id="recovery-days" type="number" value="14" min="3" max="90"></label>
+    <button id="designate-review" type="button">Review</button>
+    <button id="undesignate-review" type="button">Review ending the designation</button>
+    <div id="designate-panel" hidden>
+      <p>Your passkey will sign exactly this change:</p>
+      <dl>
+        <dt>Recovery parties after it</dt><dd id="designate-recovery"></dd>
+        <dt>Roots after it</dt><dd id="designate-roots"></dd>
+        <dt>Epoch</dt><dd id="designate-epoch"></dd>
+      </dl>
+      <div id="designate-proofs-part">
+        <p>That many of these parties, acting together, can replace your passkeys once the wait has passed. If you do nothing for the whole wait, the identity is theirs. Any one of your passkeys can cancel a recovery while it waits, and so can anyone who has one of them.</p>
+        <p>First each party shows that it holds its passkey. Give each this code, and paste what each gives back, one on each line: <code id="designate-code"></code></p>
+        <label>What they gave back <textarea id="designate-proofs" spellcheck="false"></textarea></label>
+      </div>
+      <button id="designate-sign" type="button">Sign with your passkey</button>
+    </div>
+    <textarea id="designate-handoff" readonly hidden aria-label="Give this to your other passkeys to co-sign"></textarea>
+    <h3>Check that your parties still hold their passkeys</h3>
+    <p>With their cards above, give each this code and paste what each gives back: <code id="recheck-code"></code></p>
+    <label>What they gave back <textarea id="recheck-proofs" spellcheck="false"></textarea></label>
+    <button id="recheck" type="button">Check</button>
+    <h3>Co-sign a change made with another of your passkeys</h3>
+    <label>The change, from that device <textarea id="recovery-cosign-payload" spellcheck="false"></textarea></label>
+    <button id="recovery-cosign-review" type="button">Review</button>
+    <div id="recovery-cosign-panel" hidden>
+      <p>Your passkey will sign exactly this change:</p>
+      <dl>
+        <dt>Recovery parties after it</dt><dd id="recovery-cosign-recovery"></dd>
+        <dt>Roots after it</dt><dd id="recovery-cosign-roots"></dd>
+        <dt>Epoch</dt><dd id="recovery-cosign-epoch"></dd>
+      </dl>
+      <button id="recovery-cosign-sign" type="button">Sign with your passkey</button>
+    </div>
+  </section>
+  <section id="party" hidden>
+    <h2>Be someone's recovery party</h2>
+    <p>Give them a recovery card. It names this passkey to them alone; make a new one for each person.</p>
+    <button id="card-make" type="button">Make a recovery card</button>
+    <textarea id="card" readonly hidden aria-label="Give this recovery card to whoever designates you"></textarea>
+    <label>The code they gave you, to show that you hold this passkey <input id="proof-code" autocomplete="off" spellcheck="false"></label>
+    <button id="proof-review" type="button">Review</button>
+    <div id="proof-panel" hidden>
+      <p>Your passkey will sign only that it is held, for the code <code id="proof-shown"></code>. That gives nobody any authority and recovers nothing.</p>
+      <button id="proof-sign" type="button">Sign with your passkey</button>
+    </div>
+    <textarea id="proof" readonly hidden aria-label="Give this back to whoever designates you"></textarea>
+  </section>
   <section id="authorise" hidden>
     <h2>Authorise a worker</h2>
     <label>Agent name <input id="agent" autocomplete="off" spellcheck="false" placeholder="forecaster"></label>

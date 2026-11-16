@@ -22,6 +22,8 @@ export function storedRoot (x, rpId) {
   if (x === null || typeof x !== 'object' || Array.isArray(x) || typeof x.credential !== 'string' ||
     typeof x.identity !== 'string' || !ID.test(x.identity) || !['undefined', 'boolean'].includes(typeof x.joining) ||
     !['undefined', 'boolean'].includes(typeof x.registered)) return null
+  // R11: the salts of the recovery cards this passkey gave out, which it needs on the day it recovers someone.
+  if (x.salts !== undefined && !(Array.isArray(x.salts) && x.salts.length <= MAX_SALTS && x.salts.every((t) => typeof t === 'string' && ID.test(t)))) return null
   // Whatever x.text is, checkRoot refuses it unless it is a root record's text.
   const r = checkRoot(x.text, { rpId })
   if (!r.ok) return null
@@ -197,6 +199,40 @@ export function changeToSign (payload) {
 // ---- R11: recovery parties (SPEC §8) ----
 export const DEFAULT_RECOVERY_WINDOW = 1_209_600 // 14 days: what the page offers
 const MAX_PARTIES = 3
+export const MAX_SALTS = 32 // the recovery cards one passkey gives out
+const POSSESSION = new TextEncoder().encode('muid-possession\n')
+const unhex = (t) => Uint8Array.from(t.match(/../g), (x) => parseInt(x, 16))
+
+// A recovery card: what a party gives whoever would designate it, as one line of text. The party keeps the salt
+// too (`kept`: its salts with this one added), since on the day it recovers someone nobody else may have the card.
+export const card = (rootText, salt) => JSON.stringify({ root: rootText, salt })
+export const newSalt = () => hex(crypto.getRandomValues(new Uint8Array(32)))
+// The salts kept with `salt` added, or as they were if they are as many as are kept.
+export const kept = (salts = [], salt) => salts.length >= MAX_SALTS ? salts : [...salts, salt]
+// A card read back: the party it names (as `party` gives it), or a reason.
+export function fromCard (text, rpId) {
+  let c
+  try {
+    c = JSON.parse(text)
+  } catch {
+    throw new Error('that is not a recovery card')
+  }
+  if (c === null || typeof c !== 'object' || Array.isArray(c) || typeof c.root !== 'string') throw new Error('that is not a recovery card')
+  return party(c.root, c.salt, rpId)
+}
+
+// How many of `n` parties recover: more than half (R11).
+export const majority = (n) => Math.floor(n / 2) + 1
+
+// What a party's passkey signs to show it is held: not the record's id, which signed with the card's salt beside
+// it would be a party's signature on that record (R11), but a value under a domain of its own that is no record's id.
+export function possessionId (record) {
+  if (typeof record !== 'string' || !ID.test(record)) throw new Error('a record id is 64 lowercase hex digits')
+  const bytes = new Uint8Array(POSSESSION.length + 32)
+  bytes.set(POSSESSION, 0)
+  bytes.set(unhex(record), POSSESSION.length)
+  return hex(sha256(bytes))
+}
 
 // What a party gives whoever would designate it: its root record and a salt it keeps. { root, key, salt,
 // commitment }; the commitment is all a designation shows of it.
@@ -230,12 +266,32 @@ export function undesignate ({ identity, state }) {
   return { body, ...seal('membership', body) }
 }
 
-// A party shows it holds its key: an ordinary root assertion covering `record`, checked under the party's own root
-// record, this rp ID and origin. The assertion is then discarded: it carries no authority, and published it would
-// name the party its commitment hides.
+// A party shows it holds its key: an ordinary root assertion covering `record`'s possession value, checked under
+// the party's own root record, this rp ID and origin. The assertion is then discarded: it carries no authority, and
+// published it would name the party its commitment hides.
 export function possession (p, assertion, { record, rpId, origin }) {
-  const a = checkRootAssertion(assertion, { record, rpId, origin, key: p.key })
+  const a = checkRootAssertion(assertion, { record: possessionId(record), rpId, origin, key: p.key })
   if (!a.ok) throw new Error(`the party's passkey did not sign this: ${a.reason}`)
+}
+
+// Whether `text`, what a party gave back, shows that `p` holds its passkey for `record`.
+export function shows (p, text, ctx) {
+  try {
+    possession(p, JSON.parse(text), ctx)
+    return true
+  } catch {
+    return false
+  }
+}
+
+// A change handed to another of the identity's passkeys to co-sign, which may only set or end the designation: the
+// current membership's successor with the same roots. As `changeToSign` gives it, or a reason.
+export function recoveryChange (payload, { identity, state }) {
+  const c = changeToSign(payload)
+  if (state.pending) throw new Error('a change is already pending: wait for it to settle')
+  if (c.body.identity !== identity || c.body.prev !== state.membership || c.body.epoch !== state.epoch + 1 ||
+    JSON.stringify(c.body.roots) !== JSON.stringify(state.roots)) throw new Error("that change does more than set this identity's recovery parties")
+  return c
 }
 
 // Whether `p` (from `party`) is one of the designation's parties: its root id and salt open a commitment there.

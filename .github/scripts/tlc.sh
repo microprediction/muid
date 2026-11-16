@@ -96,6 +96,8 @@ IdRoot IdRootNoCas NeverOverwritten
 IdRoot IdRootLoserRegisters JoiningNeverRegistered
 IdRoot IdRootMarksHeld MarkedIsTaken
 IdRoot IdRootMarksHeldMember MemberIsCosigned
+IdRoot IdRootCardUnkept CardIsKept
+IdRoot IdRootSaltsUncapped SaltsBounded
 WitnessOutbox WitnessOutbox pass
 WitnessOutbox WitnessOutboxNoSettleFirst NoRival
 WitnessOutbox WitnessOutboxNoAppendOutbox HeldIsLogged

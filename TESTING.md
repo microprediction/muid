@@ -793,7 +793,20 @@ What `WitnessOutbox.tla` assumes of the store is tested of the SQLite one, with 
   each refusal R11 would make refused first; a party's possession check failing for another key, record, origin or
   rp ID; adding a root restating the designation in force (a record without one designates none, so the page's
   own change would otherwise have ended it); ending a designation; a party's signature starting a recovery, the
-  notice and its maturity read back, and the page's cancel answered with `cancelled`.
+  notice and its maturity read back, and the page's cancel answered with `cancelled`. The possession value is
+  computed apart and compared; an assertion over the record's own id fails the check; and what a party signs for a
+  check, put beside its card's salt as a signature on a recovery, is refused by the witness where the real
+  signature is taken. A recovery card read back, and each thing that is no card; the kept salts bounded and read
+  back as untrusted; a change to co-sign that alters the identity, `prev`, epoch or roots refused, and one that
+  sets or ends the designation co-signed through the witness by two roots.
+- The designation screens in Chrome (`P2`, two tests): a party's page makes cards, each with a new salt kept
+  before it is shown, and no card past 32; the owner's page refuses what R11 would, shows the change from its
+  payload, withdraws on any edit, and signs nothing until each party's answer checks; the party's page signs the
+  possession value and nothing before a review; the designation settles at the witness and is shown on reload; the
+  later check counts who showed and refuses a card that is not designated; the party the page made then recovers
+  the identity in Node with its card's salt, and the owner's page shows the notice; ending the designation. With
+  two passkeys: the change is handed over, the other passkey refuses one that touches the roots, epoch or `prev`,
+  co-signs the right one, and a refusing witness leaves no earlier status standing.
 - R11 at the page in Chrome (`P2-page.test.mjs`): a designation and a recovery made in Node with the page's own
   record builders, the identity's passkey signing by its key read from the virtual authenticator. The notice is
   shown on load and in another tab, with the record and both times; a witness that is down is said and no notice
@@ -835,9 +848,9 @@ What `WitnessOutbox.tla` assumes of the store is tested of the SQLite one, with 
   wait is cut to 15 s and every test to 60 s, and once one test fails or times out, the rest fail at once. Without
   this, a broken page made each test wait out its limits in turn, and the mutant was counted only when Stryker's
   own timeout ran out.
-- Twins (`tests/meta/id-twins.test.mjs`, 128 in all; 15 are R11's: a designation dropped when a passkey is added or
+- Twins (`tests/meta/id-twins.test.mjs`, 145 in all; 32 are R11's: a designation dropped when a passkey is added or
   hidden from a co-signer, an own passkey or a minority designated, possession unchecked, a cancel of another record,
-  a wrong maturity, a notice or a silent witness not shown, an unreadable or unverified answer taken for none, a late answer about another root published, an unregistered root asked about, and what a review leaves out): the challenge's domain, any algorithm, unsorted scopes, an unbounded
+  a wrong maturity, a notice or a silent witness not shown, an unreadable or unverified answer taken for none, a late answer about another root published, an unregistered root asked about, what a review leaves out; a possession check over the record's own id, at the records and at the party's page; salts of any form or without limit; a card shown unkept; one party of several enough; a co-signature of a change of roots, or of any change; parties' answers unchecked; an edit or a stale status kept; an undesignated card checked; a hand-off withheld; a joining passkey offering cards; a new identity not asked about): the challenge's domain, any algorithm, unsorted scopes, an unbounded
   lifetime, an unchecked audience, an edit that keeps the review, a late signature kept, verification preferred,
   any passkey, a credential that is not resident, inline scripts allowed, hidden parts shown; attest granted; a change co-signed that does not add
   this passkey, an edit of the new root kept, authority unchecked, delegations under the first membership, the root
@@ -1018,7 +1031,8 @@ What `WitnessOutbox.tla` assumes of the store is tested of the SQLite one, with 
   is run nightly as the walks' own control. Eleven negative controls, one per rule of the page turned off, each at the
   two-tab bound and each reporting the invariant named beside it in `.github/scripts/tlc.sh`. `IdRoot` is the
   stored root: making one, registering it, co-signing as a joining root, with a notice, a reload or the browser's
-  storage being cleared between any two steps: 276,490 distinct states, no error; four controls, two of them the
+  storage being cleared between any two steps, and recovery cards asked for (each salt kept by one write before
+  its card is shown, at most as many as are kept): 4,426,345 distinct states, no error; six controls, two of them the
   page as it was before #74. Before it was complete the page model found the two single-tab gaps above. What this
   does not show: anything about the JavaScript itself, or beyond the bounds, or about one agent's rows at two
   audiences or two agents (those configurations are sampled, not completed). The tie to the code is by faults: a guard

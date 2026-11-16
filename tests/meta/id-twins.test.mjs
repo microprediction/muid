@@ -28,13 +28,13 @@ const TWINS = [
   ['audience-unchecked', 'any audience text is signed', [["  if (!isCanonicalOrigin(aud)) throw new Error('the audience must be an origin, such as https://app.example')\n", '']], 'records.js'],
   ['rename-keeps-review', 'renaming the agent leaves the reviewed delegation signable', [["for (const id of ['agent', 'subject',", "for (const id of ['subject',"]], 'page.js'],
   ['agent-not-shown', 'the agent is signed but not shown in the review (I4)', [["    $('show-agent').textContent = d.body.agent\n", '']], 'page.js'],
-  ['edit-keeps-review', 'an edit leaves the reviewed delegation signable', [["for (const id of ['agent', 'subject', 'aud', 'scopes', 'days', 'new-root', 'cosign-payload']) $(id).addEventListener('input', withdraw)", "for (const id of ['new-root', 'cosign-payload']) $(id).addEventListener('input', withdraw)"]], 'page.js'],
+  ['edit-keeps-review', 'an edit leaves the reviewed delegation signable', [["for (const id of ['agent', 'subject', 'aud', 'scopes', 'days', 'new-root', 'cosign-payload',", "for (const id of ['new-root', 'cosign-payload',"]], 'page.js'],
   ['late-signature-kept', 'a signature that returns after an edit is handed over', [["    if (pending.delegation !== d || lapsed([d])) return // withdrawn while the passkey was asked\n", "    if (lapsed([d])) return // withdrawn while the passkey was asked\n"], ["    if (pending.delegation !== d || lapsed([d])) return // withdrawn, or expired, while it was saved\n", "    if (lapsed([d])) return // withdrawn, or expired, while it was saved\n"]], 'page.js'],
   ['uv-preferred', 'the assertion does not require user verification', [["rpId, challenge: challenge(covers), userVerification: 'required',", "rpId, challenge: challenge(covers), userVerification: 'preferred',"]], 'page.js'],
   ['any-passkey', 'any passkey for the site may sign', [["    allowCredentials: [{ type: 'public-key', id: fromB64u(root.credential) }],\n", '']], 'page.js'],
   ['not-discoverable', 'the passkey is not a resident credential', [["residentKey: 'required', userVerification: 'required'", "userVerification: 'required'"]], 'page.js'],
   ['cosign-anything', 'a change that does not add this passkey is co-signed', [["    if (!c.body.roots.includes(root.id)) throw new Error('that change does not add this passkey')\n", '']], 'page.js'],
-  ['add-edit-keeps-review', 'an edit of the new root leaves the change signable', [["for (const id of ['agent', 'subject', 'aud', 'scopes', 'days', 'new-root', 'cosign-payload'])", "for (const id of ['agent', 'subject', 'aud', 'scopes', 'days', 'cosign-payload'])"]], 'page.js'],
+  ['add-edit-keeps-review', 'an edit of the new root leaves the change signable', [["for (const id of ['agent', 'subject', 'aud', 'scopes', 'days', 'new-root', 'cosign-payload',", "for (const id of ['agent', 'subject', 'aud', 'scopes', 'days', 'cosign-payload',"]], 'page.js'],
   ['authority-unchecked', 'a passkey without authority yet signs delegations', [["  if (!s.authority.includes(root.id)) throw new Error('this passkey has no authority yet: wait for the change to settle')\n", '']], 'page.js'],
   ['membership-of-epoch-1', 'delegations name the first membership whatever the current one', [['  return s.membership\n', '  return root.identity\n']], 'page.js'],
   // R11 at the page.
@@ -46,6 +46,23 @@ const TWINS = [
   ['cancel-other-record', 'the cancel names another record than the recovery under notice', [['const body = { identity, record: state.recovering.record }', 'const body = { identity, record: state.membership }']], 'records.js'],
   ['matures-at-notice', 'a recovery is shown as taking effect when its notice was given', [['state.recovering.at + state.recovery.window', 'state.recovering.at']], 'records.js'],
   ['notice-not-shown', 'a recovery under notice is not shown', [["  $('recovery-notice').hidden = under === null\n", "  $('recovery-notice').hidden = true\n"]], 'page.js'],
+  ['possession-over-record', "a party shows its passkey is held by signing the record's own id, which its card's salt makes a recovery signature", [["{ record: possessionId(record), rpId, origin, key: p.key }", "{ record, rpId, origin, key: p.key }"]], "records.js"],
+  ['proof-signs-record', "the party's page signs the code itself, not its possession value", [["    pending.proof = { id: possessionId(record) }\n", "    pending.proof = { id: record }\n"]], "page.js"],
+  ['salts-any-form', "whatever storage holds is taken as the kept salts", [["  if (x.salts !== undefined && !(Array.isArray(x.salts) && x.salts.length <= MAX_SALTS && x.salts.every((t) => typeof t === 'string' && ID.test(t)))) return null\n", ""]], "records.js"],
+  ['salts-unbounded', "a passkey keeps salts without limit", [["salts.length >= MAX_SALTS ? salts : [...salts, salt]", "[...salts, salt]"]], "records.js"],
+  ['card-shown-unkept', "a recovery card is shown though its salt was not kept", [["    if (!root.salts.includes(salt)) throw new Error(`this passkey has given out ${MAX_SALTS} recovery cards, the most it keeps`)\n", ""]], "page.js"],
+  ['majority-of-one', "one party of several is enough to recover", [["Math.floor(n / 2) + 1", "1"]], "records.js"],
+  ['cosign-changes-roots', "a change that replaces the roots is co-signed as a change of the parties", [[" ||\n    JSON.stringify(c.body.roots) !== JSON.stringify(state.roots)) throw", ") throw"]], "records.js"],
+  ['recovery-cosign-anything', "any membership change is co-signed as a change of the parties", [["const c = recoveryChange(payload, { identity: root.identity, state: current })", "const c = changeToSign(payload)"]], "page.js"],
+  ['proofs-unchecked', "a designation is signed though a party has not shown that its passkey is held", [["    if (unshown > 0) throw new Error(`${unshown} of the parties have not shown that they hold their passkey`)\n", ""]], "page.js"],
+  ['designate-edit-keeps-review', "an edit of the cards leaves the reviewed designation signable", [["'cosign-payload', 'party-cards', 'recovery-days',", "'cosign-payload', 'recovery-days',"]], "page.js"],
+  ['designation-review-hides-it', "a designation is reviewed without the designation it states (I4)", [["    $('designate-recovery').textContent = designation(c.body.recovery)\n", ""]], "page.js"],
+  ['recheck-undesignated', "a card that is not one of the parties designated is checked as if it were", [["    if (!parties.every((p) => designated(current.recovery, p))) throw new Error(\"a card here is not one of this identity's recovery parties\")\n", ""]], "page.js"],
+  ['designate-handoff-withheld', "a designation that needs another passkey is not handed over to it", [["    $('designate-handoff').hidden = c.alone\n", "    $('designate-handoff').hidden = true\n"]], "page.js"],
+  ['joining-is-a-party', "a passkey still joining offers recovery cards", [["  $('party').hidden = root === null || joining\n", "  $('party').hidden = root === null\n"]], "page.js"],
+  ['registered-unasked', "a new identity is not asked about at the witness until the page is loaded again", [["  } catch (e) { fail(e); return }\n  // Now the witness knows the identity: what it holds for it (its designation, a recovery under notice) is asked.\n  notice()", "  } catch (e) { fail(e); return }"]], "page.js"],
+  ['designate-status-stale', "what was said of an earlier signing stands while a designation is refused", [["  const c = pending.designation\n  if (c === null) return\n  $('error').textContent = ''\n  $('status').textContent = '' // what is said next is said of this signing\n", "  const c = pending.designation\n  if (c === null) return\n  $('error').textContent = ''\n"]], "page.js"],
+  ['cosign-status-stale', "what was said of an earlier signing stands while a co-signature is refused", [["  const c = pending.recoveryCosign\n  if (c === null) return\n  $('error').textContent = ''\n  $('status').textContent = '' // what is said next is said of this signing\n", "  const c = pending.recoveryCosign\n  if (c === null) return\n  $('error').textContent = ''\n"]], "page.js"],
   ['broken-answer-silent', 'an answer about recoveries that cannot be read is taken for no recovery', [["    failed = e.unknown !== true && e.message !== 'this identity has ended'\n", "    failed = e.message === 'the witness did not answer' || e instanceof TypeError\n"]], 'page.js'],
   ['unverified-answer-silent', 'records served that do not verify are taken for an identity the witness does not know', [["    failed = e.unknown !== true && e.message !== 'this identity has ended'\n", "    failed = e.message !== 'the witness holds no record of this identity' && e.message !== 'this identity has ended'\n"]], 'page.js'],
   ['late-answer-published', "an answer about a root no longer held replaces what is known of the root held now", [["  if (root?.id !== r.id) return\n", ""]], 'page.js'],
@@ -197,7 +214,7 @@ test('id page broken twins', { timeout: 7_200_000 }, async (t) => {
       assert.ok(r.pass >= 14, `control: only ${r.pass} tests ran`)
     })
     const jobs = TWINS.map(([name, why, edits, file]) => [name, why, generate(name, edits, file)])
-    assert.equal(jobs.length, 128, 'twin count')
+    assert.equal(jobs.length, 145, 'twin count')
     const results = []
     const queue = part(jobs)
     assert.ok(queue.length > 0, 'this part has twins')

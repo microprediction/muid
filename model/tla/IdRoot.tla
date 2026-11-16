@@ -7,25 +7,32 @@
    other tab's steps, a notice of a change, a reload, or the browser's storage being cleared may come. A write to
    the stored root is one transaction, as the Indexed Database standard states: here one step.
 
+   A root of its own identity also gives out recovery cards (R11): each has a salt, kept beside the root (here: how
+   many are kept) by one such write before the card is shown.
+
    Checked, of every reachable state:
      NeverOverwritten        no write replaces one root with another;
      JoiningNeverRegistered  the witness is never sent a joining root as an identity of its own;
      MarkedIsTaken           a stored root is marked registered only if the witness took it;
-     MemberIsCosigned        a stored root is marked the identity's only if the witness took its co-signature.
+     MemberIsCosigned        a stored root is marked the identity's only if the witness took its co-signature;
+     CardIsKept              a card is shown only if its salt was kept, beside the root it is a card of;
+     SaltsBounded            a root keeps at most MaxSalts salts.
 
-   Bounds: the tabs; MaxRoots roots made; MaxClears clearings of storage; MaxLoads reloads.
+   Bounds: the tabs; MaxRoots roots made; MaxClears clearings of storage; MaxLoads reloads; MaxCards cards asked for.
 
    Negative controls: each switch is TRUE in the page; FALSE, it is the page with one fault (the last two, the page
    as it was before review #74), and TLC must report the invariant the script names beside it. *)
 EXTENDS Integers, FiniteSets
 
 CONSTANTS
-  Tabs, MaxRoots, MaxClears, MaxLoads,
+  Tabs, MaxRoots, MaxClears, MaxLoads, MaxCards, MaxSalts,
   CasRoot,    \* a root is written only while storage holds the root the write was decided for
   OwnOnly,    \* a tab registers after making a root only if its own root was the one stored
-  MarkSent    \* the mark after the witness answers is made on the root that was sent (FALSE: the tab's copy then)
+  MarkSent,   \* the mark after the witness answers is made on the root that was sent (FALSE: the tab's copy then)
+  KeptShown,  \* a card is shown only once its salt is seen to be kept (FALSE: whatever became of the write)
+  CapSalts    \* a salt is kept only while fewer than MaxSalts are (FALSE: always)
 
-None == [id |-> 0, joining |-> FALSE, reg |-> FALSE, cos |-> FALSE, mem |-> FALSE]
+None == [id |-> 0, joining |-> FALSE, reg |-> FALSE, cos |-> FALSE, mem |-> FALSE, salts |-> 0]
 Idle == [kind |-> "idle", stage |-> "none", joining |-> FALSE, r |-> None]
 
 VARIABLES
@@ -38,13 +45,16 @@ VARIABLES
   joiners,  \* the roots made to join
   wreg,     \* roots the witness was sent as identities of their own
   wmem,     \* roots whose co-signature the witness took
-  over      \* a write replaced one root with another
+  over,     \* a write replaced one root with another
+  cards,    \* cards asked for so far
+  loose     \* a card was shown whose salt was not kept beside its root
 
-vars == <<store, view, told, job, next, clears, loads, joiners, wreg, wmem, over>>
+vars == <<store, view, told, job, next, clears, loads, joiners, wreg, wmem, over, cards, loose>>
 
 Init ==
   /\ store = None /\ view = [t \in Tabs |-> None] /\ told = [t \in Tabs |-> FALSE] /\ job = [t \in Tabs |-> Idle]
   /\ next = 0 /\ clears = 0 /\ loads = 0 /\ joiners = {} /\ wreg = {} /\ wmem = {} /\ over = FALSE
+  /\ cards = 0 /\ loose = FALSE
 
 Others(t) == [u \in Tabs |-> IF u = t THEN told[u] ELSE TRUE]
 \* What a tab with nothing else to do sends again (its outbox): a registration, or a kept co-signature.
@@ -60,7 +70,7 @@ Start(t, j) ==
           /\ job' = [job EXCEPT ![t] = [kind |-> "create", stage |-> "passkey", joining |-> j, r |-> [None EXCEPT !.id = next + 1, !.joining = j]]]
           /\ joiners' = IF j THEN joiners \cup {next + 1} ELSE joiners
           /\ UNCHANGED view
-  /\ UNCHANGED <<store, told, clears, loads, wreg, wmem, over>>
+  /\ UNCHANGED <<store, told, clears, loads, wreg, wmem, over, cards, loose>>
 
 \* The passkey is made: the root is written if none is there; whatever is there is the tab's root from now.
 Write(t) ==
@@ -72,7 +82,7 @@ Write(t) ==
         /\ view' = [view EXCEPT ![t] = after]
         /\ job' = [job EXCEPT ![t] = IF ~job[t].joining /\ (made \/ ~OwnOnly)
                                         THEN [Idle EXCEPT !.kind = "register", !.stage = "send", !.r = after] ELSE Idle]
-  /\ UNCHANGED <<next, clears, loads, joiners, wreg, wmem>>
+  /\ UNCHANGED <<next, clears, loads, joiners, wreg, wmem, cards, loose>>
 
 \* The witness is sent the job's root, or its co-signature, and takes it.
 Send(t) ==
@@ -80,7 +90,7 @@ Send(t) ==
   /\ job' = [job EXCEPT ![t].stage = "sent"]
   /\ IF job[t].kind = "register" THEN wreg' = wreg \cup {job[t].r.id} /\ UNCHANGED wmem
      ELSE wmem' = wmem \cup {job[t].r.id} /\ UNCHANGED wreg
-  /\ UNCHANGED <<store, view, told, next, clears, loads, joiners, over>>
+  /\ UNCHANGED <<store, view, told, next, clears, loads, joiners, over, cards, loose>>
 
 \* The witness's answer arrives: the root is marked, if storage still holds the one the mark is for.
 Mark(t) ==
@@ -92,7 +102,7 @@ Mark(t) ==
                   ELSE [store EXCEPT !.cos = FALSE, !.joining = FALSE, !.reg = TRUE, !.mem = TRUE]
      IN store' = after /\ view' = [view EXCEPT ![t] = after] /\ told' = IF made THEN Others(t) ELSE told
   /\ job' = [job EXCEPT ![t] = Idle]
-  /\ UNCHANGED <<next, clears, loads, joiners, wreg, wmem, over>>
+  /\ UNCHANGED <<next, clears, loads, joiners, wreg, wmem, over, cards, loose>>
 
 \* A joining tab is given a change that adds its root, and its passkey signs it: the co-signature is kept, if
 \* storage still holds that root, and then sent.
@@ -102,25 +112,37 @@ Cosign(t) ==
          after == IF made THEN [store EXCEPT !.cos = TRUE] ELSE store
      IN /\ store' = after /\ view' = [view EXCEPT ![t] = after] /\ told' = IF made THEN Others(t) ELSE told
         /\ job' = [job EXCEPT ![t] = IF made THEN [Idle EXCEPT !.kind = "cosign", !.stage = "send", !.r = after] ELSE Idle]
-  /\ UNCHANGED <<next, clears, loads, joiners, wreg, wmem, over>>
+  /\ UNCHANGED <<next, clears, loads, joiners, wreg, wmem, over, cards, loose>>
+
+\* A recovery card is asked for in a tab holding a root of its own identity: a salt is made and kept by one write,
+\* if storage still holds that root and it keeps fewer than MaxSalts; the card is shown if its salt is then kept.
+Card(t) ==
+  /\ cards < MaxCards /\ cards' = cards + 1
+  /\ view[t].id # 0 /\ ~view[t].joining
+  /\ LET made == store.id = view[t].id
+         kept == made /\ (store.salts < MaxSalts \/ ~CapSalts)
+         after == IF kept THEN [store EXCEPT !.salts = @ + 1] ELSE store
+     IN /\ store' = after /\ view' = [view EXCEPT ![t] = after] /\ told' = IF made THEN Others(t) ELSE told
+        /\ loose' = (loose \/ (~kept /\ ~KeptShown))
+  /\ UNCHANGED <<job, next, clears, loads, joiners, wreg, wmem, over>>
 
 \* A notice arrives: the tab reads storage. What it was doing goes on.
 Notice(t) ==
   /\ told[t] /\ told' = [told EXCEPT ![t] = FALSE] /\ view' = [view EXCEPT ![t] = store]
-  /\ UNCHANGED <<store, job, next, clears, loads, joiners, wreg, wmem, over>>
+  /\ UNCHANGED <<store, job, next, clears, loads, joiners, wreg, wmem, over, cards, loose>>
 
 \* The tab is loaded again: it reads storage, drops what it was doing, and sends again what is kept to be sent.
 Reload(t) ==
   /\ loads < MaxLoads /\ loads' = loads + 1
   /\ view' = [view EXCEPT ![t] = store] /\ told' = [told EXCEPT ![t] = FALSE] /\ job' = [job EXCEPT ![t] = Outbox(store)]
-  /\ UNCHANGED <<store, next, clears, joiners, wreg, wmem, over>>
+  /\ UNCHANGED <<store, next, clears, joiners, wreg, wmem, over, cards, loose>>
 
 \* The browser's storage for the site is cleared. No tab is told.
 Clear ==
   /\ clears < MaxClears /\ clears' = clears + 1 /\ store' = None
-  /\ UNCHANGED <<view, told, job, next, loads, joiners, wreg, wmem, over>>
+  /\ UNCHANGED <<view, told, job, next, loads, joiners, wreg, wmem, over, cards, loose>>
 
-Next == Clear \/ \E t \in Tabs : Start(t, TRUE) \/ Start(t, FALSE) \/ Write(t) \/ Send(t) \/ Mark(t) \/ Cosign(t) \/ Notice(t) \/ Reload(t)
+Next == Clear \/ \E t \in Tabs : Start(t, TRUE) \/ Start(t, FALSE) \/ Write(t) \/ Send(t) \/ Mark(t) \/ Cosign(t) \/ Card(t) \/ Notice(t) \/ Reload(t)
 Spec == Init /\ [][Next]_vars
 
 TypeOK == next \in 0..MaxRoots /\ store.id \in 0..MaxRoots /\ wreg \subseteq 1..MaxRoots /\ wmem \subseteq 1..MaxRoots
@@ -128,4 +150,6 @@ NeverOverwritten == ~over
 JoiningNeverRegistered == wreg \cap joiners = {}
 MarkedIsTaken == store.reg => store.id \in wreg \cup wmem
 MemberIsCosigned == store.mem => store.id \in wmem
+CardIsKept == ~loose
+SaltsBounded == store.salts <= MaxSalts
 =============================================================================
