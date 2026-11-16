@@ -132,7 +132,7 @@ test('a recovery card is the party\'s root record and salt on one line; its salt
   const salts = Array.from({ length: 32 }, () => newSalt())
   assert.deepEqual(storedRoot({ ...root, salts }, RP_ID).salts, salts)
   assert.deepEqual(storedRoot({ ...root, salts: [] }, RP_ID).salts, [])
-  for (const bad of [null, 'x', {}, [7], ['ab'], [salts[0].toUpperCase()], [...salts, newSalt()]]) assert.equal(storedRoot({ ...root, salts: bad }, RP_ID), null, JSON.stringify(bad))
+  for (const bad of [null, 'x', {}, [7], ['ab'], [[salts[0]]], [salts[0].toUpperCase()], [...salts, newSalt()]]) assert.equal(storedRoot({ ...root, salts: bad }, RP_ID), null, JSON.stringify(bad))
 })
 
 test('a change to co-sign with another passkey sets or ends the designation and nothing else', () => {

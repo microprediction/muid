@@ -214,10 +214,8 @@ export function fromCard (text, rpId) {
   let c
   try {
     c = JSON.parse(text)
-  } catch {
-    throw new Error('that is not a recovery card')
-  }
-  if (c === null || typeof c !== 'object' || Array.isArray(c) || typeof c.root !== 'string') throw new Error('that is not a recovery card')
+  } catch { /* not JSON: nothing is read, and it is refused as anything without a root is */ }
+  if (typeof c?.root !== 'string') throw new Error('that is not a recovery card')
   return party(c.root, c.salt, rpId)
 }
 
