@@ -793,6 +793,8 @@ test('a co-signature is kept, and its root made the identity\'s, only for the ro
       if (swap) {
         await change(b.page, 'root', other)
         await b.page.waitForFunction((text) => document.getElementById('join-root').value === text, other.text)
+        // From here the page's next write to its store is the one that follows the witness's answer.
+        await b.page.evaluate(() => { globalThis.from = globalThis.begun })
       }
       await route.continue()
     })
@@ -823,9 +825,23 @@ test('a co-signature is kept, and its root made the identity\'s, only for the ro
     await b.page.waitForFunction((text) => document.getElementById('join-root').value === text, mine.text)
     await review()
     swap = true
+    // The page's writes to its store are counted as they begin and noted as they end, so that the one after the
+    // witness's answer is waited for: until then a page that marks the wrong root has not yet done so.
+    await b.page.evaluate(() => {
+      globalThis.begun = 0
+      globalThis.ended = -1
+      const transaction = IDBDatabase.prototype.transaction
+      IDBDatabase.prototype.transaction = function (names, mode, options) {
+        const tx = transaction.call(this, names, mode, options)
+        if (mode !== 'readwrite') return tx
+        const n = globalThis.begun++
+        for (const e of ['complete', 'abort']) tx.addEventListener(e, () => { globalThis.ended = Math.max(globalThis.ended, n) })
+        return tx
+      }
+    })
     await b.page.click('#cosign-sign')
-    await b.page.waitForFunction((text) => document.getElementById('join-root').value === text, other.text)
-    await b.page.waitForLoadState('networkidle')
+    await b.page.waitForFunction(() => globalThis.from !== undefined && globalThis.ended >= globalThis.from)
+    assert.equal(await b.page.inputValue('#join-root'), other.text)
     assert.deepEqual(posted, ['membership'])
     assert.deepEqual(await held(b.page, 'root'), other, 'the other root is not made the identity\'s')
     assert.equal(await b.page.textContent('#status'), '', 'nor said to be co-signed')
