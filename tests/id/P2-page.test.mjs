@@ -2167,9 +2167,11 @@ test('a recovery under notice is shown on load with when it takes effect; one pr
       const r = await t.witnessPost('/v1/records', root === undefined ? { identity: a.identity, type, text } : { identity: a.identity, type, text, root })
       assert.equal(r.ok, true, `${type}: ${r.reason}`)
     }
-    // The owner designates one party, three days' wait; it settles.
+    // The owner designates one party, a wait of three days and a second (not whole days, as another client may
+    // state one: the page then gives it in seconds); it settles.
+    const WAIT_S = MIN + 1
     const g = pageRecords.party(rootOf('g'), hex(secret('salt')), rpId)
-    const d = pageRecords.designate({ identity: a.identity, state: await current(), parties: [g], threshold: 1, window: MIN })
+    const d = pageRecords.designate({ identity: a.identity, state: await current(), parties: [g], threshold: 1, window: WAIT_S })
     await post('membership', pageRecords.rootSigned(d.payload, aId, by(aSecret, d.id)))
     t.advance(61)
     await t.svc.tick()
@@ -2183,7 +2185,8 @@ test('a recovery under notice is shown on load with when it takes effect; one pr
     await t.page.fill('#new-root', rootOf('b'))
     await t.page.click('#add-review')
     await t.page.waitForSelector('#add-panel:not([hidden])')
-    assert.equal(await t.page.textContent('#add-recovery'), '1 of 1, after 3 days')
+    assert.equal(await t.page.textContent('#add-recovery'), `1 of 1, after ${WAIT_S} seconds`)
+    assert.equal(await t.page.textContent('#recovery-now'), `1 of 1, after ${WAIT_S} seconds`)
     await t.page.fill('#new-root', '')
 
     // The party asks for a recovery to a root of its choosing: the witness gives notice.
@@ -2224,7 +2227,7 @@ test('a recovery under notice is shown on load with when it takes effect; one pr
     await t.page.waitForSelector('#recovery-notice:not([hidden])')
     assert.equal(await t.page.textContent('#notice-record'), R.id)
     assert.equal(await t.page.textContent('#notice-at'), iso(noticed.recovering.at))
-    assert.equal(await t.page.textContent('#notice-matures'), iso(noticed.recovering.at + MIN))
+    assert.equal(await t.page.textContent('#notice-matures'), iso(noticed.recovering.at + WAIT_S))
     // On load, too; and in another tab of the browser.
     await t.page.reload()
     await t.page.waitForSelector('#recovery-notice:not([hidden])')
@@ -2240,6 +2243,8 @@ test('a recovery under notice is shown on load with when it takes effect; one pr
     await change(t.page, 'root', { credential: mine.credential, identity: rootModule.identityOf(yId), text: y, registered: true })
     await t.page.waitForFunction((id) => document.getElementById('identity-id').textContent === id, rootModule.identityOf(yId))
     await t.page.waitForSelector('#recovery-notice', { state: 'hidden' })
+    assert.equal(await t.page.textContent('#recovery-now'), 'not known', 'nor the designation of the root held before')
+    assert.equal(await t.page.textContent('#recheck-code'), '')
     await t.page.evaluate(() => document.getElementById('notice-cancel').click())
     await t.page.waitForTimeout(500)
     assert.equal(await t.page.textContent('#error'), '')
@@ -2265,6 +2270,28 @@ test('a recovery under notice is shown on load with when it takes effect; one pr
     await t.page.waitForSelector('#recovery-notice:not([hidden])')
     await late.waitForSelector('#recovery-notice:not([hidden])')
     assert.equal((await t.witnessGet(path)).cancelled.length, 0, 'nothing was cancelled meanwhile')
+    // No root at all, with that notice shown a moment ago: only creation is shown, nothing of the notice, and the
+    // button does nothing and breaks nothing.
+    const onlyCreation = async (why) => {
+      await t.page.waitForSelector('#create:not([hidden])')
+      for (const id of ['identity', 'joining', 'add-root', 'authorise', 'recovery', 'party', 'renew', 'recovery-notice', 'notice-unchecked']) assert.equal(await t.page.isHidden('#' + id), true, `${id}: ${why}`)
+    }
+    await change(t.page, 'root', null)
+    await onlyCreation('no root, a notice in hand')
+    await t.page.evaluate(() => document.getElementById('notice-cancel').click())
+    await idle(t.page)
+    assert.equal(await t.page.textContent('#error'), '')
+    assert.deepEqual(t.problems.filter((p) => !unavailable.test(p) && !/status of (422|404)/.test(p)), [], 'no root is no error')
+    // The witness gives no answer for the root stored again, and that is said; with no root, there is nothing to say.
+    t.outage('down')
+    await change(t.page, 'root', mine)
+    await t.page.waitForSelector('#notice-unchecked:not([hidden])')
+    await change(t.page, 'root', null)
+    await onlyCreation('no root, an unanswered question in hand')
+    t.outage()
+    await change(t.page, 'root', mine)
+    await t.page.waitForSelector('#recovery-notice:not([hidden])')
+    await late.waitForSelector('#recovery-notice:not([hidden])')
     // An answer that comes late, for a root this tab no longer holds, says nothing of the root it holds now: the
     // witness is asked about another root, this identity's root is stored again and its notice shown, and only then
     // does the first question get its answer (that the witness could not be asked).
