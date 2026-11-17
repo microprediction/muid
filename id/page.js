@@ -605,6 +605,7 @@ $('recover-review').addEventListener('click', async () => {
     const c = recovery({ identity, state: current, root: root.text, rpId })
     pending.recover = c
     $('recover-shown').textContent = c.body.identity
+    // Stryker disable next-line StringLiteral: equivalent; a recovery names one root
     $('recover-roots').textContent = c.body.roots.join(' ')
     $('recover-recovery').textContent = designation(c.body.recovery)
     $('recover-wait').textContent = `${wait(current.recovery.window)} after enough parties and this passkey have signed, unless a passkey the identity has now cancels it`

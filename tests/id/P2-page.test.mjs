@@ -2516,9 +2516,9 @@ test('recovery parties: a party gives a card and shows that its passkey is held;
     assert.equal(await g.page.textContent('#error'), 'a record id is 64 lowercase hex digits', 'the button (hidden) did nothing, and cleared nothing')
     const gSigns = await signCount(g)
     // A review of the code withdraws whatever else was under review; spaces about the code are not part of it.
+    await g.page.fill('#proof-code', ` ${code} `)
     await authorise(g.page)
     await g.page.waitForSelector('#review-panel:not([hidden])')
-    await g.page.fill('#proof-code', ` ${code} `)
     await g.page.click('#proof-review')
     await g.page.waitForSelector('#proof-panel:not([hidden])')
     assert.equal(await g.page.isHidden('#review-panel'), true)
@@ -2603,6 +2603,23 @@ test('recovery parties: a party gives a card and shows that its passkey is held;
     await t.page.click('#recheck')
     await errorIs(t.page, 'paste the recovery cards of the parties to check')
     await t.page.fill('#party-cards', card)
+    // The check withdraws whatever was under review.
+    await authorise(t.page)
+    await t.page.waitForSelector('#review-panel:not([hidden])')
+    await t.page.click('#recheck')
+    await statusIs(t.page, '0 of 1 of these parties showed that they hold their passkey.')
+    assert.equal(await t.page.isHidden('#review-panel'), true)
+    // Withdrawn while the witness is asked, it says nothing of the late answer, a refusal or not.
+    for (const answer of [NO_ANSWER, undefined]) {
+      const asked = await holdNext(t.page, `**${path}`)
+      await t.page.click('#recheck')
+      const go = await asked()
+      await t.page.fill('#party-cards', card + ' ')
+      await go(answer)
+      await idle(t.page)
+      assert.deepEqual([await t.page.textContent('#status'), await t.page.textContent('#error')], ['', ''])
+      await t.page.fill('#party-cards', card)
+    }
     await t.page.click('#recheck')
     await statusIs(t.page, '0 of 1 of these parties showed that they hold their passkey.')
     const again = await proofOf(g, code)
@@ -2741,8 +2758,11 @@ test('recovery parties, two passkeys: one designates and hands the change over; 
     }
     const signs = await signCount(b)
     await b.page.fill('#recovery-cosign-payload', ` ${payload} `)
+    await authorise(b.page)
+    await b.page.waitForSelector('#review-panel:not([hidden])')
     await b.page.click('#recovery-cosign-review')
     await b.page.waitForSelector('#recovery-cosign-panel:not([hidden])')
+    assert.equal(await b.page.isHidden('#review-panel'), true, 'the review withdraws whatever else was under review')
     assert.equal(await b.page.textContent('#error'), '')
     assert.equal(await b.page.textContent('#recovery-cosign-recovery'), '1 of 1, after 14 days')
     assert.equal(await b.page.textContent('#recovery-cosign-roots'), [aId, bId].sort().join(' '))
@@ -2753,13 +2773,15 @@ test('recovery parties, two passkeys: one designates and hands the change over; 
     await b.page.waitForSelector('#recovery-cosign-panel:not([hidden])')
     assert.equal(await signCount(b), signs)
     // A review withdrawn while the witness is asked is not shown its late refusal.
-    const asked = await holdNext(b.page, `**${path}`)
-    await b.page.click('#recovery-cosign-review')
-    const go = await asked()
-    await b.page.fill('#recovery-cosign-payload', payload + ' ')
-    await go(NO_ANSWER)
-    await idle(b.page)
-    assert.equal(await b.page.textContent('#error'), '')
+    for (const answer of [NO_ANSWER, undefined]) {
+      const asked = await holdNext(b.page, `**${path}`)
+      await b.page.click('#recovery-cosign-review')
+      const go = await asked()
+      await b.page.fill('#recovery-cosign-payload', payload + ' ')
+      await go(answer)
+      await idle(b.page)
+      assert.deepEqual([await b.page.textContent('#error'), await b.page.isHidden('#recovery-cosign-panel')], ['', true], 'nor its late answer')
+    }
     await b.page.click('#recovery-cosign-review')
     await b.page.waitForSelector('#recovery-cosign-panel:not([hidden])')
     // An edit while the passkey is signing withdraws it: the late signature is sent nowhere.
@@ -2846,6 +2868,47 @@ test('recovery at the page: a new passkey asks, the party signs what it is shown
     await n.page.click('#recover-review')
     await n.page.waitForSelector('#recover-panel:not([hidden])')
     assert.equal(await n.page.inputValue('#recover-request'), request)
+    // A review that fails withdraws the one shown; an identity is the whole of what is typed.
+    t.outage('down')
+    await n.page.click('#recover-review')
+    await errorIs(n.page, 'the witness did not answer')
+    assert.equal(await n.page.isHidden('#recover-panel'), true)
+    t.outage()
+    for (const typed of ['0' + a.identity, a.identity + '0']) {
+      await n.page.fill('#recover-identity', typed)
+      await n.page.click('#recover-review')
+      await errorIs(n.page, 'an identity is 64 lowercase hex digits')
+    }
+    // Withdrawn while the witness is asked, it shows nothing of the late answer, a refusal or not.
+    await n.page.fill('#recover-identity', a.identity)
+    for (const answer of [NO_ANSWER, undefined]) {
+      const asked = await holdNext(n.page, `**${path}`)
+      await n.page.click('#recover-review')
+      const go = await asked()
+      await n.page.fill('#recover-identity', a.identity + ' ')
+      await go(answer)
+      await idle(n.page)
+      assert.deepEqual([await n.page.textContent('#error'), await n.page.isHidden('#recover-panel')], ['', true])
+    }
+    const review = async () => { await n.page.click('#recover-review'); await n.page.waitForSelector('#recover-panel:not([hidden])') }
+    await review()
+    // A passkey that fails is said, and nothing is kept; nor is what it signs after an edit.
+    const before = await signCount(n)
+    await n.page.evaluate(() => {
+      const get = navigator.credentials.get.bind(navigator.credentials)
+      navigator.credentials.get = async () => { navigator.credentials.get = get; throw new Error('the passkey failed') }
+    })
+    await n.page.click('#recover-sign')
+    await errorIs(n.page, 'the passkey failed')
+    await slowPasskey(n.page)
+    await n.page.click('#recover-sign')
+    await n.page.fill('#recover-identity', a.identity)
+    await n.page.waitForTimeout(1500)
+    await idle(n.page)
+    assert.equal(await signCount(n), before + 1, 'the passkey did sign')
+    assert.deepEqual([await n.page.isHidden('#cosign-pending'), (await held(n.page, 'root')).cosigned], [true, undefined])
+    await promptPasskey(n.page)
+    await review()
     // Signed before any party has: kept, refused by the witness, and waiting to be sent again.
     const nSigns = await signCount(n)
     await n.page.click('#recover-sign')
@@ -2963,7 +3026,7 @@ test('recovery at the page: a new passkey asks, the party signs what it is shown
     await n.page.click('#sign')
     await n.page.waitForSelector('#handoff:not([hidden])')
     assert.equal(envelope.open(envelope.wrap(JSON.parse(await n.page.inputValue('#handoff')).payload, { root: {}, subject: '0'.repeat(128) }), 'delegation').body.membership, R.id)
-    assert.deepEqual(t.problems.filter((p) => !/status of 422 \(Unprocessable Entity\)$/.test(p)), [])
+    assert.deepEqual(t.problems.filter((p) => !/status of (422 \(Unprocessable Entity\)|503 \(Service Unavailable\))$/.test(p)), [])
   } finally { await t.close() }
 })
 
