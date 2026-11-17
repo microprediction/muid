@@ -21,7 +21,7 @@ test('the nightly run takes every job; a push the quick job whole; a pull reques
   assert.deepEqual(plan(['README.md']), [])
   assert.deepEqual(plan(['src/bytes.js']), [EVERY_RUN.join(' ')])
   assert.deepEqual(plan(['id/page.js']), ['stryker.id-records.config.json stryker.id-store.config.json'])
-  assert.deepEqual(plan(['stryker.id-page.config.json']), [])
+  assert.deepEqual(plan(['stryker.id-page-1.config.json']), [])
   assert.deepEqual(JOBS, [...NIGHTLY, EVERY_RUN])
 })
 
@@ -46,27 +46,28 @@ test('selection: a core module is read by every suite but the storage adapter\'s
 })
 
 test('selection: a change to the id page selects the configs whose tests load it, and only those', () => {
-  const ids = ['stryker.id-page.config.json', 'stryker.id-records.config.json']
+  const page = [1, 2, 3, 4].map((i) => `stryker.id-page-${i}.config.json`)
+  const ids = [...page, 'stryker.id-records.config.json']
   const store = 'stryker.id-store.config.json'
   // The demo's tests load id/ too (tests/id/impl.mjs), but not the page tests or their server. The storage adapter's
   // tests are served id/ by the page tests' server, and read none of the page's tests.
   for (const f of ['id/page.js', 'id/store.js', 'id/index.html', 'id/page.css', 'id/new.js']) assert.deepEqual(configs(select([f])), only(...ids, store, 'stryker.demo.config.json'), f)
   // The records config leaves the page in Chrome to the page's config (mutation-coverage guard).
-  assert.deepEqual(configs(select(['tests/id/P2-page.test.mjs'])), ['stryker.id-page.config.json'])
-  assert.deepEqual(configs(select(['tests/id/serve.mjs'])), only('stryker.id-page.config.json', store))
+  assert.deepEqual(configs(select(['tests/id/P2-page.test.mjs'])), page)
+  assert.deepEqual(configs(select(['tests/id/serve.mjs'])), only(...page, store))
   assert.deepEqual(configs(select(['tests/store/ST1-store.test.mjs'])), [store])
-  assert.deepEqual(configs(select(['stryker.id-page.config.json'])), ['stryker.id-page.config.json'])
+  assert.deepEqual(configs(select(['stryker.id-page-3.config.json'])), ['stryker.id-page-3.config.json'], 'a part alone')
 })
 
 test('what a suite reaches from another directory counts: helpers, fixtures, models and vectors', () => {
-  assert.ok(inputs('stryker.id-page.config.json').includes('tests/witness/fixtures.mjs'))
-  assert.ok(inputs('stryker.id-page.config.json').includes('witness/service.js'))
+  assert.ok(inputs('stryker.id-page-1.config.json').includes('tests/witness/fixtures.mjs'))
+  assert.ok(inputs('stryker.id-page-1.config.json').includes('witness/service.js'))
   assert.ok(inputs('stryker.membership.config.json').includes('model/recovery.mjs'))
   assert.ok(inputs('stryker.config.json').some((f) => f.startsWith('tests/vectors/jcs/input/')))
   assert.ok(configs(select(['tests/vectors/c2sp-note/anything'])).includes('stryker.note.config.json'))
-  assert.ok(!configs(select(['tests/vectors/c2sp-note/anything'])).includes('stryker.id-page.config.json'))
+  assert.ok(!configs(select(['tests/vectors/c2sp-note/anything'])).includes('stryker.id-page-1.config.json'))
   // A deleted file a suite still names is a change to that suite's inputs.
-  assert.ok(configs(select(['tests/witness/fixtures.mjs'])).includes('stryker.id-page.config.json'))
+  assert.ok(configs(select(['tests/witness/fixtures.mjs'])).includes('stryker.id-page-1.config.json'))
 })
 
 test('references: quoted and template paths, directories, and a template cut at its first substitution', () => {
