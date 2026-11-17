@@ -22,9 +22,14 @@ export const EVERY_RUN = ['stryker.id-records.config.json', 'stryker.id-store.co
   'stryker.delegation.config.json', 'stryker.bytes.config.json', 'stryker.attestation.config.json',
   'stryker.assertion.config.json']
 
-// The nightly (and manual) run adds these: the slow configs alone, the others together.
+// The nightly (and manual) run adds these: the slow configs alone, the others together. The id page is mutated in
+// parts, by line range (`file:first-last`), each a job that ends within the job's time limit; together they are the
+// whole file (tests/guards/mutation-coverage.test.mjs).
 export const NIGHTLY = [
-  ['stryker.id-page.config.json'],
+  ['stryker.id-page-1.config.json'],
+  ['stryker.id-page-2.config.json'],
+  ['stryker.id-page-3.config.json'],
+  ['stryker.id-page-4.config.json'],
   ['stryker.membership.config.json'],
   ['stryker.witness.config.json'],
   ['stryker.verifier.config.json', 'stryker.config.json', 'stryker.demo.config.json'],
@@ -74,10 +79,13 @@ export function reach (files) {
   return [...seen].map((f) => rel(f) + (f.endsWith(sep) ? '/' : '')).sort()
 }
 
+// The file a config's `mutate` entry names: the entry, less a line range.
+export const mutated = (entry) => entry.replace(/:\d+-\d+$/, '')
+
 // A config's inputs: what its mutated and test files reach, the config itself, and the files every config reads.
 export function inputs (name) {
   const config = JSON.parse(readFileSync(join(ROOT, name), 'utf8'))
-  const reached = reach([...config.mutate, ...config.tap.testFiles.flatMap((g) => globSync(g, { cwd: ROOT }))])
+  const reached = reach([...config.mutate.map(mutated), ...config.tap.testFiles.flatMap((g) => globSync(g, { cwd: ROOT }))])
   return [...new Set([name, ...GLOBAL, ...reached])].sort()
 }
 

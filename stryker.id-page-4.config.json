@@ -10,7 +10,7 @@
     ]
   },
   "mutate": [
-    "id/page.js"
+    "id/page.js:547-99999"
   ],
   "coverageAnalysis": "off",
   "thresholds": {
@@ -24,7 +24,7 @@
     "json"
   ],
   "jsonReporter": {
-    "fileName": "reports/mutation/id-page.json"
+    "fileName": "reports/mutation/id-page-4.json"
   },
   "tempDirName": ".stryker-tmp",
   "concurrency": 4

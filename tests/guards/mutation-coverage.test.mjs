@@ -3,7 +3,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync, readdirSync } from 'node:fs'
-import { JOBS } from '../mutation-plan.mjs'
+import { JOBS, mutated as fileOf } from '../mutation-plan.mjs'
 
 const ROOT = new URL('../../', import.meta.url)
 const modules = ['src', 'adapter', 'witness', 'id', 'demo'].flatMap((d) => readdirSync(new URL(`${d}/`, ROOT)).filter((f) => f.endsWith('.js')).map((f) => `${d}/${f}`)).sort()
@@ -11,10 +11,24 @@ const configs = readdirSync(ROOT).filter((f) => /^stryker(\.[a-z0-9-]+)?\.config
 const read = (c) => JSON.parse(readFileSync(new URL(c, ROOT), 'utf8'))
 const workflow = readFileSync(new URL('.github/workflows/test.yml', ROOT), 'utf8')
 
-test('every module under src/, adapter/, witness/, id/ and demo/ is mutated by exactly one Stryker config', () => {
+// A module is mutated whole by one config, or in parts by several, each a range of its lines (`file:first-last`):
+// the ranges start at line 1, each begins where the last ended, and the last runs past any length the file could have.
+const OPEN_END = 99999
+test('every module under src/, adapter/, witness/, id/ and demo/ is mutated by exactly one Stryker config, or by configs whose line ranges are the whole of it', () => {
   assert.ok(modules.length >= 5)
-  const mutated = configs.flatMap((c) => read(c).mutate)
-  assert.deepEqual([...mutated].sort(), modules)
+  const entries = configs.flatMap((c) => read(c).mutate)
+  const whole = entries.filter((e) => fileOf(e) === e)
+  const parts = entries.filter((e) => fileOf(e) !== e)
+  const inParts = [...new Set(parts.map(fileOf))]
+  assert.deepEqual([...whole, ...inParts].sort(), modules)
+  for (const f of inParts) {
+    const ranges = parts.filter((e) => fileOf(e) === f).map((e) => e.slice(f.length + 1).split('-').map(Number)).sort((a, b) => a[0] - b[0])
+    assert.ok(ranges.length >= 2, f)
+    assert.equal(ranges[0][0], 1, `${f}: from line 1`)
+    for (let i = 1; i < ranges.length; i++) assert.equal(ranges[i][0], ranges[i - 1][1] + 1, `${f}: no line left out or taken twice`)
+    assert.equal(ranges.at(-1)[1], OPEN_END, `${f}: to the end`)
+    assert.ok(readFileSync(new URL(f, ROOT), 'utf8').split('\n').length < OPEN_END, f)
+  }
 })
 
 test('every Stryker config is in exactly one CI mutation job, with the break threshold', () => {
