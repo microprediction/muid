@@ -17,6 +17,11 @@ finds something it can show.
    Search open and closed issues first and do not file a duplicate.
 5. If there is none, file nothing.
 
+A run may also take one of the open questions at the end of this file instead of a brief, or raise something
+neither covers: a better design, a simpler mechanism, a check nobody thought of. Those are filed as an issue titled
+`[automated review] idea: <one line>`, with the reasoning, the prior art it rests on, and what it would cost. A pull
+request is welcome where the change is small and its tests come with it.
+
 Briefs are added, reworded and retired here as the code changes. A brief that has found nothing for a long time is
 not evidence the area is sound: it may only mean the brief is too narrow.
 
@@ -126,3 +131,24 @@ its key was retired, or credited to an identity other than the delegating one.
 Look for an action, tool or dependency not pinned to an exact version or digest, a workflow step that runs code from
 a pull request with more permission than it needs, a test file CI never runs, a guard in `tests/guards/` that can be
 satisfied without the property it names holding.
+
+## Open questions
+
+Thinking wanted, not defect hunting. Each is something the maintainers have not settled or would like challenged.
+Answer one as an `idea:` issue; say plainly if the answer is that the current approach is right.
+
+- **Q1. Testing the witness as an adversary.** The plan is a set of dishonest witnesses (forked log, withheld
+  records, replayed heads, backdated notices) run nightly against the verifier and the id page. Which lies are
+  missing from that list, and which of them can no offline verifier catch without a second witness or a monitor?
+- **Q2. Faults in the witness service.** The plan is to kill the service at each storage write, duplicate and
+  reorder requests, and jump the clock, then check that the log never forked and nothing accepted was lost. What
+  other invariants should hold after a crash, and what is the cheapest established way to check implementation
+  traces against the TLA+ model in `model/tla`?
+- **Q3. A second verifier.** An independent small verifier, fed the same fuzzed records as `src/verifier.js`, would
+  expose ambiguities in `SPEC.md`. Which parts of the spec are most likely to be read two ways by two implementers?
+- **Q4. Mutation testing of the id page is slow** (each mutant re-runs a 40-test browser suite). What would make it
+  an order of magnitude faster without weakening what a surviving mutant means?
+- **Q5. What is missing from the threat model** in `SPEC.md` section 1: an attacker, an asset or an assumption that
+  the rest of the design quietly depends on?
+- **Q6. What would you remove?** Name a mechanism, record type or rule that could be deleted, or replaced by a
+  better-understood one, with nothing of value lost.
