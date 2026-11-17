@@ -74,6 +74,9 @@ async function open ({ init } = {}) {
   function watched (page) {
     page.on('console', (m) => { if ((m.type() === 'error' || m.type() === 'warning') && !ES256_ONLY.test(m.text())) problems.push(m.text()) })
     page.on('pageerror', (e) => problems.push(String(e)))
+    flying.set(page, 0)
+    page.on('request', () => flying.set(page, flying.get(page) + 1))
+    for (const over of ['requestfinished', 'requestfailed']) page.on(over, () => flying.set(page, flying.get(page) - 1))
     return page
   }
   // Another tab of a device's browser: the same storage, no authenticator of its own.
@@ -130,7 +133,7 @@ const direct = (page, mode, key, value) => page.evaluate(([mode, key, value]) =>
     const tx = opening.result.transaction('values', mode === 'get' ? 'readonly' : 'readwrite')
     const values = tx.objectStore('values')
     let out = null
-    if (mode === 'get') values.get(key).onsuccess = (e) => { if (e.target.result !== undefined) out = e.target.result.value }
+    if (mode === 'get' || mode === 'wait') values.get(key).onsuccess = (e) => { if (e.target.result !== undefined) out = e.target.result.value }
     else if (mode === 'delete') values.delete(key)
     else values.put({ value }, key)
     tx.oncomplete = () => { opening.result.close(); resolve(out) }
@@ -138,6 +141,20 @@ const direct = (page, mode, key, value) => page.evaluate(([mode, key, value]) =>
   }
 }), [mode, key, value])
 const held = (page, key) => direct(page, 'get', key)
+// Each page's requests not yet answered, counted from when it was opened.
+const flying = new WeakMap()
+// The page has nothing on its way, for a check that something did not happen: no request unanswered, and the page's
+// tasks and every write its store had queued run since (a writing transaction that changes nothing ends after them).
+// Seen so twice running, since an answer may begin a write and a write a request. Playwright's wait for the load
+// state 'networkidle' is no such wait: a loaded page reached that state long ago, and it returns at once.
+async function idle (page) {
+  for (let quiet = 0; quiet < 2;) {
+    await direct(page, 'wait', 'root')
+    await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 0)))
+    quiet = flying.get(page) === 0 ? quiet + 1 : 0
+    if (quiet === 0) await page.waitForTimeout(20)
+  }
+}
 const hold = (page, key, value) => direct(page, 'put', key, value)
 const drop = (page, key) => direct(page, 'delete', key)
 // A change made through the adapter from this page, as any page of the origin makes one: every tab's page is told.
@@ -509,7 +526,7 @@ test('a Create that adopts another tab\'s joining root registers nothing; a regi
     await hold(t.page, 'root', joiner)
     await t.page.evaluate(() => globalThis.answer())
     await t.page.waitForSelector('#joining:not([hidden])')
-    await t.page.waitForLoadState('networkidle')
+    await idle(t.page)
     assert.deepEqual(posted, [], 'the joining root is sent to no witness')
     assert.deepEqual(await held(t.page, 'root'), joiner, 'and is kept as it was')
     assert.equal(await t.page.textContent('#status'), '')
@@ -525,7 +542,7 @@ test('a Create that adopts another tab\'s joining root registers nothing; a regi
       await fresh.page.fill('#name', 'second')
       await fresh.page.click('#create-button')
       await fresh.page.waitForFunction((id) => document.getElementById('identity-id').textContent === id, theirs.identity)
-      await fresh.page.waitForLoadState('networkidle')
+      await idle(fresh.page)
       assert.deepEqual(await held(fresh.page, 'root'), other, 'not marked registered by another root\'s registration')
       assert.equal(await fresh.page.textContent('#status'), '', 'nor said to be')
     } finally {
@@ -559,7 +576,7 @@ test('another tab that creates an identity is followed here, and one is never cr
     const a = { text: await t.page.inputValue('#root-text'), identity: await t.page.textContent('#identity-id') }
     for (let i = 0; asks.length === 0 && i < 50; i++) await other.waitForTimeout(100)
     assert.deepEqual(asks, [`${t.site.origin}/witness/v1/identities/${a.identity}/records`])
-    await other.waitForLoadState('networkidle')
+    await idle(other)
     // The other tab, open since before, now shows the identity and offers no create.
     await other.waitForSelector('#identity:not([hidden])')
     assert.equal(await other.textContent('#identity-id'), a.identity)
@@ -620,7 +637,7 @@ test('framed, the page offers nothing and says to open it in its own window', { 
     await frame.waitForFunction(() => document.getElementById('error').textContent !== '')
     assert.equal(await frame.textContent('#error'), 'This page acts only in its own window: open it directly.')
     for (const id of ['create', 'joining', 'identity', 'add-root', 'authorise']) assert.equal(await frame.isHidden('#' + id), true, id)
-    await outer.waitForLoadState('networkidle')
+    await idle(outer)
     assert.deepEqual(await t.witnessGet(`/v1/identities/${identity}/records`), { ok: false, reason: 'unknown-identity' }, 'nothing registered')
     // The same page, not framed, sends the pending registration.
     await t.collect()
@@ -685,7 +702,7 @@ test('a second passkey: one device adds it, the other co-signs; once settled it 
     await t.collect()
     await b.page.reload()
     await b.page.waitForSelector('#joining:not([hidden])')
-    await b.page.waitForLoadState('networkidle')
+    await idle(b.page)
     assert.equal((await t.witnessGet(`/v1/identities/${rootModule.identityOf(bId)}/records`)).ok, false)
 
     // On the first device: what is added is shown, and an edit withdraws it.
@@ -732,7 +749,7 @@ test('a second passkey: one device adds it, the other co-signs; once settled it 
     await t.collect()
     await b.page.reload()
     await b.page.waitForSelector('#identity:not([hidden])')
-    await b.page.waitForLoadState('networkidle')
+    await idle(b.page)
     assert.deepEqual([await b.page.isHidden('#pending'), await b.page.textContent('#status')], [true, ''])
 
     // The witness anchored the change: pending; the new root has no authority until it settles.
@@ -816,7 +833,7 @@ test('a co-signature is kept, and its root made the identity\'s, only for the ro
     await hold(b.page, 'root', other)
     await b.page.evaluate(() => globalThis.answer())
     await b.page.waitForFunction((text) => document.getElementById('join-root').value === text, other.text)
-    await b.page.waitForLoadState('networkidle')
+    await idle(b.page)
     assert.deepEqual(posted, [], 'nothing is sent')
     assert.equal(await b.page.textContent('#error'), '', 'and nothing is tried')
     assert.deepEqual(await held(b.page, 'root'), other, 'and the root there is left as it was')
@@ -1064,7 +1081,7 @@ test('a co-signature whose answer is lost is pending: sent again on reload and b
     await t.collect()
     await b.page.reload()
     await b.page.waitForSelector('#identity:not([hidden])')
-    await b.page.waitForLoadState('networkidle')
+    await idle(b.page)
     assert.deepEqual([await b.page.isHidden('#cosign-pending'), await b.page.isHidden('#joining'), await b.page.textContent('#status')], [true, true, ''])
     assert.deepEqual(t.problems.filter((p) => !unavailable.test(p)), [])
   } finally {
@@ -1397,7 +1414,7 @@ test('a change made while a review waits for the witness withdraws it: of one wo
       if (held !== null) { asked(); await held.gate }
       await route.continue()
     })
-    const settled = async () => { release(); held = null; await t.page.waitForLoadState('networkidle'); await t.page.waitForTimeout(300) }
+    const settled = async () => { release(); held = null; await idle(t.page); await t.page.waitForTimeout(300) }
     const before = await signCount(t)
 
     // One worker: a field edited while the witness is asked.
@@ -1902,7 +1919,7 @@ test('an added passkey\'s hand-off is not shown if it was withdrawn while the ch
     await t.page.fill('#agent', 'w1')
     assert.equal(await t.page.isHidden('#add-panel'), true)
     release()
-    await t.page.waitForLoadState('networkidle')
+    await idle(t.page)
     await t.page.waitForFunction(async () => true)
     for (let i = 0; i < 50 && (await t.witnessGet(`/v1/identities/${a.identity}/records`)).roots.length < 2; i++) await t.page.waitForTimeout(100)
     assert.equal((await t.witnessGet(`/v1/identities/${a.identity}/records`)).memberships.length, 1, 'signed, so submitted')
@@ -1938,7 +1955,7 @@ test('a new passkey\'s review edited while it waits for the witness is withdrawn
     })
     const unavailable = /^Failed to load resource: the server responded with a status of 503/
     const hold = () => { const seen = new Promise((resolve) => { asked = resolve }); held = new Promise((resolve) => { release = resolve }); return seen }
-    const settled = async () => { release(); held = null; await t.page.waitForLoadState('networkidle'); await t.page.waitForTimeout(300) }
+    const settled = async () => { release(); held = null; await idle(t.page); await t.page.waitForTimeout(300) }
     // Reviewed for one root, the field then names another while the witness is asked: nothing is shown or signable.
     let seen = hold()
     await t.page.fill('#new-root', roots[0])
@@ -2159,7 +2176,7 @@ test('a recovery under notice is shown on load with when it takes effect; one pr
     assert.equal((await current()).recovery.threshold, 1)
     await t.page.reload()
     await t.page.waitForSelector('#identity:not([hidden])')
-    await t.page.waitForLoadState('networkidle')
+    await idle(t.page)
     assert.equal(await t.page.isHidden('#recovery-notice'), true, 'designated, and nothing under notice')
     assert.equal(await t.page.isHidden('#notice-unchecked'), true)
     // A change the page builds states the designation again, and shows it.
@@ -2228,14 +2245,14 @@ test('a recovery under notice is shown on load with when it takes effect; one pr
     assert.equal(await t.page.textContent('#error'), '')
     open1()
     // The witness knows no such identity: that is an answer, and there is nothing to say.
-    await t.page.waitForLoadState('networkidle')
+    await idle(t.page)
     assert.equal(await t.page.isHidden('#notice-unchecked'), true)
     assert.equal(await t.page.isHidden('#recovery-notice'), true)
     assert.equal(await t.page.textContent('#error'), '', 'the button pressed for another root sent nothing')
     // A tab opened now has asked about that root only.
     const late = await t.tab(t.context)
     await late.waitForSelector('#identity:not([hidden])')
-    await late.waitForLoadState('networkidle')
+    await idle(late)
     // No root at all, with the old notice still in hand: the button does nothing.
     const open2 = t.gate()
     await change(t.page, 'root', mine)
@@ -2706,7 +2723,7 @@ test('recovery at the page: a new passkey asks, the party signs what it is shown
     await n.page.bringToFront()
     await n.page.reload()
     await n.page.waitForSelector('#identity:not([hidden])')
-    await n.page.waitForLoadState('networkidle')
+    await idle(n.page)
     assert.equal(await n.page.isHidden('#recovery-notice'), true)
     await authorise(n.page)
     await n.page.waitForSelector('#review-panel:not([hidden])')
