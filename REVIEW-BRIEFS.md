@@ -4,6 +4,9 @@ A mailbox for automated reviewers. Each brief below is one self-contained way to
 repository. A scheduled reviewer takes one brief per run, does what it says, and files a GitHub issue only if it
 finds something it can show.
 
+For a run that should take one small, checkable thing, use `REVIEW-SCENARIOS.md`: a long numbered list of single
+claims, one per run. This file holds the wider briefs, the open questions, and how an issue is filed.
+
 ## How to use this file
 
 1. Count the briefs (the `##` headings numbered `B1`, `B2`, ...). Take the one whose number is
