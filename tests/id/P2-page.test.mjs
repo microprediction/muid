@@ -2385,6 +2385,30 @@ test('a recovery under notice is shown on load with when it takes effect; one pr
 // R11 at the page, both sides: a passkey that is someone's recovery party, and the owner who designates it.
 const statusIs = (page, text) => page.waitForFunction((text) => document.getElementById('status').textContent === text, text)
 const errorIs = async (page, text) => { await errorShown(page); assert.equal(await page.textContent('#error'), text) }
+// The page's passkey answers half a second late, until `prompt()` is called on the page again.
+const slowPasskey = (page) => page.evaluate(() => {
+  const get = navigator.credentials.get.bind(navigator.credentials)
+  globalThis.prompt = () => { navigator.credentials.get = get }
+  navigator.credentials.get = async (o) => { await new Promise((resolve) => setTimeout(resolve, 500)); return get(o) }
+})
+const promptPasskey = (page) => page.evaluate(() => globalThis.prompt())
+// The page's next request matching `url` is held: `held()` resolves once it is made, with the function that lets it go.
+async function holdNext (page, url) {
+  let made
+  const asked = new Promise((resolve) => { made = resolve })
+  let first = true
+  const handler = (route) => {
+    if (!first) return route.fallback()
+    first = false
+    made(async (answer) => {
+      if (answer === undefined) await route.continue(); else await route.fulfill(answer)
+      await page.unroute(url, handler)
+    })
+  }
+  await page.route(url, handler)
+  return () => asked
+}
+const NO_ANSWER = { status: 503, contentType: 'application/json', body: '{}' }
 async function proofOf (g, code) {
   await g.page.bringToFront()
   await g.page.fill('#proof-code', code)
@@ -2488,9 +2512,40 @@ test('recovery parties: a party gives a card and shows that its passkey is held;
     await g.page.click('#proof-review')
     await errorIs(g.page, 'a record id is 64 lowercase hex digits')
     assert.equal(await g.page.isHidden('#proof-panel'), true)
+    await idle(g.page)
+    assert.equal(await g.page.textContent('#error'), 'a record id is 64 lowercase hex digits', 'the button (hidden) did nothing, and cleared nothing')
     const gSigns = await signCount(g)
+    // A review of the code withdraws whatever else was under review; spaces about the code are not part of it.
+    await authorise(g.page)
+    await g.page.waitForSelector('#review-panel:not([hidden])')
+    await g.page.fill('#proof-code', ` ${code} `)
+    await g.page.click('#proof-review')
+    await g.page.waitForSelector('#proof-panel:not([hidden])')
+    assert.equal(await g.page.isHidden('#review-panel'), true)
+    assert.equal(await g.page.textContent('#proof-shown'), code)
+    // An edit while the passkey is signing: what it signed is not shown.
+    await slowPasskey(g.page)
+    await g.page.click('#proof-sign')
+    await g.page.fill('#proof-code', code)
+    await g.page.waitForTimeout(1500)
+    assert.equal(await signCount(g), gSigns + 1, 'the passkey did sign')
+    assert.equal(await g.page.isHidden('#proof'), true)
+    await promptPasskey(g.page)
+    // A passkey that fails is said; signing again clears what was said, whatever it was.
+    await g.page.click('#proof-review')
+    await g.page.evaluate(() => {
+      const get = navigator.credentials.get.bind(navigator.credentials)
+      navigator.credentials.get = async () => { navigator.credentials.get = get; throw new Error('the passkey failed') }
+    })
+    await g.page.click('#proof-sign')
+    await errorIs(g.page, 'the passkey failed')
+    assert.equal(await g.page.isHidden('#proof'), true)
     const proof = await proofOf(g, code)
-    assert.equal(await signCount(g), gSigns + 1, 'nothing was signed before the review')
+    assert.equal(await signCount(g), gSigns + 2, 'nothing was signed before the review')
+    await g.page.click('#card-make')
+    await errorIs(g.page, 'this passkey has given out 32 recovery cards, the most it keeps')
+    await g.page.click('#proof-sign')
+    await g.page.waitForFunction(() => document.getElementById('error').textContent === '')
     assert.deepEqual(JSON.parse(proof).covers, [pageRecords.possessionId(code)])
     await g.page.fill('#proof-code', code + ' ')
     assert.equal(await g.page.isHidden('#proof-panel'), true, 'an edit withdraws it')
@@ -2505,11 +2560,7 @@ test('recovery parties: a party gives a card and shows that its passkey is held;
     assert.equal(await t.page.isHidden('#designate-panel'), false, 'what they gave back is no edit of the change')
     await t.page.fill('#designate-proofs', `${other}\n ${proof} \n`)
     // An edit while the passkey is signing withdraws the change: the late signature is sent nowhere.
-    await t.page.evaluate(() => {
-      const get = navigator.credentials.get.bind(navigator.credentials)
-      globalThis.restore = () => { navigator.credentials.get = get }
-      navigator.credentials.get = async (o) => { await new Promise((resolve) => setTimeout(resolve, 500)); return get(o) }
-    })
+    await slowPasskey(t.page)
     await t.page.click('#designate-sign')
     await t.page.fill('#recovery-days', '15')
     await t.page.waitForTimeout(1500)
@@ -2517,24 +2568,22 @@ test('recovery parties: a party gives a card and shows that its passkey is held;
     assert.equal(await signCount(t), signs + 1, 'the passkey did sign')
     assert.equal((await t.witnessGet(path)).memberships.length, 0, 'and what it signed was not sent')
     assert.equal(await t.page.textContent('#status'), '')
-    await t.page.evaluate(() => globalThis.restore())
+    await promptPasskey(t.page)
     await t.page.fill('#recovery-days', '14')
     await t.page.click('#designate-review')
     await t.page.waitForSelector('#designate-panel:not([hidden])')
     assert.equal(await t.page.textContent('#designate-code'), code)
     // A review withdrawn while the witness is asked is not shown its late refusal.
-    let answer
-    const asked = new Promise((resolve) => { answer = resolve })
-    let waiting
-    await t.page.route(`**${path}`, (route) => { waiting = route; answer() })
-    await t.page.click('#designate-review')
-    await asked
-    await t.page.fill('#recovery-days', '15')
-    await waiting.fulfill({ status: 503, contentType: 'application/json', body: '{}' })
-    await t.page.unroute(`**${path}`)
-    await idle(t.page)
-    assert.equal(await t.page.textContent('#error'), '')
-    assert.equal(await t.page.isHidden('#designate-panel'), true)
+    for (const answer of [NO_ANSWER, undefined]) {
+      const asked = await holdNext(t.page, `**${path}`)
+      await t.page.click('#designate-review')
+      const go = await asked()
+      await t.page.fill('#recovery-days', '15')
+      await go(answer)
+      await idle(t.page)
+      assert.equal(await t.page.textContent('#error'), '')
+      assert.equal(await t.page.isHidden('#designate-panel'), true, 'nor its late answer')
+    }
     await t.page.fill('#recovery-days', '14')
     await t.page.click('#designate-review')
     await t.page.waitForSelector('#designate-panel:not([hidden])')
@@ -2653,6 +2702,18 @@ test('recovery parties, two passkeys: one designates and hands the change over; 
     const proof = await proofOf(g, code)
     await t.page.bringToFront()
     await t.page.fill('#designate-proofs', proof)
+    // An edit while the witness is given the signed change: it has it, and no hand-off of what was withdrawn is shown.
+    const given = await holdNext(t.page, '**/v1/records')
+    await t.page.click('#designate-sign')
+    const take = await given()
+    await t.page.fill('#recovery-days', '15')
+    await take()
+    await idle(t.page)
+    assert.deepEqual([await t.page.textContent('#status'), await t.page.isHidden('#designate-handoff'), await t.page.textContent('#error')], ['', true, ''])
+    await t.page.fill('#recovery-days', '14')
+    await t.page.click('#designate-review')
+    await t.page.waitForSelector('#designate-panel:not([hidden])')
+    assert.equal(await t.page.textContent('#designate-code'), code)
     await t.page.click('#designate-sign')
     await statusIs(t.page, 'Signed. Co-sign this change with your other passkeys.')
     assert.equal(await t.page.isHidden('#designate-handoff'), false)
@@ -2667,6 +2728,8 @@ test('recovery parties, two passkeys: one designates and hands the change over; 
     // The other passkey: nothing is signed before a review; a change of the roots is no change of the parties.
     await b.page.bringToFront()
     await b.page.evaluate(() => document.getElementById('recovery-cosign-sign').click())
+    await idle(b.page)
+    assert.equal(await b.page.textContent('#error'), '')
     await b.page.fill('#recovery-cosign-payload', 'x')
     await b.page.click('#recovery-cosign-review')
     await errorIs(b.page, 'that is not a membership change')
@@ -2689,6 +2752,28 @@ test('recovery parties, two passkeys: one designates and hands the change over; 
     await b.page.click('#recovery-cosign-review')
     await b.page.waitForSelector('#recovery-cosign-panel:not([hidden])')
     assert.equal(await signCount(b), signs)
+    // A review withdrawn while the witness is asked is not shown its late refusal.
+    const asked = await holdNext(b.page, `**${path}`)
+    await b.page.click('#recovery-cosign-review')
+    const go = await asked()
+    await b.page.fill('#recovery-cosign-payload', payload + ' ')
+    await go(NO_ANSWER)
+    await idle(b.page)
+    assert.equal(await b.page.textContent('#error'), '')
+    await b.page.click('#recovery-cosign-review')
+    await b.page.waitForSelector('#recovery-cosign-panel:not([hidden])')
+    // An edit while the passkey is signing withdraws it: the late signature is sent nowhere.
+    const sent = (await t.witnessGet(path)).memberships.length
+    await slowPasskey(b.page)
+    await b.page.click('#recovery-cosign-sign')
+    await b.page.fill('#recovery-cosign-payload', payload)
+    await b.page.waitForTimeout(1500)
+    await idle(b.page)
+    assert.equal(await signCount(b), signs + 1, 'the passkey did sign')
+    assert.deepEqual([(await t.witnessGet(path)).memberships.length, await b.page.textContent('#status')], [sent, ''])
+    await promptPasskey(b.page)
+    await b.page.click('#recovery-cosign-review')
+    await b.page.waitForSelector('#recovery-cosign-panel:not([hidden])')
     // A witness that refuses is shown, and nothing said of an earlier signing is left standing.
     t.refusing(true)
     await b.page.click('#recovery-cosign-sign')
@@ -2698,14 +2783,14 @@ test('recovery parties, two passkeys: one designates and hands the change over; 
     await b.page.click('#recovery-cosign-sign')
     await statusIs(b.page, 'Co-signed. The change settles once its contest window has passed.')
     assert.equal(await b.page.textContent('#error'), '')
-    assert.equal(await signCount(b), signs + 2)
+    assert.equal(await signCount(b), signs + 3)
     t.advance(61)
     await t.svc.tick()
     t.advance(61)
     await t.svc.tick()
     const after = await current()
     assert.deepEqual([after.membership, after.recovery], [code, d.body.recovery])
-    assert.deepEqual(t.problems.filter((p) => !/status of 422 \(Unprocessable Entity\)$/.test(p)), [])
+    assert.deepEqual(t.problems.filter((p) => !/status of (422 \(Unprocessable Entity\)|503 \(Service Unavailable\))$/.test(p)), [])
   } finally { await t.close() }
 })
 
@@ -2794,6 +2879,20 @@ test('recovery at the page: a new passkey asks, the party signs what it is shown
     await change(g.page, 'root', kept)
     await g.page.waitForTimeout(300)
     await g.page.fill('#rescue-request', ` ${request} `)
+    await g.page.fill('#rescue-card', ' ')
+    // A review of the request withdraws whatever else was under review; one withdrawn while the witness is asked
+    // shows nothing of its late answer.
+    await g.page.fill('#proof-code', a.identity)
+    await g.page.click('#proof-review')
+    await g.page.waitForSelector('#proof-panel:not([hidden])')
+    const asked = await holdNext(g.page, `**${path}`)
+    await g.page.click('#rescue-review')
+    const go = await asked()
+    assert.equal(await g.page.isHidden('#proof-panel'), true)
+    await g.page.fill('#rescue-card', '  ')
+    await go()
+    await idle(g.page)
+    assert.deepEqual([await g.page.isHidden('#rescue-panel'), await g.page.textContent('#error')], [true, ''])
     await g.page.click('#rescue-review')
     await g.page.waitForSelector('#rescue-panel:not([hidden])')
     assert.equal(await g.page.textContent('#error'), '')
@@ -2803,6 +2902,18 @@ test('recovery at the page: a new passkey asks, the party signs what it is shown
     assert.equal(await g.page.textContent('#rescue-recovery'), '1 of 1, after 3 days')
     assert.equal(await g.page.textContent('#rescue-wait'), '3 days after enough parties and the new passkey have signed, unless a passkey the identity has now cancels it')
     const gSigns = await signCount(g)
+    // An edit while the passkey is signing withdraws it: the late signature is sent nowhere.
+    const sent = (await t.witnessGet(path)).memberships.length
+    await slowPasskey(g.page)
+    await g.page.click('#rescue-sign')
+    await g.page.fill('#rescue-card', '')
+    await g.page.waitForTimeout(1500)
+    await idle(g.page)
+    assert.equal(await signCount(g), gSigns + 1, 'the passkey did sign')
+    assert.deepEqual([(await t.witnessGet(path)).memberships.length, await g.page.textContent('#status')], [sent, ''])
+    await promptPasskey(g.page)
+    await g.page.click('#rescue-review')
+    await g.page.waitForSelector('#rescue-panel:not([hidden])')
     t.refusing(true)
     await g.page.click('#rescue-sign')
     await errorIs(g.page, 'the witness refused the membership: test')
@@ -2810,7 +2921,7 @@ test('recovery at the page: a new passkey asks, the party signs what it is shown
     t.refusing(false)
     await g.page.click('#rescue-sign')
     await statusIs(g.page, 'Signed. The recovery is under notice once enough parties and the new passkey have signed.')
-    assert.equal(await signCount(g), gSigns + 2)
+    assert.equal(await signCount(g), gSigns + 3)
     assert.equal((await current()).recovering, null, 'the new passkey has yet to sign')
 
     // The new passkey's kept signature is sent again, with its root record, which nobody else gave the witness.

@@ -224,7 +224,7 @@ async function notice () {
   // held here, so it must not hide or replace that root's newer notice.
   if (root?.id !== r.id) return
   noticed = s !== null && s.recovering !== null ? { root: r.id, state: s } : null
-  known = s !== null ? { root: r.id, state: s } : null
+  known = { root: r.id, state: s } // no answer is a state of null: nothing is known of this root
   unchecked = failed
   show()
 }
