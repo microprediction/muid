@@ -77,6 +77,9 @@ async function open ({ init } = {}) {
     flying.set(page, 0)
     page.on('request', () => flying.set(page, flying.get(page) + 1))
     for (const over of ['requestfinished', 'requestfailed']) page.on(over, () => flying.set(page, flying.get(page) - 1))
+    // A reload begins the page again, and with it the count of what it ran: that is handed back first.
+    const reload = page.reload.bind(page)
+    page.reload = async (...options) => { await handBack([page]); return reload(...options) }
     return page
   }
   // Another tab of a device's browser: the same storage, no authenticator of its own.
@@ -991,6 +994,7 @@ test('a registration that fails is pending: retried with the same root, by the b
     await t.page.click('#create-button')
     await t.page.waitForSelector('#pending:not([hidden])')
     await errorShown(t.page)
+    assert.equal(await t.page.isHidden('#notice-unchecked'), true, 'a root not yet registered is not asked about, and nothing is said of that')
     const identity = await t.page.textContent('#identity-id')
     const rootText = await t.page.inputValue('#root-text')
     assert.deepEqual(await t.witnessGet(`/v1/identities/${identity}/records`), { ok: false, reason: 'unknown-identity' }, 'the witness does not have it')
@@ -2258,6 +2262,10 @@ test('a recovery under notice is shown on load with when it takes effect; one pr
     const late = await t.tab(t.context)
     await late.waitForSelector('#identity:not([hidden])')
     await idle(late)
+    assert.equal(await late.isHidden('#notice-unchecked'), true)
+    // Asked for a change to it, the page says what the witness said.
+    await late.click('#undesignate-review')
+    await errorIs(late, 'the witness holds no record of this identity')
     // No root at all, with the old notice still in hand: the button does nothing.
     const open2 = t.gate()
     await change(t.page, 'root', mine)
@@ -2327,6 +2335,48 @@ test('a recovery under notice is shown on load with when it takes effect; one pr
     assert.equal(envelope.open(kept.cancelled[0], 'cancelled').body.record, R.id)
     const after = await current()
     assert.deepEqual([after.recovering, after.membership, after.authority], [null, d.id, [aId]])
+
+    // A stored root that says it is joining is not asked about, whatever else is stored of it: a party asks again,
+    // and a page loaded with such a root shows the joining passkey no notice.
+    const mId = rootModule.checkRoot(rootOf('m'), { rpId }).id
+    const R2 = envelope.seal('membership', { identity: a.identity, prev: d.id, epoch: 3, roots: [mId] })
+    await post('membership', pageRecords.partySigned(R2.payload, g, by(secret('g'), R2.id)), rootOf('g'))
+    await post('root', rootOf('m'))
+    await post('membership', pageRecords.rootSigned(R2.payload, mId, by(secret('m'), R2.id)))
+    assert.equal((await current()).recovering, null, 'after a cancel the witness gives no notice for three days')
+    t.advance(3 * 86_400 + 1)
+    await t.svc.tick()
+    assert.equal((await current()).recovering.record, R2.id)
+    await late.close()
+    await other.close()
+    await change(t.page, 'root', { ...mine, joining: true })
+    await t.page.reload()
+    await t.page.waitForSelector('#joining:not([hidden])')
+    await idle(t.page)
+    assert.deepEqual([await t.page.isHidden('#recovery-notice'), await t.page.isHidden('#notice-unchecked')], [true, true])
+    await change(t.page, 'root', mine)
+    await t.page.waitForSelector('#recovery-notice:not([hidden])')
+    assert.equal(await t.page.textContent('#notice-record'), R2.id)
+
+    // An identity that has ended (its owner cancelled this recovery, then contested a change of their own) has no
+    // recovery to show: that is an answer, and nothing is said of the witness.
+    await t.page.click('#notice-cancel')
+    await t.page.waitForSelector('#recovery-notice', { state: 'hidden' })
+    await t.svc.tick()
+    const u = pageRecords.undesignate({ identity: a.identity, state: await current() })
+    await post('membership', pageRecords.rootSigned(u.payload, aId, by(aSecret, u.id)))
+    const contest = envelope.seal('contest', { identity: a.identity, record: u.id })
+    await post('contest', pageRecords.rootSigned(contest.payload, aId, by(aSecret, contest.id)))
+    t.advance(61)
+    await t.svc.tick()
+    t.advance(61)
+    await t.svc.tick()
+    await assert.rejects(current(), { message: 'this identity has ended' })
+    await t.page.reload()
+    await t.page.waitForSelector('#identity:not([hidden])')
+    await idle(t.page)
+    assert.deepEqual([await t.page.isHidden('#recovery-notice'), await t.page.isHidden('#notice-unchecked')], [true, true])
+    assert.equal(await t.page.textContent('#recovery-now'), 'not known')
     await t.collect()
     assert.deepEqual(t.problems.filter((p) => !unavailable.test(p) && !/status of (422|404)/.test(p)), [], 'the browser reports only the answers the test arranged')
   } finally { await t.close() }
@@ -2386,8 +2436,16 @@ test('recovery parties: a party gives a card and shows that its passkey is held;
 
     // The owner: no card, a card that is none, the owner's own passkey as its party.
     await t.page.bringToFront()
+    // Nothing reviewed: the signing button (hidden) does nothing.
+    await t.page.evaluate(() => document.getElementById('designate-sign').click())
+    await idle(t.page)
+    assert.equal(await t.page.textContent('#error'), '')
+    // A review of a designation withdraws whatever else was under review, even one that is refused.
+    await authorise(t.page)
+    await t.page.waitForSelector('#review-panel:not([hidden])')
     await t.page.click('#designate-review')
     await errorIs(t.page, 'name 1 to 3 recovery parties')
+    assert.equal(await t.page.isHidden('#review-panel'), true)
     await t.page.fill('#party-cards', 'x')
     await t.page.click('#designate-review')
     await errorIs(t.page, 'that is not a recovery card')
@@ -2399,7 +2457,7 @@ test('recovery parties: a party gives a card and shows that its passkey is held;
     await t.page.click('#designate-review')
     await errorIs(t.page, 'the waiting period must be 3 to 90 days')
     // The card, with blank lines about it, and three and a half days: what will be signed is shown.
-    await t.page.fill('#party-cards', `\n  ${card}  \n\n`)
+    await t.page.fill('#party-cards', `\n  ${card}  \n \n`)
     await t.page.fill('#recovery-days', '3.5')
     await t.page.click('#designate-review')
     await t.page.waitForSelector('#designate-panel:not([hidden])')
@@ -2446,11 +2504,45 @@ test('recovery parties: a party gives a card and shows that its passkey is held;
     assert.equal(await signCount(t), signs)
     assert.equal(await t.page.isHidden('#designate-panel'), false, 'what they gave back is no edit of the change')
     await t.page.fill('#designate-proofs', `${other}\n ${proof} \n`)
+    // An edit while the passkey is signing withdraws the change: the late signature is sent nowhere.
+    await t.page.evaluate(() => {
+      const get = navigator.credentials.get.bind(navigator.credentials)
+      globalThis.restore = () => { navigator.credentials.get = get }
+      navigator.credentials.get = async (o) => { await new Promise((resolve) => setTimeout(resolve, 500)); return get(o) }
+    })
+    await t.page.click('#designate-sign')
+    await t.page.fill('#recovery-days', '15')
+    await t.page.waitForTimeout(1500)
+    await idle(t.page)
+    assert.equal(await signCount(t), signs + 1, 'the passkey did sign')
+    assert.equal((await t.witnessGet(path)).memberships.length, 0, 'and what it signed was not sent')
+    assert.equal(await t.page.textContent('#status'), '')
+    await t.page.evaluate(() => globalThis.restore())
+    await t.page.fill('#recovery-days', '14')
+    await t.page.click('#designate-review')
+    await t.page.waitForSelector('#designate-panel:not([hidden])')
+    assert.equal(await t.page.textContent('#designate-code'), code)
+    // A review withdrawn while the witness is asked is not shown its late refusal.
+    let answer
+    const asked = new Promise((resolve) => { answer = resolve })
+    let waiting
+    await t.page.route(`**${path}`, (route) => { waiting = route; answer() })
+    await t.page.click('#designate-review')
+    await asked
+    await t.page.fill('#recovery-days', '15')
+    await waiting.fulfill({ status: 503, contentType: 'application/json', body: '{}' })
+    await t.page.unroute(`**${path}`)
+    await idle(t.page)
+    assert.equal(await t.page.textContent('#error'), '')
+    assert.equal(await t.page.isHidden('#designate-panel'), true)
+    await t.page.fill('#recovery-days', '14')
+    await t.page.click('#designate-review')
+    await t.page.waitForSelector('#designate-panel:not([hidden])')
     await t.page.click('#designate-sign')
     await statusIs(t.page, 'Signed. The change settles once its contest window has passed.')
     assert.equal(await t.page.textContent('#error'), '')
     assert.equal(await t.page.isHidden('#designate-handoff'), true, 'one passkey: nobody is left to co-sign')
-    assert.equal(await signCount(t), signs + 1)
+    assert.equal(await signCount(t), signs + 2)
     await settle()
     assert.deepEqual((await current()).recovery, expected.body.recovery)
     assert.equal((await current()).membership, code)
@@ -2512,7 +2604,7 @@ test('recovery parties: a party gives a card and shows that its passkey is held;
     assert.equal((await current()).recovery, null)
     await t.page.click('#undesignate-review')
     await errorIs(t.page, 'no recovery parties are designated')
-    assert.deepEqual(t.problems.filter((p) => !/status of 422 \(Unprocessable Entity\)$/.test(p)), [])
+    assert.deepEqual(t.problems.filter((p) => !/status of (422 \(Unprocessable Entity\)|503 \(Service Unavailable\))$/.test(p)), [])
   } finally { await t.close() }
 })
 
@@ -2727,6 +2819,9 @@ test('recovery at the page: a new passkey asks, the party signs what it is shown
     await n.page.waitForSelector('#identity:not([hidden])')
     assert.equal(await n.page.textContent('#identity-id'), a.identity)
     assert.equal(await signCount(n), nSigns + 1, 'no second prompt')
+    // Having signed, it asks the witness at once, and is told what it waits for.
+    await n.page.waitForSelector('#recovery-notice:not([hidden])')
+    assert.deepEqual([await n.page.isHidden('#notice-incoming'), await n.page.isHidden('#notice-own')], [false, true])
     await t.svc.tick()
     const noticed = await current()
     assert.equal(noticed.recovering.record, R.id)
