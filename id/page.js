@@ -224,7 +224,7 @@ async function notice () {
   // held here, so it must not hide or replace that root's newer notice.
   if (root?.id !== r.id) return
   noticed = s !== null && s.recovering !== null ? { root: r.id, state: s } : null
-  known = s !== null ? { root: r.id, state: s } : null
+  known = { root: r.id, state: s } // no answer is a state of null: nothing is known of this root
   unchecked = failed
   show()
 }
@@ -605,6 +605,7 @@ $('recover-review').addEventListener('click', async () => {
     const c = recovery({ identity, state: current, root: root.text, rpId })
     pending.recover = c
     $('recover-shown').textContent = c.body.identity
+    // Stryker disable next-line StringLiteral: equivalent; a recovery names one root
     $('recover-roots').textContent = c.body.roots.join(' ')
     $('recover-recovery').textContent = designation(c.body.recovery)
     $('recover-wait').textContent = `${wait(current.recovery.window)} after enough parties and this passkey have signed, unless a passkey the identity has now cancels it`
