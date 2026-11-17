@@ -22,15 +22,20 @@ export const EVERY_RUN = ['stryker.id-records.config.json', 'stryker.id-store.co
   'stryker.delegation.config.json', 'stryker.bytes.config.json', 'stryker.attestation.config.json',
   'stryker.assertion.config.json']
 
-// The nightly (and manual) run adds these: the slow configs alone, the others together. The id page is mutated in
-// parts, by line range (`file:first-last`), each a job that ends within the job's time limit; together they are the
+// The nightly (and manual) run adds these: the slow configs alone, the others together. The id page and the witness's
+// own module are mutated in parts, by line range (`file:first-last`), each a job that ends within the job's time limit; together they are the
 // whole file (tests/guards/mutation-coverage.test.mjs).
 export const NIGHTLY = [
   ['stryker.id-page-1.config.json'],
   ['stryker.id-page-2.config.json'],
   ['stryker.id-page-3.config.json'],
   ['stryker.id-page-4.config.json'],
+  ['stryker.id-page-5.config.json'],
+  ['stryker.id-page-6.config.json'],
   ['stryker.membership.config.json'],
+  ['stryker.witness-1.config.json'],
+  ['stryker.witness-2.config.json'],
+  ['stryker.witness-3.config.json'],
   ['stryker.witness.config.json'],
   ['stryker.verifier.config.json', 'stryker.config.json', 'stryker.demo.config.json'],
 ]
