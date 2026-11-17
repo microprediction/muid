@@ -46,7 +46,7 @@ test('selection: a core module is read by every suite but the storage adapter\'s
 })
 
 test('selection: a change to the id page selects the configs whose tests load it, and only those', () => {
-  const page = [1, 2, 3, 4].map((i) => `stryker.id-page-${i}.config.json`)
+  const page = [1, 2, 3, 4, 5, 6].map((i) => `stryker.id-page-${i}.config.json`)
   const ids = [...page, 'stryker.id-records.config.json']
   const store = 'stryker.id-store.config.json'
   // The demo's tests load id/ too (tests/id/impl.mjs), but not the page tests or their server. The storage adapter's
