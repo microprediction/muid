@@ -102,6 +102,8 @@ export async function start (config, { clock = () => Math.floor(Date.now() / 100
     .replace('<meta name="muid-origin" content="">', `<meta name="muid-origin" content="${attribute(config.origin)}">`)
     .replace('<meta name="muid-witness-keys" content="[]">', `<meta name="muid-witness-keys" content="${attribute(JSON.stringify(witnessKeys))}">`)
   if (!page.includes(`content="${attribute(config.origin)}"`) || !page.includes(attribute(key))) throw new Error('id/index.html has no place for its configuration')
+  // no-transform: a proxy in front must pass the page as it is (one that adds a script changes what the page's own
+  // policy was written for, and is refused by it).
   const SECURITY = { 'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer' }
   const FRAMING = { 'x-frame-options': 'DENY', 'content-security-policy': "frame-ancestors 'none'" }
   const PUBLIC = { 'access-control-allow-origin': '*' }
@@ -110,7 +112,7 @@ export async function start (config, { clock = () => Math.floor(Date.now() / 100
     if (req.method === 'OPTIONS') { res.writeHead(204, { ...SECURITY, ...PUBLIC, 'access-control-allow-methods': 'GET, POST', 'access-control-max-age': '86400' }).end(); return }
     const body = req.method === 'GET' || req.method === 'HEAD' ? undefined : Readable.toWeb(req)
     const r = await service.handle(new Request('http://witness' + path.slice('/witness'.length), { method: req.method, body, duplex: 'half' }))
-    res.writeHead(r.status, { ...SECURITY, ...PUBLIC, 'content-type': 'application/json', 'cache-control': 'no-store' }).end(Buffer.from(await r.arrayBuffer()))
+    res.writeHead(r.status, { ...SECURITY, ...PUBLIC, 'content-type': 'application/json', 'cache-control': 'no-store, no-transform' }).end(Buffer.from(await r.arrayBuffer()))
   }
   async function toFile (req, res, path) {
     const m = MOUNTS.find(([prefix]) => path.startsWith(prefix))
@@ -122,7 +124,7 @@ export async function start (config, { clock = () => Math.floor(Date.now() / 100
     try {
       body = m[0] === '/id/' && rel === 'index.html' ? Buffer.from(page) : await readFile(join(m[1], rel))
     } catch { res.writeHead(404, SECURITY).end(); return }
-    res.writeHead(200, { ...SECURITY, ...FRAMING, 'content-type': type, 'cache-control': 'no-cache' }).end(req.method === 'HEAD' ? undefined : body)
+    res.writeHead(200, { ...SECURITY, ...FRAMING, 'content-type': type, 'cache-control': 'no-cache, no-transform' }).end(req.method === 'HEAD' ? undefined : body)
   }
   const server = createServer((req, res) => {
     let path

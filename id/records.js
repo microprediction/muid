@@ -100,6 +100,37 @@ export function delegation ({ agent, identity, membership, root, subject, aud, s
   return { body, ...seal('delegation', body) }
 }
 
+// SPEC §8: an application sends the person to the page with its request in the fragment, `#muid-request=` and the
+// base64url of a JSON object, and is answered in the fragment of its own `return` address. A request only fills the
+// page's form: what is signed is reviewed and signed as anything typed there is. The request, with `from` (the
+// origin of its return address, to show); null for a fragment that is no request; anything else is refused.
+const REQUEST = '#muid-request='
+const REQUEST_KEYS = 'agent,aud,days,return,scopes,state,subject,v'
+const MAX_REQUEST = 8192
+const short = (x) => typeof x === 'string' && x.length >= 1 && x.length <= 64
+export function readRequest (fragment) {
+  if (typeof fragment !== 'string' || !fragment.startsWith(REQUEST)) return null
+  const refused = new Error('that request is not one this page can read')
+  let r, to
+  try {
+    if (fragment.length > MAX_REQUEST) throw refused
+    r = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(fromB64u(fragment.slice(REQUEST.length))))
+    to = new URL(r.return)
+  } catch {
+    throw refused
+  }
+  if (Array.isArray(r) || Object.keys(r).sort().join() !== REQUEST_KEYS || r.v !== 1 || !short(r.agent) || typeof r.subject !== 'string' || !ID.test(r.subject) ||
+    typeof r.aud !== 'string' || r.aud.length > 2048 || !Array.isArray(r.scopes) || r.scopes.length < 1 || r.scopes.length > 16 || !r.scopes.every(short) ||
+    !Number.isSafeInteger(r.days) || r.days < 1 || r.days > 7 || typeof r.state !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(r.state) ||
+    // The return address as the browser would go to it, and nothing a reader could mistake: https (http at localhost
+    // alone), no name or password, no fragment of its own.
+    r.return.length > 2048 || to.href !== r.return || (to.protocol !== 'https:' && !(to.protocol === 'http:' && to.hostname === 'localhost')) ||
+    to.username !== '' || to.password !== '' || r.return.includes('#')) throw refused
+  return { agent: r.agent, subject: r.subject, aud: r.aud, scopes: [...r.scopes], days: r.days, return: r.return, state: r.state, from: to.origin }
+}
+// Where the page goes once the request's worker is authorised: the return address, with the hand-off in its fragment.
+export const answer = (request, handOff) => request.return + '#muid=' + b64u(new TextEncoder().encode(JSON.stringify({ v: 1, state: request.state, handOff })))
+
 // Decision 3's batched renewal. The page remembers each worker it authorised (what the user entered, never a secret),
 // and builds the delegations of up to MAX_BATCH of them again for one assertion (W0 covers at most eight records).
 export const MAX_BATCH = 8

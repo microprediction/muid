@@ -116,8 +116,7 @@ and the verifier relying parties call. Around it: the relying-party adapter ([`a
 and its service ([`witness/`](witness/)), the transparency log (Tessera, [`log/`](log/)), the identity page
 ([`id/`](id/)), the worker's side of a delegation ([`worker/`](worker/)), a runnable id origin
 ([`deploy/`](deploy/)), and a two-application demo ([`demo/`](demo/)) that runs the example above end to end. Not
-yet: apps requesting delegations from the identity page (the hand-off is the user's copy and paste), issuing
-provider attestations, renewal without a weekly passkey prompt, a tagged release, and a hosted deployment.
+yet: issuing provider attestations, renewal without a weekly passkey prompt, a tagged release, and a hosted deployment.
 
 ### Running an id origin
 

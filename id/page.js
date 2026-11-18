@@ -5,7 +5,7 @@
 // record and the credential id are kept in this browser only. The workers it authorised are remembered here too, so
 // that one assertion renews up to eight of them at once (decision 3).
 import { openStore } from './store.js'
-import { rootRecord, challenge, assertion, delegation, handOff, b64u, fromB64u, currentMembership, addRoot, rootSigned, changeToSign, fingerprint, storedRoot, cosignedIdentity, storedWorkers, remember, retired, renewals, cancel, maturesAt, card, kept, newSalt, fromCard, majority, possessionId, shows, designate, undesignate, designated, recoveryChange, MAX_SALTS, recovery, rescue, partySigned } from './records.js'
+import { rootRecord, challenge, assertion, delegation, handOff, readRequest, answer, b64u, fromB64u, currentMembership, addRoot, rootSigned, changeToSign, fingerprint, storedRoot, cosignedIdentity, storedWorkers, remember, retired, renewals, cancel, maturesAt, card, kept, newSalt, fromCard, majority, possessionId, shows, designate, undesignate, designated, recoveryChange, MAX_SALTS, recovery, rescue, partySigned } from './records.js'
 
 const $ = (id) => document.getElementById(id)
 const meta = (name) => document.querySelector(`meta[name="${name}"]`).content
@@ -49,6 +49,15 @@ async function refresh () {
 }
 // Stryker disable next-line ObjectLiteral: nothing shown differs; without the nulls a signing button (hidden) pressed
 // before any review throws where it would return, and does nothing either way
+// SPEC §8: an application's request, from the fragment the person arrived with, or null. It fills the form once the
+// page has an identity to authorise with, and is answered when the worker it names is authorised.
+let request = null
+let unread
+try {
+  request = readRequest(location.hash)
+} catch (e) { unread = e }
+let filled = false
+let reviewed = false
 const pending = { delegation: null, change: null, cosign: null, renewal: null, designation: null, recoveryCosign: null, proof: null, recover: null, rescue: null }
 
 // A change to the stored root, made only while storage holds the root it was decided for (`mine`, its id: null
@@ -147,6 +156,24 @@ function show () {
   $('renew').hidden = root === null || joining || workers.length === 0
   listWorkers()
   $('pending').hidden = !unregistered()
+  $('request-waiting').hidden = request === null // inside the creation section, shown only with no root
+  $('request').hidden = request === null || root === null || joining
+  if (!$('request').hidden && !filled) {
+    filled = true
+    $('request-from').textContent = request.from
+    $('agent').value = request.agent
+    $('subject').value = request.subject
+    $('aud').value = request.aud
+    $('scopes').value = request.scopes.join(' ')
+    $('days').value = String(request.days)
+  }
+  // And reviewed at once, when the witness knows the identity: nothing in the form was typed by the person, so
+  // there is nothing for them to finish before they are shown what would be signed.
+  if (filled && !reviewed && !$('request').hidden && root.registered === true) {
+    reviewed = true
+    $('review').click()
+  }
+  $('request-unread').hidden = unread === undefined
   // R11: the recovery under notice, as the witness's records last gave it for the root now held (only a root of its
   // own identity is asked about: not none, and not one that is joining).
   const under = noticed !== null && noticed.root === root?.id ? noticed.state : null
@@ -357,8 +384,11 @@ $('sign').addEventListener('click', async () => {
     const { agent, subject, aud, scopes, nbf, exp } = d.body
     if (await keepWorkers((list) => remember(list, { agent, subject, aud, scopes, lifetime: exp - nbf }), seen, () => pending.delegation === d) !== 'saved') return
     if (pending.delegation !== d || lapsed([d])) return // withdrawn, or expired, while it was saved
-    $('handoff').value = handOff(d.payload, a)
+    const line = handOff(d.payload, a)
+    $('handoff').value = line
     $('handoff').hidden = false
+    // The application that asked for this worker's key is answered, at its own address; any other is not.
+    if (request !== null && request.subject === d.body.subject) location.assign(answer(request, line))
   } catch (e) { fail(e) }
 })
 
