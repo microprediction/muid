@@ -135,3 +135,8 @@ Answer one as an `idea:` issue; say plainly if the answer is that the current ap
   id until it expires, with no limit on how many. Every entry costs its sender a valid signed claim, so growth is
   bounded by rate and window, not by count. Is that enough, and if not, what is the established policy that does not
   let one caller evict another's unexpired entry?
+- **Q8. Who watches the log?** `src/note.js` authenticates each checkpoint on its own and `src/merkle.js` has
+  `verifyConsistency`, but nothing shipped keeps a last checkpoint and checks the next against it: a relying party
+  checks inclusion under the checkpoint it is given (`src/receipt.js`, `demo/forecasts.js`). A witness that shows two
+  readers two logs is caught by neither. Which party should keep a checkpoint and demand consistency (the adapter, a
+  separate monitor, cosigning witnesses as in C2SP), and what is the least that would make a split view evident?
