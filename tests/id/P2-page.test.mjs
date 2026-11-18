@@ -2425,9 +2425,12 @@ async function proofOf (g, code) {
   await g.page.waitForSelector('#proof:not([hidden])')
   return g.page.inputValue('#proof')
 }
+// A new card from the party's page. The card shown before is read before the button is pressed: read after, a page
+// that had already made the new one would be waited on for another.
 async function cardOf (g) {
+  const was = await g.page.inputValue('#card')
   await g.page.click('#card-make')
-  await g.page.waitForFunction((was) => { const c = document.getElementById('card'); return !c.hidden && c.value !== was }, await g.page.inputValue('#card'))
+  await g.page.waitForFunction((was) => { const c = document.getElementById('card'); return !c.hidden && c.value !== was }, was)
   return g.page.inputValue('#card')
 }
 
