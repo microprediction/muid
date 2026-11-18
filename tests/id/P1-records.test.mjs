@@ -460,6 +460,54 @@ test('an identity opened with its passkey: only a root of its current membership
   assert.throws(() => opened({ ...ctx, identity: 'x', assertion: signedBy(SECRET, [value]) }), { message: 'a record id is 64 lowercase hex digits' })
 })
 
+test('an application\'s secret: asked for by a key to seal it to, from the prf of its own origin, sealed so that only its key opens it', async () => {
+  const { readRequest, answer, secretInput, sealSecret } = records
+  const subtle = globalThis.crypto.subtle
+  const app = await subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, false, ['deriveBits'])
+  const sealTo = Buffer.from(await subtle.exportKey('raw', app.publicKey)).toString('base64url')
+  const R = { v: 1, agent: 'drive', subject: SUBJECT, aud: 'https://node.example', scopes: ['store.blob'], days: 7, return: 'https://app.example/drive/', state: 'S-1' }
+  const fragment = (r) => '#muid-request=' + Buffer.from(JSON.stringify(r)).toString('base64url')
+  // Asked for, the key is read with the rest; not asked for, there is none.
+  assert.equal(readRequest(fragment({ ...R, seal_to: sealTo })).sealTo, sealTo)
+  assert.equal('sealTo' in readRequest(fragment(R)), false)
+  const refused = { message: 'that request is not one this page can read' }
+  const point = Buffer.from(sealTo, 'base64url')
+  const compressed = Buffer.concat([Buffer.from([2 + (point[64] & 1)]), point.subarray(1, 33)]).toString('base64url')
+  const offCurve = Buffer.concat([point.subarray(0, 64), Buffer.from([point[64] ^ 1])]).toString('base64url')
+  for (const bad of ['', 'x', sealTo + 'A', sealTo.slice(1), sealTo.replace(/^./, 'A'), compressed, offCurve, Buffer.alloc(65).toString('base64url'), sealTo + '=', 7, null, [sealTo]]) {
+    assert.throws(() => readRequest(fragment({ ...R, seal_to: bad })), refused, String(bad).slice(0, 20))
+  }
+  // The answer carries it, sealed, or null; and nothing of it when it was not asked for.
+  const asked = readRequest(fragment({ ...R, seal_to: sealTo }))
+  const read = (to) => JSON.parse(Buffer.from(to.split('#muid=')[1], 'base64url').toString('utf8'))
+  assert.deepEqual(read(answer(asked, 'h')), { v: 1, state: 'S-1', handOff: 'h', secret: null })
+  assert.deepEqual(read(answer(readRequest(fragment(R)), 'h', { epk: 'x' })), { v: 1, state: 'S-1', handOff: 'h' })
+  // The prf's input: of the origin alone, under its own label.
+  assert.deepEqual(Buffer.from(secretInput('https://app.example')), sha256('muid/v1/app-secret\nhttps://app.example'))
+  assert.notDeepEqual(Buffer.from(secretInput('https://app.example')), Buffer.from(secretInput('https://other.example')))
+  // Sealed: opened by the application's key, with its state and origin; by nothing else.
+  const secret = Uint8Array.from({ length: 32 }, (_, i) => i * 7)
+  const box = await sealSecret(secret, asked)
+  assert.deepEqual(Object.keys(box), ['epk', 'iv', 'ct'])
+  assert.deepEqual([Buffer.from(box.epk, 'base64url').length, Buffer.from(box.iv, 'base64url').length, Buffer.from(box.ct, 'base64url').length], [65, 12, 48])
+  const openWith = async (key, { state = 'S-1', origin = 'https://app.example' } = {}) => {
+    const epk = await subtle.importKey('raw', Buffer.from(box.epk, 'base64url'), { name: 'ECDH', namedCurve: 'P-256' }, false, [])
+    const shared = await subtle.deriveBits({ name: 'ECDH', public: epk }, key, 256)
+    const hkdf = await subtle.importKey('raw', shared, 'HKDF', false, ['deriveKey'])
+    const aes = await subtle.deriveKey({ name: 'HKDF', hash: 'SHA-256', salt: new Uint8Array(0), info: new TextEncoder().encode('muid/v1/app-secret\n' + state) }, hkdf, { name: 'AES-GCM', length: 256 }, false, ['decrypt'])
+    return new Uint8Array(await subtle.decrypt({ name: 'AES-GCM', iv: Buffer.from(box.iv, 'base64url'), additionalData: new TextEncoder().encode(origin) }, aes, Buffer.from(box.ct, 'base64url')))
+  }
+  assert.deepEqual(await openWith(app.privateKey), secret)
+  const other = await subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, false, ['deriveBits'])
+  await assert.rejects(openWith(other.privateKey))
+  await assert.rejects(openWith(app.privateKey, { state: 'S-2' }))
+  await assert.rejects(openWith(app.privateKey, { origin: 'https://other.example' }))
+  // Each sealing is fresh: another ephemeral key and nonce.
+  const again = await sealSecret(secret, asked)
+  assert.notEqual(again.epk, box.epk)
+  assert.notEqual(again.iv, box.iv)
+})
+
 test('the identity a passkey is the first root of, from its assertion alone: found among two candidates, and nothing from what is no signature', () => {
   const r = rootRecord(SPKI, -7, RP_ID)
   const covers = [possessionId('ab'.repeat(32))]

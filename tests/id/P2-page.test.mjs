@@ -3263,6 +3263,7 @@ test('an identity opened with a passkey this device has: only the identity\'s ow
     const kept = await held(b.page, 'root')
     assert.deepEqual([kept.text, kept.identity, kept.registered, kept.joining, kept.credential], [a.text, a.identity, true, false, credentials[0].credentialId.replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '')])
     assert.equal(await b.page.isHidden('#pending'), true, 'nothing to register')
+    await b.page.waitForFunction(() => document.getElementById('recovery-now').textContent === 'none', null, { timeout: 5000 })
     assert.equal((await t.witnessGet(`/v1/identities/${a.identity}/records`)).roots.length, 1, 'the same root: nothing was added')
     // And it acts for the identity as on the device that made it: a worker authorised there verifies.
     await authorise(b.page)
@@ -3352,9 +3353,10 @@ test('the sign-in view: one arriving with a request sees what it asks and one bu
     assert.equal(delegationModule.checkDelegation(envelope.wrap(h.payload, { root: h.root, subject: consent }), { rootKey: rootModule.checkRoot(kept.text, { rpId }).key, rpId, origin: t.site.origin, now: Math.floor(Date.now() / 1000), skew: 60, maxLifetime: 2_592_000 }).ok, true)
 
     // The same device again: the button says so, and one passkey prompt signs.
-    await go(t.page, { ...request, state: 'S-2' })
+    await go(t.page, { ...request, state: 'S-2', days: 1 })
     assert.equal(await t.page.textContent('#signin-button'), 'Sign in with your passkey')
-    assert.equal((await t.page.textContent('#signin-what')).endsWith('and nothing else.'), true)
+    assert.equal(await t.page.textContent('#signin-what'), 'It will be able to store.ref, store.blob at node.example, under the name drive, for 1 day, and nothing else.')
+    assert.equal(await t.page.textContent('#signin-exp'), '1 day from when you sign')
     await t.page.click('#signin-button')
     await answered(t.page, 'S-2')
     assert.equal((await t.cdp.send('WebAuthn.getCredentials', { authenticatorId: t.authenticatorId })).credentials[0].signCount, counted + 1, 'one prompt')
@@ -3365,8 +3367,17 @@ test('the sign-in view: one arriving with a request sees what it asks and one bu
     await b.cdp.send('WebAuthn.addCredential', { authenticatorId: b.authenticatorId, credential: credentials[0] })
     await go(b.page, { ...request, state: 'S-3' })
     assert.equal(await b.page.textContent('#signin-button'), 'Continue with a passkey')
+    // The witness not answering while the identity is looked for: said, and nothing kept.
+    t.outage('down')
+    await b.page.click('#signin-button')
+    await errorIs(b.page, 'the witness did not answer')
+    assert.equal(await held(b.page, 'root'), null)
+    t.outage()
+    const submitted = []
+    b.page.on('request', (r) => { if (r.method() === 'POST') submitted.push(r.url()) })
     await b.page.click('#signin-button')
     await answered(b.page, 'S-3')
+    assert.deepEqual(submitted.filter((u) => !u.endsWith('/__stryker/coverage')), [], 'found, the identity is registered already: nothing is sent to the witness')
     await b.page.goto(t.site.origin + '/id/')
     await b.page.waitForSelector('#identity:not([hidden])')
     assert.deepEqual([(await held(b.page, 'root')).text, (await held(b.page, 'root')).registered], [kept.text, true])
@@ -3387,6 +3398,34 @@ test('the sign-in view: one arriving with a request sees what it asks and one bu
     assert.equal(await e.page.isHidden('#signin-new'), false)
     assert.equal(await held(e.page, 'root'), null)
 
+    // A root kept here that the witness has not yet taken (it could not be reached): the button registers it first,
+    // and says so when it still cannot.
+    const u = await t.device()
+    await app(u.context)
+    t.outage('down')
+    await u.page.fill('#name', 'pending')
+    await u.page.click('#create-button')
+    await u.page.waitForSelector('#pending:not([hidden])')
+    await go(u.page, { ...request, state: 'S-U' })
+    assert.equal(await u.page.textContent('#signin-button'), 'Sign in with your passkey')
+    await u.page.click('#signin-button')
+    await errorIs(u.page, 'the witness refused the root: unavailable')
+    await idle(u.page)
+    assert.equal(await u.page.textContent('#error'), 'the witness refused the root: unavailable', 'nothing more was tried')
+    assert.equal(new URL(u.page.url()).origin, t.site.origin, 'not answered')
+    t.outage()
+    await u.page.click('#signin-button')
+    await answered(u.page, 'S-U')
+    // A passkey that is joining an identity signs nothing, and is told why.
+    const j = await t.device()
+    await j.page.click('#join-button')
+    await j.page.waitForSelector('#joining:not([hidden])')
+    await go(j.page, { ...request, state: 'S-J' })
+    assert.equal(await j.page.textContent('#signin-button'), 'Continue with a passkey')
+    await j.page.click('#signin-button')
+    await errorIs(j.page, 'This passkey is joining an identity and can sign nothing until that change has settled.')
+    assert.equal(new URL(j.page.url()).origin, t.site.origin)
+
     // The passkey request refused: nothing said but the way on, and nothing kept.
     const f = await t.device()
     await f.cdp.send('WebAuthn.removeVirtualAuthenticator', { authenticatorId: f.authenticatorId })
@@ -3396,11 +3435,116 @@ test('the sign-in view: one arriving with a request sees what it asks and one bu
     await f.page.click('#signin-button')
     await f.page.waitForSelector('#signin-new:not([hidden])')
     assert.deepEqual([await f.page.textContent('#error'), await held(f.page, 'root')], ['', null])
+    // And making one refused: said, and nothing more is tried.
+    await f.page.click('#signin-create')
+    await errorIs(f.page, 'The passkey request was cancelled.')
+    assert.equal(await held(f.page, 'root'), null)
 
     // More options: the whole page, as it is without the view, the request waiting for an identity.
     await f.page.click('#signin-more')
     assert.deepEqual(await visible(f.page), ['create', 'request-waiting'])
-    assert.equal(arrivals.length, 3, 'one answer for each sign-in, none for the others')
+    assert.equal(arrivals.length, 4, 'one answer for each sign-in, none for the others')
+    assert.deepEqual(t.problems.filter((p) => !/status of (404|503)/.test(p)), [])
+  } finally { await t.close() }
+})
+
+test('an application\'s secret: from the passkey that signs, sealed to the application\'s key; the same each time, another for another application, none when declined or not possible', { timeout: 180_000 }, async () => {
+  const t = await open()
+  try {
+    const subtle = globalThis.crypto.subtle
+    const appKey = await subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, false, ['deriveBits'])
+    const sealTo = Buffer.from(await subtle.exportKey('raw', appKey.publicKey)).toString('base64url')
+    const request = { v: 1, agent: 'drive', subject: SUBJECT, aud: 'https://node.example', scopes: ['store.blob'], days: 7, return: 'https://app.example/drive/', state: 'S-1', seal_to: sealTo }
+    const link = (r) => t.site.origin + '/id/#muid-request=' + Buffer.from(JSON.stringify(r)).toString('base64url')
+    const app = (context) => Promise.all(['https://app.example/**', 'https://other.example/**'].map((u) => context.route(u, (route) => route.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><title>app</title>' }))))
+    // A device whose authenticator gives prf, as Google Password Manager and iCloud Keychain do.
+    const withPrf = async (d, credential) => {
+      await d.cdp.send('WebAuthn.removeVirtualAuthenticator', { authenticatorId: d.authenticatorId })
+      const { authenticatorId } = await d.cdp.send('WebAuthn.addVirtualAuthenticator', { options: { protocol: 'ctap2', ctap2Version: 'ctap2_1', transport: 'internal', hasResidentKey: true, hasUserVerification: true, isUserVerified: true, hasPrf: true, automaticPresenceSimulation: true } })
+      if (credential !== undefined) await d.cdp.send('WebAuthn.addCredential', { authenticatorId, credential })
+      d.authenticatorId = authenticatorId
+      await app(d.context)
+      return d
+    }
+    // Signs in at the view, and opens what comes back with the application's key.
+    const signIn = async (page, r, { untick = false } = {}) => {
+      await page.goto('about:blank')
+      await page.goto(link(r))
+      await page.waitForSelector('#signin:not([hidden])')
+      assert.equal(await page.isHidden('#secret-ask'), false)
+      if (untick) await page.uncheck('#give-secret')
+      await page.click('#signin-button')
+      // No passkey here: the view offers to make one.
+      const gone = page.waitForURL((u) => u.origin !== t.site.origin).then(() => 'gone')
+      if (await Promise.race([gone, page.waitForSelector('#signin-new:not([hidden])').then(() => 'new', () => 'gone')]) === 'new') await page.click('#signin-create')
+      await gone
+      const back = JSON.parse(Buffer.from(page.url().split('#muid=')[1], 'base64url').toString('utf8'))
+      assert.deepEqual(Object.keys(back), ['v', 'state', 'handOff', 'secret'])
+      if (back.secret === null) return null
+      const box = back.secret
+      const epk = await subtle.importKey('raw', Buffer.from(box.epk, 'base64url'), { name: 'ECDH', namedCurve: 'P-256' }, false, [])
+      const shared = await subtle.deriveBits({ name: 'ECDH', public: epk }, appKey.privateKey, 256)
+      const hkdf = await subtle.importKey('raw', shared, 'HKDF', false, ['deriveKey'])
+      const aes = await subtle.deriveKey({ name: 'HKDF', hash: 'SHA-256', salt: new Uint8Array(0), info: new TextEncoder().encode('muid/v1/app-secret\n' + r.state) }, hkdf, { name: 'AES-GCM', length: 256 }, false, ['decrypt'])
+      return Buffer.from(await subtle.decrypt({ name: 'AES-GCM', iv: Buffer.from(box.iv, 'base64url'), additionalData: new TextEncoder().encode(new URL(r.return).origin) }, aes, Buffer.from(box.ct, 'base64url'))).toString('hex')
+    }
+    const a = await withPrf(t)
+    // The view names who is given the key.
+    await t.page.goto('about:blank')
+    await t.page.goto(link({ ...request, state: 'S-0' }))
+    await t.page.waitForSelector('#signin:not([hidden])')
+    assert.equal(await t.page.textContent('#secret-host'), 'app.example')
+    await t.page.click('#signin-more')
+    await t.page.waitForSelector('#create:not([hidden])')
+    // A newcomer: the passkey is made, signs, and the application is given its secret, 32 bytes.
+    const first = await signIn(t.page, request)
+    assert.match(first, /^[0-9a-f]{64}$/)
+    // Again: the same secret. Declined: none, and the sign-in goes through all the same.
+    assert.equal(await signIn(t.page, { ...request, state: 'S-2' }), first)
+    assert.equal(await signIn(t.page, { ...request, state: 'S-3' }, { untick: true }), null)
+    // Another application: another secret.
+    const other = await signIn(t.page, { ...request, state: 'S-4', return: 'https://other.example/' })
+    assert.match(other, /^[0-9a-f]{64}$/)
+    assert.notEqual(other, first)
+    // The passkey copied to another device: found there and signed in. (Chrome's virtual authenticator does not copy
+    // the credential's prf seed with it, so here it gives no secret; a platform that syncs passkeys syncs the seed,
+    // and gives the same secret. That is what the prf input being of the origin alone, with nothing of the device in
+    // it, is for; it cannot be shown with this authenticator.)
+    const { credentials } = await t.cdp.send('WebAuthn.getCredentials', { authenticatorId: a.authenticatorId })
+    const b = await withPrf(await t.device(), credentials[0])
+    assert.equal(await signIn(b.page, { ...request, state: 'S-5' }), null)
+    // A passkey that cannot give one (no prf): the application is told so, and is signed in all the same.
+    const c = await t.device()
+    await app(c.context)
+    assert.equal(await signIn(c.page, { ...request, state: 'S-6' }), null)
+    // Not asked for: nothing of a secret in the view or the answer.
+    const { seal_to: _, ...plain } = request
+    await t.page.goto('about:blank')
+    await t.page.goto(link({ ...plain, state: 'S-7' }))
+    await t.page.waitForSelector('#signin:not([hidden])')
+    assert.equal(await t.page.isHidden('#secret-ask'), true)
+    await t.page.click('#signin-more')
+    await t.page.waitForSelector('#request:not([hidden])')
+    assert.equal(await t.page.isHidden('#request-secret'), true)
+    await t.page.goto('about:blank')
+    await t.page.goto(link({ ...request, state: 'S-8' }))
+    await t.page.click('#signin-more')
+    await t.page.waitForSelector('#request:not([hidden])')
+    assert.equal(await t.page.isHidden('#request-secret'), false, 'asked for, the full page says so')
+    // A joining passkey is not asked to give one.
+    const jn = await t.device()
+    await jn.page.click('#join-button')
+    await jn.page.waitForSelector('#joining:not([hidden])')
+    await jn.page.goto('about:blank')
+    await jn.page.goto(link({ ...request, state: 'S-9' }))
+    await jn.page.waitForSelector('#signin:not([hidden])')
+    assert.equal(await jn.page.isHidden('#secret-ask'), true)
+    await t.page.goto('about:blank')
+    await t.page.goto(link({ ...plain, state: 'S-7' }))
+    await t.page.waitForSelector('#signin:not([hidden])')
+    await t.page.click('#signin-button')
+    await t.page.waitForURL((u) => u.origin === 'https://app.example')
+    assert.deepEqual(Object.keys(JSON.parse(Buffer.from(t.page.url().split('#muid=')[1], 'base64url').toString('utf8'))), ['v', 'state', 'handOff'])
     assert.deepEqual(t.problems.filter((p) => !/status of (404|503)/.test(p)), [])
   } finally { await t.close() }
 })

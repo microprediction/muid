@@ -21,6 +21,7 @@
   <section id="signin" hidden>
     <h2 id="signin-title"></h2>
     <p id="signin-what"></p>
+    <p id="secret-ask" hidden><label><input id="give-secret" type="checkbox" checked> Also give <span id="secret-host"></span> a key of its own, made by your passkey, to lock and unlock your data there. Only it gets this key, and only your passkey can make it.</label></p>
     <button id="signin-button" type="button"></button>
     <p id="signin-new" hidden>No passkey of yours was found here. If you are new, <button id="signin-create" type="button">create a passkey</button>. If your passkey is on another device, use it there, or choose it when your browser offers it.</p>
     <details>
@@ -101,7 +102,7 @@
   <section id="authorise" hidden>
     <h2>Authorise a worker</h2>
     <p>A worker is an application or agent that acts for you. It shows you its key; you say here what it may do, where, and for how long, sign with your passkey, and give it back the line this page then shows. That is all an application needs from this page.</p>
-    <p id="request" hidden><strong id="request-from"></strong> sent you here and asks you to authorise it. What it asks is filled in and shown below: sign only if it is what you expect. Signing sends you back there.</p>
+    <p id="request" hidden><strong id="request-from"></strong> sent you here and asks you to authorise it. What it asks is filled in and shown below: sign only if it is what you expect. Signing sends you back there<span id="request-secret" hidden>, with a key of its own made by your passkey for your data there</span>.</p>
     <label>Agent name <input id="agent" autocomplete="off" spellcheck="false" placeholder="forecaster"></label>
     <label>Worker key (Ed25519, hex) <input id="subject" autocomplete="off" spellcheck="false"></label>
     <label>Audience <input id="aud" autocomplete="off" placeholder="https://app.example"></label>
