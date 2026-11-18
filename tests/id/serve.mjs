@@ -7,6 +7,7 @@ import { join, normalize } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Readable } from 'node:stream'
 import { dir as idDir } from './impl.mjs'
+import { take, COVERAGE } from './mutant.mjs'
 
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css' }
 const MOUNTS = [['/id/', fileURLToPath(idDir)], ['/src/', fileURLToPath(new URL('../../src/', import.meta.url))], ['/node_modules/@noble/', fileURLToPath(new URL('../../node_modules/@noble/', import.meta.url))]]
@@ -20,6 +21,14 @@ async function toWitness (svc, req, res, path) {
 export function serve ({ witness, witnessKeys = [] } = {}) {
   const server = createServer(async (req, res) => {
     const path = decodeURIComponent(new URL(req.url, 'http://x').pathname)
+    // Under mutation testing, the coverage a page sends as it leaves (tests/id/mutant.mjs).
+    if (path === COVERAGE && req.method === 'POST' && globalThis.__stryker__ !== undefined) {
+      const chunks = []
+      for await (const c of req) chunks.push(c)
+      take(JSON.parse(Buffer.concat(chunks).toString('utf8')))
+      res.writeHead(204).end()
+      return
+    }
     if (witness !== undefined && path.startsWith('/witness/')) return toWitness(witness, req, res, path)
     const m = MOUNTS.find(([p]) => path.startsWith(p))
     const rel = m && normalize(path.slice(m[0].length) || 'index.html')
