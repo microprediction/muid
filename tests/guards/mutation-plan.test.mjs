@@ -20,7 +20,7 @@ test('the nightly run takes every job; a push the quick job whole; a pull reques
   assert.deepEqual(plan(null), [EVERY_RUN.join(' ')])
   assert.deepEqual(plan(['README.md']), [])
   assert.deepEqual(plan(['src/bytes.js']), [EVERY_RUN.join(' ')])
-  assert.deepEqual(plan(['id/page.js']), ['stryker.id-records.config.json stryker.id-store.config.json'])
+  assert.deepEqual(plan(['id/page.js']), ['stryker.id-records.config.json stryker.id-store.config.json stryker.worker.config.json'])
   assert.deepEqual(plan(['stryker.id-page-1.config.json']), [])
   assert.deepEqual(JOBS, [...NIGHTLY, EVERY_RUN])
 })
@@ -49,9 +49,9 @@ test('selection: a change to the id page selects the configs whose tests load it
   const page = [1, 2, 3, 4, 5, 6].map((i) => `stryker.id-page-${i}.config.json`)
   const ids = [...page, 'stryker.id-records.config.json']
   const store = 'stryker.id-store.config.json'
-  // The demo's tests load id/ too (tests/id/impl.mjs), but not the page tests or their server. The storage adapter's
+  // The demo's tests and the worker's load id/ too (tests/id/impl.mjs), but not the page tests or their server. The storage adapter's
   // tests are served id/ by the page tests' server, and read none of the page's tests.
-  for (const f of ['id/page.js', 'id/store.js', 'id/index.html', 'id/page.css', 'id/new.js']) assert.deepEqual(configs(select([f])), only(...ids, store, 'stryker.demo.config.json'), f)
+  for (const f of ['id/page.js', 'id/store.js', 'id/index.html', 'id/page.css', 'id/new.js']) assert.deepEqual(configs(select([f])), only(...ids, store, 'stryker.demo.config.json', 'stryker.worker.config.json'), f)
   // The records config leaves the page in Chrome to the page's config (mutation-coverage guard).
   assert.deepEqual(configs(select(['tests/id/P2-page.test.mjs'])), page)
   assert.deepEqual(configs(select(['tests/id/serve.mjs'])), only(...page, store))
@@ -93,7 +93,7 @@ test('the command prints the jobs: the quick job, the quick configs the listed c
     assert.deepEqual(run(), [EVERY_RUN.join(' ')])
     assert.deepEqual(run('--nightly'), ALL)
     writeFileSync(join(dir, 'changed.txt'), 'README.md\nid/page.js\n')
-    assert.deepEqual(run(join(dir, 'changed.txt')), ['stryker.id-records.config.json stryker.id-store.config.json'])
+    assert.deepEqual(run(join(dir, 'changed.txt')), ['stryker.id-records.config.json stryker.id-store.config.json stryker.worker.config.json'])
     writeFileSync(join(dir, 'changed.txt'), 'README.md\n')
     assert.deepEqual(run(join(dir, 'changed.txt')), [])
   } finally {

@@ -1035,6 +1035,16 @@ its own), and a registration or a co-signature the witness took marks only the r
 - The witness hard-codes its issuers and their signing-key endpoints, follows no discovery redirect, and uses a
   distinct redirect URI per provider (GitHub returns no `iss`).
 
+**The worker's side (`worker/`, `muid/worker`; not core).** What a worker does with the page's hand-off, so that each
+service's client need not write it again. `newKey()` makes the Ed25519 key whose public half the owner gives the
+page. `enrol({ handOff, secret, witness })` countersigns the delegation (D6), refusing one made out to another key;
+has the witness log it (R10); and reads the signing root's record from the witness's records. What it returns is
+plain data without the secret. `request(enrolled, secret, { scope, method, url, data, at }, { witness })` signs a
+claim (C1), refusing a scope the delegation does not give or a time it does not cover, and fetches a head: the five
+records a relying party's adapter verifies. Nothing here is trusted by a verifier, which checks every record itself;
+a refusal here only comes sooner and says why. The hand-off still travels by the user's own copy and paste: the page
+takes no request from another origin.
+
 ## 8a. The two-application demo (`demo/`, not core)
 
 **Forecasts** accepts contributions: a worker POSTs a claim (C1, its forecast in `data`) with its delegation, the

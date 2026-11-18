@@ -18,6 +18,8 @@ const SURFACE = {
   './ed25519': ['checkEd25519', 'checkEd25519Key'],
   './adapter': ['relyingParty'],
   './adapter/stores': ['memoryStore', 'sqliteStore'],
+  // A worker's side (SPEC §8): not core, and trusted by no verifier.
+  './worker': ['accept', 'claim', 'enrol', 'newKey', 'request', 'subjectOf'],
   './witness': ['witness'],
   './witness/service': ['memoryHoldings', 'memoryLog', 'serial', 'witnessService'],
   './witness/holdings': ['sqliteHoldings'],
@@ -28,7 +30,7 @@ const SURFACE = {
 
 test('the entries are these, each a file of the package, and no path outside them resolves', async () => {
   assert.deepEqual(Object.keys(pkg.exports), Object.keys(SURFACE))
-  for (const target of Object.values(pkg.exports)) assert.match(target, /^\.\/(src|adapter|witness|testing)\/[a-z0-9-]+\.js$/)
+  for (const target of Object.values(pkg.exports)) assert.match(target, /^\.\/(src|adapter|witness|worker|testing)\/[a-z0-9-]+\.js$/)
   await assert.rejects(import(pkg.name + '/src/verifier.js'), { code: 'ERR_PACKAGE_PATH_NOT_EXPORTED' })
   await assert.rejects(import(pkg.name), { code: 'ERR_PACKAGE_PATH_NOT_EXPORTED' })
 })
