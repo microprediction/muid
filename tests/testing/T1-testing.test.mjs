@@ -12,6 +12,7 @@ import { verifyCheckpoint } from 'muid/checkpoint'
 import { verifyReceipt } from 'muid/receipt'
 import { verifyInclusion, leafHash } from 'muid/merkle'
 import { seal, wrap, signedBytes, open } from 'muid/envelope'
+import { newKey, enrol, request } from 'muid/worker'
 
 const NOW = 1_800_000_000
 const AUD = 'https://store.test'
@@ -70,6 +71,43 @@ test('the cases a service should test: a revoked delegation, a stale head, an ol
   assert.equal(v.verifyClaim(b.records({ url: URL_ }), call({ now })).ok, false)
 })
 
+test('a worker with its own key: the hand-off the page would give it, enrolled at the test witness, makes requests the adapter accepts', async () => {
+  const id = testIdentity({ clock })
+  const key = newKey()
+  const handOff = id.handOff({ subject: key.subject, aud: AUD, scopes: ['put', 'get', 'put'], agent: 'drive', lifetime: 600 })
+  assert.deepEqual(Object.keys(JSON.parse(handOff)), ['payload', 'root'])
+  assert.equal(id.witness.url, 'https://id.test/witness/')
+  const w = await enrol({ handOff, secret: key.secret, ...id.witness })
+  assert.deepEqual([w.identity, w.agent, w.aud, w.scopes, w.nbf, w.exp, w.root], [id.identity, 'drive', AUD, ['get', 'put'], NOW, NOW + 600, id.rootText])
+  const records = await request(w, key.secret, { scope: 'put', method: 'POST', url: URL_, data: { size: 3 }, at: NOW }, id.witness)
+  const rp = relyingParty({ verifier: service(id), store: memoryStore(), clock })
+  const first = await rp.acceptClaim(records, call(), (r) => r.delegation.body.identity)
+  assert.equal(first.ok, true, JSON.stringify(first))
+  assert.equal(first.value, id.identity)
+  assert.equal((await rp.acceptClaim(records, call(), () => {})).reason, 'replay')
+  // One witness, however it is reached: a head signed directly follows the service's, and an agent made directly is
+  // among what the service holds; a revocation made directly is in the next head the service gives.
+  assert.equal((await rp.acceptHead({ head: id.head() }, call())).ok, true)
+  const a = id.agent({ name: 'uploader', aud: AUD, scopes: ['put'] })
+  assert.equal((await rp.acceptClaim(a.records({ url: URL_ }), call(), () => {})).ok, true)
+  a.revoke()
+  const after = await request(w, key.secret, { scope: 'put', method: 'POST', url: URL_, at: NOW }, id.witness)
+  assert.deepEqual(JSON.parse(JSON.stringify(open(after.head, 'head').body.revoked)), [a.id])
+  assert.equal((await rp.acceptClaim(after, call(), () => {})).ok, true, 'the worker itself is not revoked')
+  assert.equal((await rp.acceptClaim(a.records({ url: URL_, data: { n: 2 } }), call(), () => {})).reason, 'revoked')
+  // Defaults: the agent is named worker, for an hour from now. The witness is at its own URL and nowhere else.
+  const plain = await enrol({ handOff: id.handOff({ subject: key.subject, aud: AUD, scopes: ['put'] }), secret: key.secret, ...id.witness })
+  assert.deepEqual([plain.agent, plain.nbf, plain.exp], ['worker', NOW, NOW + 3600])
+  await assert.rejects(id.witness.fetch('https://elsewhere.test/witness/v1/records'), { name: 'TypeError', message: /^muid\/testing: the test witness is at https:\/\/id\.test\/witness\/, not / })
+  // Another identity registers at the same service as it would at any witness, and neither sees the other's records.
+  const other = testIdentity({ seed: 'another', clock })
+  const post = await id.witness.fetch(id.witness.url + 'v1/records', { method: 'POST', body: JSON.stringify({ identity: other.identity, type: 'root', text: other.rootText }) })
+  assert.equal((await post.json()).ok, true)
+  const theirs = await (await id.witness.fetch(id.witness.url + `v1/identities/${other.identity}/records`)).json()
+  assert.deepEqual(theirs.roots, [other.rootText])
+  assert.deepEqual((await (await id.witness.fetch(id.witness.url + `v1/identities/${id.identity}/records`)).json()).roots, [id.rootText])
+})
+
 test('identities are named by their seed; a witness of one does not sign for another', () => {
   const one = testIdentity({ clock })
   const same = testIdentity({ clock })
@@ -124,6 +162,6 @@ test('the entry is built through the package\'s other entries and its two crypto
   const source = readFileSync(new URL('../../testing/index.js', import.meta.url), 'utf8')
   const imports = [...source.matchAll(/from '([^']+)'/g)].map((m) => m[1])
   assert.ok(imports.length > 0)
-  for (const from of imports) assert.match(from, /^(muid\/(envelope|root|witness|merkle)|@noble\/(curves|hashes)\/[a-z0-9]+\.js)$/, from)
+  for (const from of imports) assert.match(from, /^(muid\/(envelope|root|witness|witness\/service|merkle)|@noble\/(curves|hashes)\/[a-z0-9]+\.js)$/, from)
   assert.equal(/\bimport\(|require\(/.test(source), false)
 })

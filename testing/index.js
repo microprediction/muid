@@ -1,8 +1,9 @@
 // muid/testing: test support for services built on muid. Not for production, and not part of the stable surface.
 //
 // A service behind the adapter is tested best against the real verifier, with requests made as real ones are. This
-// gives what that needs and nothing else: an identity whose "passkey" is a key in memory, an in-process witness, the
-// five records a request carries, and an in-memory transparency log whose checkpoints are cosigned by a test key.
+// gives what that needs and nothing else: an identity whose "passkey" is a key in memory, an in-process witness (and
+// the same witness as a service to fetch from), the five records a request carries, the hand-off the id page would
+// give a worker's key, and an in-memory transparency log whose checkpoints are cosigned by a test key.
 // Everything is built through muid's other public entries, so it can do nothing a consumer could not.
 //
 // The passkey here is software: it asserts a user verification that never happened. That is the point in a test and
@@ -13,6 +14,7 @@ import { sha256 } from '@noble/hashes/sha2.js'
 import { seal, wrap, signedBytes } from 'muid/envelope'
 import { checkRoot, identityOf, agentIdOf } from 'muid/root'
 import { witness } from 'muid/witness'
+import { witnessService, memoryLog, serial } from 'muid/witness/service'
 import { leafHash } from 'muid/merkle'
 
 const utf8 = (s) => new TextEncoder().encode(s)
@@ -31,7 +33,7 @@ const secretFor = (...names) => sha256(utf8(names.join('\n')))
 
 // An identity with one root, registered with a witness of its own. `seed` names it: the same seed gives the same
 // keys. `clock` gives the time, in seconds, wherever a time is not passed.
-//   { identity, root, rootText, verifier, head(at), agent(options) }
+//   { identity, root, rootText, verifier, head(at), agent(options), handOff(options), witness: { url, witness, fetch } }
 // `verifier` is the part of a verifier's configuration that this identity and its witness fix: spread it into
 // `verifier({ ...id.verifier, audience, maxStaleness, maxClaimAge })`.
 export function testIdentity ({ seed = 'muid testing', rpId = 'id.test', origin = 'https://id.test', clock = wallClock, skew = 60, maxLifetime = 2_592_000 } = {}) {
@@ -46,7 +48,8 @@ export function testIdentity ({ seed = 'muid testing', rpId = 'id.test', origin 
     if (!r.ok) throw new Error(`muid/testing: the test witness refused ${what}: ${r.reason}`)
     return r
   }
-  let held = taken(w.admit(w.empty(identity), 'root', rootText), 'the root').held
+  // What the witness holds for this identity: one holding, whether it is changed here or through the service below.
+  let entry = { held: taken(w.admit(w.empty(identity), 'root', rootText), 'the root').held }
 
   // The root's assertion over `covers` (SPEC §6), as an authenticator that verified the user would give it.
   function assertion (covers) {
@@ -57,7 +60,38 @@ export function testIdentity ({ seed = 'muid testing', rpId = 'id.test', origin 
     return { covers, authenticator_data: b64u(authData), client_data_json: b64u(clientData), signature: b64u(signature) }
   }
 
-  const head = (at = clock()) => w.head(held, at)
+  const head = (at = clock()) => w.head(entry.held, at)
+
+  // The same witness as the service a worker fetches from, at `witness.url`. The object is what muid/worker takes:
+  // `enrol({ handOff, secret, ...who.witness })`, `request(enrolled, secret, options, who.witness)`.
+  // It holds this identity's records, the same ones `agent` and `revoke` change, and takes others' as any witness.
+  const others = new Map()
+  const queue = serial()
+  const holdings = {
+    async get (id) { return id === identity ? entry : others.get(id) },
+    async identities () { return [identity, ...others.keys()] },
+    update (id, step) {
+      return queue.run(id, async () => {
+        const r = await step(id === identity ? entry : others.get(id))
+        if (r.entry !== undefined) { if (id === identity) entry = r.entry; else others.set(id, r.entry) }
+        return r.value
+      })
+    }
+  }
+  const service = witnessService({ witness: w, holdings, log: memoryLog(), clock, headInterval: 0 })
+  const url = origin + '/witness/'
+  const fetchWitness = async (input, init) => {
+    const at = String(input)
+    if (!at.startsWith(url)) throw new TypeError(`muid/testing: the test witness is at ${url}, not ${at}`)
+    return service.handle(new Request('http://witness.test/' + at.slice(url.length), init))
+  }
+
+  // What the id page hands a worker whose key is `subject`: the delegation's payload and the root's assertion over
+  // it, as one line of JSON. The worker countersigns it (muid/worker's `enrol`).
+  function handOff ({ subject, aud, scopes, agent = 'worker', lifetime = 3600, at = clock() }) {
+    const d = seal('delegation', { agent, identity, membership: identity, root, subject, aud, scopes: [...new Set(scopes)].sort(), nbf: at, exp: at + lifetime })
+    return JSON.stringify({ payload: d.payload, root: assertion([d.id]) })
+  }
 
   // A worker authorised for `aud` with `scopes`: its delegation, logged by the witness, and its signed claims.
   //   { id, name, subject, agentId, delegation, logged, claim(options), records(options), revoke(at) }
@@ -67,8 +101,8 @@ export function testIdentity ({ seed = 'muid testing', rpId = 'id.test', origin 
     const d = seal('delegation', { agent: name, identity, membership: identity, root, subject, aud, scopes: [...new Set(scopes)].sort(), nbf: at, exp: at + lifetime })
     const consent = hex(ed25519.sign(concat(utf8('muid/v1/accept\n'), unhex(d.id)), secret))
     const delegation = wrap(d.payload, { root: assertion([d.id]), subject: consent })
-    const logging = taken(w.log(held, delegation, at), 'the delegation')
-    held = logging.held
+    const logging = taken(w.log(entry.held, delegation, at), 'the delegation')
+    entry = { held: logging.held }
     // A claim for one request: the method and URL the service receives, and its data. `nonce` and `contentDigest`
     // are given when the service checks them.
     const claim = ({ scope = scopes[0], method = 'POST', url, data = {}, at = clock(), nonce, contentDigest }) => {
@@ -83,12 +117,12 @@ export function testIdentity ({ seed = 'muid testing', rpId = 'id.test', origin 
     // The owner revokes this delegation: heads signed from `at` on list it.
     const revoke = (at = clock()) => {
       const r = seal('revocation', { identity, target: d.id, at })
-      held = taken(w.revoke(held, wrap(r.payload, { root, assertion: assertion([r.id]) }), at, delegation), 'the revocation').held
+      entry = { held: taken(w.revoke(entry.held, wrap(r.payload, { root, assertion: assertion([r.id]) }), at, delegation), 'the revocation').held }
     }
     return { id: d.id, name, subject, agentId: agentIdOf(identity, name), delegation, logged: logging.logged, claim, records, revoke }
   }
 
-  return { identity, root, rootText, verifier: { rpId, origin, witnessKeys, skew, maxLifetime }, head, agent }
+  return { identity, root, rootText, verifier: { rpId, origin, witnessKeys, skew, maxLifetime }, head, agent, handOff, witness: { url, witness: url, fetch: fetchWitness } }
 }
 
 // An in-memory transparency log with the interface of `tesseraLog` (append, checkpoint, inclusionProof): RFC 9162
