@@ -3225,6 +3225,77 @@ test('an application\'s request: it waits for an identity, fills the form and sh
   } finally { await t.close() }
 })
 
+test('an identity opened with a passkey this device has: only the identity\'s own, by the witness\'s records, and then used as one made here', { timeout: 180_000 }, async () => {
+  const t = await open()
+  try {
+    const rpId = 'localhost'
+    const a = await createIdentity(t.page)
+    const { credentials } = await t.cdp.send('WebAuthn.getCredentials', { authenticatorId: t.authenticatorId })
+    // Another device to which the passkey has synced: the same credential, none of the page's storage.
+    const b = await t.device()
+    await b.cdp.send('WebAuthn.addCredential', { authenticatorId: b.authenticatorId, credential: credentials[0] })
+    await b.page.waitForSelector('#create:not([hidden])')
+    // An id that is none is refused before the passkey is asked.
+    const before = await signCount(b)
+    await b.page.fill('#open-identity', 'x')
+    await b.page.click('#open-button')
+    await errorIs(b.page, 'a record id is 64 lowercase hex digits')
+    assert.equal(await signCount(b), before)
+    // An identity the witness does not know: said, and nothing kept.
+    await b.page.fill('#open-identity', 'ab'.repeat(32))
+    await b.page.click('#open-button')
+    await errorIs(b.page, 'the witness holds no record of this identity')
+    assert.equal(await held(b.page, 'root'), null)
+    // Its own: opened, kept as a registered root of its own identity, with the credential the platform used.
+    await b.page.fill('#open-identity', ` ${a.identity} `)
+    await b.page.click('#open-button')
+    await b.page.waitForSelector('#identity:not([hidden])')
+    await statusIs(b.page, 'Opened with your passkey.')
+    assert.equal(await b.page.textContent('#identity-id'), a.identity)
+    const kept = await held(b.page, 'root')
+    assert.deepEqual([kept.text, kept.identity, kept.registered, kept.joining, kept.credential], [a.text, a.identity, true, false, credentials[0].credentialId.replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '')])
+    assert.equal(await b.page.isHidden('#pending'), true, 'nothing to register')
+    assert.equal((await t.witnessGet(`/v1/identities/${a.identity}/records`)).roots.length, 1, 'the same root: nothing was added')
+    // And it acts for the identity as on the device that made it: a worker authorised there verifies.
+    await authorise(b.page)
+    await b.page.waitForSelector('#review-panel:not([hidden])')
+    await b.page.click('#sign')
+    await b.page.waitForSelector('#handoff:not([hidden])')
+    const h = JSON.parse(await b.page.inputValue('#handoff'))
+    const d = envelope.open(envelope.wrap(h.payload, { root: h.root, subject: '0'.repeat(128) }), 'delegation')
+    const consent = hex(ed25519.sign(Buffer.concat([Buffer.from('muid/v1/accept\n'), Buffer.from(d.id, 'hex')]), WORKER))
+    const c = delegationModule.checkDelegation(envelope.wrap(h.payload, { root: h.root, subject: consent }), { rootKey: rootModule.checkRoot(a.text, { rpId }).key, rpId, origin: t.site.origin, now: Math.floor(Date.now() / 1000), skew: 60, maxLifetime: 2_592_000 })
+    assert.equal(c.ok, true, JSON.stringify(c))
+
+    // A device whose passkey is another identity's opens nothing of this one, and keeps nothing.
+    const e = await t.device()
+    const mine = await createIdentity(e.page)
+    await drop(e.page, 'root')
+    await e.page.reload()
+    await e.page.waitForSelector('#create:not([hidden])')
+    await e.page.fill('#open-identity', a.identity)
+    await e.page.click('#open-button')
+    await errorIs(e.page, "that passkey is not one of this identity's")
+    assert.equal(await held(e.page, 'root'), null)
+    assert.equal(await e.page.isHidden('#create'), false)
+    // Its own identity it opens again.
+    await e.page.fill('#open-identity', mine.identity)
+    await e.page.click('#open-button')
+    await e.page.waitForSelector('#identity:not([hidden])')
+    assert.equal(await e.page.textContent('#identity-id'), mine.identity)
+    // A passkey refused (no user verification) is said, and nothing is kept.
+    const f = await t.device()
+    await f.cdp.send('WebAuthn.removeVirtualAuthenticator', { authenticatorId: f.authenticatorId })
+    const { authenticatorId } = await f.cdp.send('WebAuthn.addVirtualAuthenticator', { options: { protocol: 'ctap2', transport: 'internal', hasResidentKey: true, hasUserVerification: false, automaticPresenceSimulation: true } })
+    await f.cdp.send('WebAuthn.addCredential', { authenticatorId, credential: credentials[0] })
+    await f.page.fill('#open-identity', a.identity)
+    await f.page.click('#open-button')
+    await errorIs(f.page, 'The passkey request was cancelled.')
+    assert.equal(await held(f.page, 'root'), null)
+    assert.deepEqual(t.problems.filter((p) => !/status of 404/.test(p)), [])
+  } finally { await t.close() }
+})
+
 test('histories: two tabs, steps drawn at random, each judged by what the model states of every state', { timeout: 3_600_000 }, async () => {
   const t = await open({ init: HOLD_STORAGE })
   try {

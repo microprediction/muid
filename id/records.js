@@ -263,6 +263,20 @@ export function possessionId (record) {
   return hex(sha256(bytes))
 }
 
+// SPEC §8: an identity opened where its passkey is and its page's storage is not (a synced passkey on another
+// device, a browser whose data was cleared). The passkey signs the identity's possession value, which is no record's
+// id and signs nothing else; the root it belongs to is the one, among the root records the witness holds and the
+// roots of the identity's current membership, whose key made that assertion: { text, id, identity }. The assertion is
+// then discarded. Nothing is taken on anyone's word: a passkey that is none of the identity's opens nothing.
+export function opened ({ identity, roots, state, assertion, rpId, origin }) {
+  const record = possessionId(identity)
+  for (const text of roots) {
+    const r = checkRoot(text, { rpId })
+    if (r.ok && state.roots.includes(r.id) && checkRootAssertion(assertion, { record, rpId, origin, key: r.key }).ok) return { text, id: r.id, identity }
+  }
+  throw new Error("that passkey is not one of this identity's")
+}
+
 // What a party gives whoever would designate it: its root record and a salt it keeps. { root, key, salt,
 // commitment }; the commitment is all a designation shows of it.
 export function party (rootText, salt, rpId) {

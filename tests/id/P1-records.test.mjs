@@ -11,6 +11,7 @@ import * as wf from '../witness/fixtures.mjs'
 import { root as rootModule, assertion as assertionModule, delegation as delegationModule, envelope } from '../impl.mjs'
 import { challengeFor, authData, clientData, signOver, sha256 } from '../assertion/helpers.mjs'
 
+const { opened, possessionId } = records
 const { rootRecord, challenge, assertion, delegation, handOff, b64u, fromB64u, MAX_LIFETIME, currentMembership, addRoot, rootSigned, changeToSign, storedWorkers, remember, retired, renewals, MAX_WORKERS, MAX_BATCH } = records
 const hex = (b) => Buffer.from(b).toString('hex')
 const RP_ID = 'localhost'
@@ -428,4 +429,33 @@ test('a request from an application: read from the fragment whole or refused; it
   assert.equal(to.startsWith('https://app.example/drive/?a=1#muid='), true)
   assert.deepEqual(JSON.parse(Buffer.from(to.split('#muid=')[1], 'base64url').toString('utf8')), { v: 1, state: 'S_t-9', handOff: '{"payload":"p","root":{}} é' })
   assert.match(to.split('#muid=')[1], /^[A-Za-z0-9_-]+$/)
+})
+
+test('an identity opened with its passkey: only a root of its current membership, by an assertion over its possession value', () => {
+  const r = rootRecord(SPKI, -7, RP_ID)
+  const OTHER_SECRET = Uint8Array.from(sha256('id page test other passkey'))
+  const other = rootRecord(Buffer.concat([SPKI.subarray(0, 26), p256.getPublicKey(OTHER_SECRET, false)]), -7, RP_ID)
+  const signedBy = (secret, covers, { origin = ORIGIN, rpId = RP_ID } = {}) => {
+    const ad = authData({ rpId, flags: 0x05 })
+    const cdj = Buffer.from(clientData({ challenge: challengeFor(covers), origin }))
+    return assertion(covers, { authenticatorData: ad, clientDataJSON: cdj, signature: signOver(ad, cdj, secret) })
+  }
+  const value = possessionId(r.identity)
+  const ctx = { identity: r.identity, roots: [other.text, r.text], state: { roots: [r.id] }, rpId: RP_ID, origin: ORIGIN }
+  assert.deepEqual(opened({ ...ctx, assertion: signedBy(SECRET, [value]) }), { text: r.text, id: r.id, identity: r.identity })
+  assert.deepEqual(opened({ ...ctx, roots: ['x', 7, r.text], assertion: signedBy(SECRET, [value]) }).id, r.id, 'what is no root record is passed over')
+  const not = { message: "that passkey is not one of this identity's" }
+  // Another passkey; one that signed the identity's id itself, or another identity's possession value; a root the
+  // witness holds that is not in the current membership; another origin or rp ID.
+  assert.throws(() => opened({ ...ctx, assertion: signedBy(OTHER_SECRET, [value]) }), not)
+  assert.throws(() => opened({ ...ctx, state: { roots: [r.id, other.id] }, assertion: signedBy(OTHER_SECRET, [possessionId(other.identity)]) }), not)
+  assert.throws(() => opened({ ...ctx, assertion: signedBy(SECRET, [r.identity]) }), not)
+  assert.throws(() => opened({ ...ctx, state: { roots: [other.id] }, assertion: signedBy(SECRET, [value]) }), not)
+  assert.throws(() => opened({ ...ctx, roots: [other.text], assertion: signedBy(SECRET, [value]) }), not)
+  assert.throws(() => opened({ ...ctx, assertion: signedBy(SECRET, [value], { origin: 'http://localhost:9090' }) }), not)
+  assert.throws(() => opened({ ...ctx, assertion: signedBy(SECRET, [value], { rpId: 'other.example' }) }), not)
+  assert.throws(() => opened({ ...ctx, roots: [], assertion: signedBy(SECRET, [value]) }), not)
+  // The other passkey, when it is a root of the membership too, opens the identity as itself.
+  assert.equal(opened({ ...ctx, state: { roots: [r.id, other.id] }, assertion: signedBy(OTHER_SECRET, [value]) }).id, other.id)
+  assert.throws(() => opened({ ...ctx, identity: 'x', assertion: signedBy(SECRET, [value]) }), { message: 'a record id is 64 lowercase hex digits' })
 })

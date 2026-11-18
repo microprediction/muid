@@ -1035,6 +1035,14 @@ its own), and a registration or a co-signature the witness took marks only the r
 - The witness hard-codes its issuers and their signing-key endpoints, follows no discovery redirect, and uses a
   distinct redirect URI per provider (GitHub returns no `iss`).
 
+**An identity opened where its passkey is.** A passkey may reach a device whose page has never held its root: one
+synced by the platform's password manager, or a browser whose data was cleared. Given the identity's id, the page
+asks the platform for any passkey of this site to sign the identity's possession value (`possessionId`, which is no
+record's id and signs nothing else), reads the identity's root records from the witness, and keeps the root, among
+those of its current membership, whose key made that assertion, with the credential the platform used. It is the
+same root of the same identity, not a new one: nothing is submitted, and nothing waits. A passkey that is none of the
+identity's opens nothing. The assertion is then discarded.
+
 **A request from an application.** An application may send the person to the page with its request in the
 fragment: `#muid-request=` and the base64url of `{ v: 1, agent, subject, aud, scopes, days, return, state }`. The
 request only fills the Authorise form, once the page has an identity (one who has none makes it first): the page says
