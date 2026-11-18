@@ -1053,6 +1053,17 @@ the assertion verifies under it (as opening by id). Then it reviews and signs. I
 offered to make one, which then signs. A root added by joining is not found this way; its identity is opened by id.
 What is signed is the delegation the request's fields make, under the identity so found, made or held.
 
+**An application's secret.** A request may also give `seal_to`, the uncompressed P-256 public key of a key pair the
+application's page holds. It asks for a secret of its own: the passkey's prf output (WebAuthn's prf extension) for the
+input SHA-256 of `muid/v1/app-secret\n` and the origin of the request's return address, evaluated in the same
+assertion that signs the delegation. It is the same each time and on every device the passkey is synced to, another
+for another origin or another passkey, and only a holder of the passkey can make it. It is sealed to `seal_to`
+(ECDH P-256, HKDF-SHA-256 with `muid/v1/app-secret\n` and the state as info, AES-256-GCM with the origin as associated
+data), so that nothing but the application's page can read it on its way through the address bar, and given in the
+answer as `secret`: `{ epk, iv, ct }`, or null if the person declined (the view asks, ticked) or the passkey gives no
+prf. It is the application's convenience for its own storage and no credential: no verifier reads it, and nothing
+the witness or a relying party decides depends on it. Passkeys are made with prf asked for.
+
 **A request from an application.** An application may send the person to the page with its request in the
 fragment: `#muid-request=` and the base64url of `{ v: 1, agent, subject, aud, scopes, days, return, state }`. The
 request only fills the Authorise form, once the page has an identity (one who has none makes it first): the page says

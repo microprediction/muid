@@ -107,6 +107,19 @@ export function delegation ({ agent, identity, membership, root, subject, aud, s
 // origin of its return address, to show); null for a fragment that is no request; anything else is refused.
 const REQUEST = '#muid-request='
 const REQUEST_KEYS = 'agent,aud,days,return,scopes,state,subject,v'
+const SECRET_KEYS = 'agent,aud,days,return,scopes,seal_to,state,subject,v'
+const B64U = /^[A-Za-z0-9_-]+$/
+// A P-256 public key as the application gives it (base64url of its uncompressed point), or undefined.
+function sealKey (text) {
+  if (typeof text !== 'string' || text.length !== 87 || !B64U.test(text)) return undefined
+  try {
+    const bytes = fromB64u(text)
+    p256.Point.fromBytes(bytes).assertValidity()
+    return bytes[0] === 4 ? text : undefined
+  } catch {
+    return undefined
+  }
+}
 const MAX_REQUEST = 8192
 const short = (x) => typeof x === 'string' && x.length >= 1 && x.length <= 64
 export function readRequest (fragment) {
@@ -120,17 +133,43 @@ export function readRequest (fragment) {
   } catch {
     throw refused
   }
-  if (Array.isArray(r) || Object.keys(r).sort().join() !== REQUEST_KEYS || r.v !== 1 || !short(r.agent) || typeof r.subject !== 'string' || !ID.test(r.subject) ||
+  const keys = Array.isArray(r) ? '' : Object.keys(r).sort().join()
+  if ((keys !== REQUEST_KEYS && keys !== SECRET_KEYS) || (keys === SECRET_KEYS && sealKey(r.seal_to) === undefined) || r.v !== 1 || !short(r.agent) || typeof r.subject !== 'string' || !ID.test(r.subject) ||
     typeof r.aud !== 'string' || r.aud.length > 2048 || !Array.isArray(r.scopes) || r.scopes.length < 1 || r.scopes.length > 16 || !r.scopes.every(short) ||
     !Number.isSafeInteger(r.days) || r.days < 1 || r.days > 7 || typeof r.state !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(r.state) ||
     // The return address as the browser would go to it, and nothing a reader could mistake: https (http at localhost
     // alone), no name or password, no fragment of its own.
     r.return.length > 2048 || to.href !== r.return || (to.protocol !== 'https:' && !(to.protocol === 'http:' && to.hostname === 'localhost')) ||
     to.username !== '' || to.password !== '' || r.return.includes('#')) throw refused
-  return { agent: r.agent, subject: r.subject, aud: r.aud, scopes: [...r.scopes], days: r.days, return: r.return, state: r.state, from: to.origin }
+  const read = { agent: r.agent, subject: r.subject, aud: r.aud, scopes: [...r.scopes], days: r.days, return: r.return, state: r.state, from: to.origin }
+  return keys === SECRET_KEYS ? { ...read, sealTo: r.seal_to } : read
 }
-// Where the page goes once the request's worker is authorised: the return address, with the hand-off in its fragment.
-export const answer = (request, handOff) => request.return + '#muid=' + b64u(new TextEncoder().encode(JSON.stringify({ v: 1, state: request.state, handOff })))
+// Where the page goes once the request's worker is authorised: the return address, with the hand-off in its
+// fragment, and the application's secret, sealed, or null, when the request asked for one.
+export function answer (request, handOff, secret) {
+  const a = { v: 1, state: request.state, handOff }
+  if (request.sealTo !== undefined) a.secret = secret ?? null
+  return request.return + '#muid=' + b64u(new TextEncoder().encode(JSON.stringify(a)))
+}
+
+// SPEC §8: an application's secret is the passkey's prf output for an input of the application's own origin: the
+// same wherever the passkey is, another for another origin or another passkey.
+const SECRET_LABEL = 'muid/v1/app-secret\n'
+export const secretInput = (origin) => sha256(new TextEncoder().encode(SECRET_LABEL + origin))
+// The secret sealed to the key the request gave (ECDH P-256, HKDF-SHA-256, AES-256-GCM), so that nothing but the
+// application's page that holds the private key can read it on its way through the address bar:
+// { epk, iv, ct }, each base64url.
+export async function sealSecret (secret, request, subtle = globalThis.crypto.subtle) {
+  const text = new TextEncoder()
+  const app = await subtle.importKey('raw', fromB64u(request.sealTo), { name: 'ECDH', namedCurve: 'P-256' }, false, [])
+  const mine = await subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, false, ['deriveBits'])
+  const shared = await subtle.deriveBits({ name: 'ECDH', public: app }, mine.privateKey, 256)
+  const hkdf = await subtle.importKey('raw', shared, 'HKDF', false, ['deriveKey'])
+  const key = await subtle.deriveKey({ name: 'HKDF', hash: 'SHA-256', salt: new Uint8Array(0), info: text.encode(SECRET_LABEL + request.state) }, hkdf, { name: 'AES-GCM', length: 256 }, false, ['encrypt'])
+  const iv = globalThis.crypto.getRandomValues(new Uint8Array(12))
+  const ct = await subtle.encrypt({ name: 'AES-GCM', iv, additionalData: text.encode(request.from) }, key, secret)
+  return { epk: b64u(await subtle.exportKey('raw', mine.publicKey)), iv: b64u(iv), ct: b64u(ct) }
+}
 
 // Decision 3's batched renewal. The page remembers each worker it authorised (what the user entered, never a secret),
 // and builds the delegations of up to MAX_BATCH of them again for one assertion (W0 covers at most eight records).

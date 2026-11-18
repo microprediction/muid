@@ -5,7 +5,7 @@
 // record and the credential id are kept in this browser only. The workers it authorised are remembered here too, so
 // that one assertion renews up to eight of them at once (decision 3).
 import { openStore } from './store.js'
-import { rootRecord, challenge, assertion, delegation, handOff, readRequest, answer, opened, firstRootIdentities, b64u, fromB64u, currentMembership, addRoot, rootSigned, changeToSign, fingerprint, storedRoot, cosignedIdentity, storedWorkers, remember, retired, renewals, cancel, maturesAt, card, kept, newSalt, fromCard, majority, possessionId, shows, designate, undesignate, designated, recoveryChange, MAX_SALTS, recovery, rescue, partySigned } from './records.js'
+import { rootRecord, challenge, assertion, delegation, handOff, readRequest, answer, opened, firstRootIdentities, secretInput, sealSecret, b64u, fromB64u, currentMembership, addRoot, rootSigned, changeToSign, fingerprint, storedRoot, cosignedIdentity, storedWorkers, remember, retired, renewals, cancel, maturesAt, card, kept, newSalt, fromCard, majority, possessionId, shows, designate, undesignate, designated, recoveryChange, MAX_SALTS, recovery, rescue, partySigned } from './records.js'
 
 const $ = (id) => document.getElementById(id)
 const meta = (name) => document.querySelector(`meta[name="${name}"]`).content
@@ -176,6 +176,9 @@ function show () {
     review()
   }
   $('request-unread').hidden = unread === undefined
+  $('secret-ask').hidden = request?.sealTo === undefined || root?.joining === true
+  $('request-secret').hidden = request?.sealTo === undefined
+  if (request?.sealTo !== undefined) $('secret-host').textContent = new URL(request.from).host
   // R11: the recovery under notice, as the witness's records last gave it for the root now held (only a root of its
   // own identity is asked about: not none, and not one that is joining).
   const under = noticed !== null && noticed.root === root?.id ? noticed.state : null
@@ -283,13 +286,15 @@ async function notice () {
 }
 
 // One user-verified assertion by this identity's own passkey over the records in `covers` (W1).
-async function sign (covers) {
+async function signed (covers, extensions) {
   const a = await navigator.credentials.get({ publicKey: {
     rpId, challenge: challenge(covers), userVerification: 'required',
     allowCredentials: [{ type: 'public-key', id: fromB64u(root.credential) }],
+    ...(extensions === undefined ? {} : { extensions }),
   } })
-  return assertion(covers, a.response)
+  return { assertion: assertion(covers, a.response), extensions: a.getClientExtensionResults() }
 }
+const sign = async (covers) => (await signed(covers)).assertion
 
 // Whether another tab changed the remembered workers since this one last read them (it may not have been told yet):
 // if so, it is brought up to date with nothing left to sign, since what was reviewed was reviewed against the list
@@ -346,6 +351,8 @@ async function create (joining) {
       pubKeyCredParams: [{ type: 'public-key', alg: -7 }],
       authenticatorSelection: { residentKey: 'required', userVerification: 'required' },
       attestation: 'none',
+      // So that the passkey can give an application its secret (SPEC §8), where the platform needs it asked now.
+      extensions: { prf: {} },
     } })
     const r = rootRecord(c.response.getPublicKey(), c.response.getPublicKeyAlgorithm(), rpId)
     // Kept before the witness is asked, so that a failed registration is retried with this root, not a new passkey.
@@ -419,8 +426,13 @@ async function signDelegation () {
   const d = pending.delegation
   if (d === null || lapsed([d]) || await changedElsewhere()) return
   $('error').textContent = ''
+  // The application that asked for this worker's key, and for a secret, is given it from the same assertion, if the
+  // person leaves it ticked.
+  const asked = request !== null && request.subject === d.body.subject
+  const secret = asked && request.sealTo !== undefined && $('give-secret').checked
   try {
-    const a = await sign([d.id])
+    const s = await signed([d.id], secret ? { prf: { eval: { first: secretInput(request.from) } } } : undefined)
+    const a = s.assertion
     if (pending.delegation !== d || lapsed([d])) return // withdrawn while the passkey was asked
     // Remembered for renewal: what was signed, with its lifetime, never the signature. Remembered first, and only
     // if the workers are still as they were reviewed: a worker is handed nothing if the change (which may retire
@@ -432,7 +444,10 @@ async function signDelegation () {
     $('handoff').value = line
     $('handoff').hidden = false
     // The application that asked for this worker's key is answered, at its own address; any other is not.
-    if (request !== null && request.subject === d.body.subject) location.assign(answer(request, line))
+    if (asked) {
+      const first = secret ? s.extensions.prf?.results?.first : undefined
+      location.assign(answer(request, line, first === undefined ? null : await sealSecret(new Uint8Array(first), request)))
+    }
   } catch (e) { fail(e) }
 }
 $('sign').addEventListener('click', () => signDelegation())

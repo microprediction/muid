@@ -3406,6 +3406,82 @@ test('the sign-in view: one arriving with a request sees what it asks and one bu
   } finally { await t.close() }
 })
 
+test('an application\'s secret: from the passkey that signs, sealed to the application\'s key; the same each time, another for another application, none when declined or not possible', { timeout: 180_000 }, async () => {
+  const t = await open()
+  try {
+    const subtle = globalThis.crypto.subtle
+    const appKey = await subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, false, ['deriveBits'])
+    const sealTo = Buffer.from(await subtle.exportKey('raw', appKey.publicKey)).toString('base64url')
+    const request = { v: 1, agent: 'drive', subject: SUBJECT, aud: 'https://node.example', scopes: ['store.blob'], days: 7, return: 'https://app.example/drive/', state: 'S-1', seal_to: sealTo }
+    const link = (r) => t.site.origin + '/id/#muid-request=' + Buffer.from(JSON.stringify(r)).toString('base64url')
+    const app = (context) => Promise.all(['https://app.example/**', 'https://other.example/**'].map((u) => context.route(u, (route) => route.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><title>app</title>' }))))
+    // A device whose authenticator gives prf, as Google Password Manager and iCloud Keychain do.
+    const withPrf = async (d, credential) => {
+      await d.cdp.send('WebAuthn.removeVirtualAuthenticator', { authenticatorId: d.authenticatorId })
+      const { authenticatorId } = await d.cdp.send('WebAuthn.addVirtualAuthenticator', { options: { protocol: 'ctap2', ctap2Version: 'ctap2_1', transport: 'internal', hasResidentKey: true, hasUserVerification: true, isUserVerified: true, hasPrf: true, automaticPresenceSimulation: true } })
+      if (credential !== undefined) await d.cdp.send('WebAuthn.addCredential', { authenticatorId, credential })
+      d.authenticatorId = authenticatorId
+      await app(d.context)
+      return d
+    }
+    // Signs in at the view, and opens what comes back with the application's key.
+    const signIn = async (page, r, { untick = false } = {}) => {
+      await page.goto('about:blank')
+      await page.goto(link(r))
+      await page.waitForSelector('#signin:not([hidden])')
+      assert.equal(await page.isHidden('#secret-ask'), false)
+      if (untick) await page.uncheck('#give-secret')
+      await page.click('#signin-button')
+      // No passkey here: the view offers to make one.
+      const gone = page.waitForURL((u) => u.origin !== t.site.origin).then(() => 'gone')
+      if (await Promise.race([gone, page.waitForSelector('#signin-new:not([hidden])').then(() => 'new', () => 'gone')]) === 'new') await page.click('#signin-create')
+      await gone
+      const back = JSON.parse(Buffer.from(page.url().split('#muid=')[1], 'base64url').toString('utf8'))
+      assert.deepEqual(Object.keys(back), ['v', 'state', 'handOff', 'secret'])
+      if (back.secret === null) return null
+      const box = back.secret
+      const epk = await subtle.importKey('raw', Buffer.from(box.epk, 'base64url'), { name: 'ECDH', namedCurve: 'P-256' }, false, [])
+      const shared = await subtle.deriveBits({ name: 'ECDH', public: epk }, appKey.privateKey, 256)
+      const hkdf = await subtle.importKey('raw', shared, 'HKDF', false, ['deriveKey'])
+      const aes = await subtle.deriveKey({ name: 'HKDF', hash: 'SHA-256', salt: new Uint8Array(0), info: new TextEncoder().encode('muid/v1/app-secret\n' + r.state) }, hkdf, { name: 'AES-GCM', length: 256 }, false, ['decrypt'])
+      return Buffer.from(await subtle.decrypt({ name: 'AES-GCM', iv: Buffer.from(box.iv, 'base64url'), additionalData: new TextEncoder().encode(new URL(r.return).origin) }, aes, Buffer.from(box.ct, 'base64url'))).toString('hex')
+    }
+    const a = await withPrf(t)
+    // A newcomer: the passkey is made, signs, and the application is given its secret, 32 bytes.
+    await t.page.waitForSelector('#create:not([hidden])')
+    const first = await signIn(t.page, request)
+    assert.match(first, /^[0-9a-f]{64}$/)
+    // Again: the same secret. Declined: none, and the sign-in goes through all the same.
+    assert.equal(await signIn(t.page, { ...request, state: 'S-2' }), first)
+    assert.equal(await signIn(t.page, { ...request, state: 'S-3' }, { untick: true }), null)
+    // Another application: another secret.
+    const other = await signIn(t.page, { ...request, state: 'S-4', return: 'https://other.example/' })
+    assert.match(other, /^[0-9a-f]{64}$/)
+    assert.notEqual(other, first)
+    // The passkey copied to another device: found there and signed in. (Chrome's virtual authenticator does not copy
+    // the credential's prf seed with it, so here it gives no secret; a platform that syncs passkeys syncs the seed,
+    // and gives the same secret. That is what the prf input being of the origin alone, with nothing of the device in
+    // it, is for; it cannot be shown with this authenticator.)
+    const { credentials } = await t.cdp.send('WebAuthn.getCredentials', { authenticatorId: a.authenticatorId })
+    const b = await withPrf(await t.device(), credentials[0])
+    assert.equal(await signIn(b.page, { ...request, state: 'S-5' }), null)
+    // A passkey that cannot give one (no prf): the application is told so, and is signed in all the same.
+    const c = await t.device()
+    await app(c.context)
+    assert.equal(await signIn(c.page, { ...request, state: 'S-6' }), null)
+    // Not asked for: nothing of a secret in the view or the answer.
+    const { seal_to: _, ...plain } = request
+    await t.page.goto('about:blank')
+    await t.page.goto(link({ ...plain, state: 'S-7' }))
+    await t.page.waitForSelector('#signin:not([hidden])')
+    assert.equal(await t.page.isHidden('#secret-ask'), true)
+    await t.page.click('#signin-button')
+    await t.page.waitForURL((u) => u.origin === 'https://app.example')
+    assert.deepEqual(Object.keys(JSON.parse(Buffer.from(t.page.url().split('#muid=')[1], 'base64url').toString('utf8'))), ['v', 'state', 'handOff'])
+    assert.deepEqual(t.problems.filter((p) => !/status of (404|503)/.test(p)), [])
+  } finally { await t.close() }
+})
+
 test('histories: two tabs, steps drawn at random, each judged by what the model states of every state', { timeout: 3_600_000 }, async () => {
   const t = await open({ init: HOLD_STORAGE })
   try {
