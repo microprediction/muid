@@ -5,7 +5,7 @@
 // record and the credential id are kept in this browser only. The workers it authorised are remembered here too, so
 // that one assertion renews up to eight of them at once (decision 3).
 import { openStore } from './store.js'
-import { rootRecord, challenge, assertion, delegation, handOff, readRequest, answer, opened, firstRootIdentities, secretInput, sealSecret, b64u, fromB64u, currentMembership, addRoot, rootSigned, changeToSign, fingerprint, storedRoot, cosignedIdentity, storedWorkers, remember, retired, renewals, cancel, maturesAt, card, kept, newSalt, fromCard, majority, possessionId, shows, designate, undesignate, designated, recoveryChange, MAX_SALTS, recovery, rescue, partySigned } from './records.js'
+import { rootRecord, challenge, assertion, delegations, handOff, readRequest, audiencesOf, answer, opened, firstRootIdentities, secretInput, sealSecret, b64u, fromB64u, currentMembership, addRoot, rootSigned, changeToSign, fingerprint, storedRoot, cosignedIdentity, storedWorkers, remember, retired, renewals, cancel, maturesAt, card, kept, newSalt, fromCard, majority, possessionId, shows, designate, undesignate, designated, recoveryChange, MAX_SALTS, recovery, rescue, partySigned } from './records.js'
 
 const $ = (id) => document.getElementById(id)
 const meta = (name) => document.querySelector(`meta[name="${name}"]`).content
@@ -165,7 +165,7 @@ function show () {
     $('request-from').textContent = request.from
     $('agent').value = request.agent
     $('subject').value = request.subject
-    $('aud').value = request.aud
+    $('aud').value = audiencesOf(request).join(' ')
     $('scopes').value = request.scopes.join(' ')
     $('days').value = String(request.days)
   }
@@ -219,11 +219,12 @@ function signinView (joining) {
   for (const id of ['create', 'joining', 'identity', 'add-root', 'authorise', 'recovery', 'party', 'renew', 'request-waiting', 'request']) $(id).hidden = true
   $('signin-title').textContent = `${host(request.from)} asks to act for you`
   const days = request.days === 1 ? '1 day' : `${request.days} days`
-  $('signin-what').textContent = `It will be able to ${request.scopes.join(', ')} at ${host(request.aud)}, under the name ${request.agent}, for ${days}, and nothing else.` +
+  const at = new Intl.ListFormat('en', { type: 'conjunction' }).format(audiencesOf(request).map(host))
+  $('signin-what').textContent = `It will be able to ${request.scopes.join(', ')} at ${at}, under the name ${request.agent}, for ${days}, and nothing else.` +
     (root === null || joining ? ' You sign in with a passkey: the one you already have for this page, or a new one.' : '')
   $('signin-button').textContent = root === null || joining ? 'Continue with a passkey' : 'Sign in with your passkey'
   $('signin-agent').textContent = request.agent
-  $('signin-aud').textContent = request.aud
+  $('signin-aud').textContent = audiencesOf(request).join(' ')
   $('signin-scopes').textContent = [...new Set(request.scopes)].sort().join(' ')
   $('signin-exp').textContent = `${days} from when you sign`
   $('signin-subject').textContent = request.subject
@@ -403,14 +404,17 @@ async function review () {
   const asked = withdrawals
   try {
     // Read before the witness is asked: what is shown is what was in the fields when Review was pressed.
-    const entered = { agent: $('agent').value.trim(), subject: $('subject').value.trim(), aud: $('aud').value.trim(),
+    // One audience or several, separated by spaces: one delegation to each, signed by one assertion (W0).
+    const auds = $('aud').value.trim().split(/\s+/)
+    const entered = { agent: $('agent').value.trim(), subject: $('subject').value.trim(),
       scopes: $('scopes').value.trim().split(/\s+/), lifetime: Math.round(Number($('days').value) * 86_400) }
     const current = await membership()
     if (asked !== withdrawals) return // withdrawn while the witness was asked
-    const d = delegation({ ...entered, identity: root.identity, membership: current, root: root.id, now: Math.floor(Date.now() / 1000) })
-    pending.delegation = d
+    const r = delegations(auds, { ...entered, identity: root.identity, membership: current, root: root.id, now: Math.floor(Date.now() / 1000) })
+    pending.delegation = r
+    const d = r.delegations[0] // the others differ from it in their audience alone
     $('show-agent').textContent = d.body.agent
-    $('show-aud').textContent = d.body.aud
+    $('show-aud').textContent = r.delegations.map((x) => x.body.aud).join(' ')
     $('show-scopes').textContent = d.body.scopes.join(' ')
     $('show-exp').textContent = new Date(d.body.exp * 1000).toISOString()
     $('show-subject').textContent = d.body.subject
@@ -423,32 +427,33 @@ async function review () {
 $('review').addEventListener('click', () => review())
 
 async function signDelegation () {
-  const d = pending.delegation
-  if (d === null || lapsed([d]) || await changedElsewhere()) return
+  const r = pending.delegation
+  if (r === null || lapsed(r.delegations) || await changedElsewhere()) return
+  const d = r.delegations[0]
   $('error').textContent = ''
   // The application that asked for this worker's key, and for a secret, is given it from the same assertion, if the
   // person leaves it ticked.
   const asked = request !== null && request.subject === d.body.subject
   const secret = asked && request.sealTo !== undefined && $('give-secret').checked
   try {
-    const s = await signed([d.id], secret ? { prf: { eval: { first: secretInput(request.from) } } } : undefined)
+    const s = await signed(r.covers, secret ? { prf: { eval: { first: secretInput(request.from) } } } : undefined)
     const a = s.assertion
-    if (pending.delegation !== d || lapsed([d])) return // withdrawn while the passkey was asked
+    if (pending.delegation !== r || lapsed(r.delegations)) return // withdrawn while the passkey was asked
     // Remembered for renewal: what was signed, with its lifetime, never the signature. Remembered first, and only
     // if the workers are still as they were reviewed: a worker is handed nothing if the change (which may retire
     // its agent's old key) was not saved.
-    const { agent, subject, aud, scopes, nbf, exp } = d.body
-    if (await keepWorkers((list) => remember(list, { agent, subject, aud, scopes, lifetime: exp - nbf }), seen, () => pending.delegation === d) !== 'saved') return
-    if (pending.delegation !== d || lapsed([d])) return // withdrawn, or expired, while it was saved
-    const line = handOff(d.payload, a)
-    $('handoff').value = line
+    const given = r.delegations.map(({ body: { agent, subject, aud, scopes, nbf, exp } }) => ({ agent, subject, aud, scopes, lifetime: exp - nbf }))
+    if (await keepWorkers((list) => given.reduce((l, w) => remember(l, w), list), seen, () => pending.delegation === r) !== 'saved') return
+    if (pending.delegation !== r || lapsed(r.delegations)) return // withdrawn, or expired, while it was saved
+    const lines = r.delegations.map((x) => handOff(x.payload, a)) // in the order of the audiences
+    $('handoff').value = lines.join('\n')
     $('handoff').hidden = false
     // The application that asked for this worker's key is answered, at its own address; any other is not.
     if (asked) {
       // A browser that cannot evaluate prf may leave its entry out, which Chrome never does when it was asked for.
       // Stryker disable next-line OptionalChaining: equivalent in Chrome, see above
       const first = secret ? s.extensions.prf?.results?.first : undefined
-      location.assign(answer(request, line, first === undefined ? null : await sealSecret(new Uint8Array(first), request)))
+      location.assign(answer(request, lines, first === undefined ? null : await sealSecret(new Uint8Array(first), request)))
     }
   } catch (e) { fail(e) }
 }

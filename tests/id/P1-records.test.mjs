@@ -425,10 +425,51 @@ test('a request from an application: read from the fragment whole or refused; it
   assert.throws(() => readRequest(fragment(R) + 'A'.repeat(8193 - fragment(R).length)), refused)
   assert.equal(fragment(R).length < 8192, true)
   // The answer: the return address as given, and in its fragment the state and the hand-off, a line of text.
-  const to = answer(readRequest(fragment(R)), '{"payload":"p","root":{}} é')
+  const to = answer(readRequest(fragment(R)), ['{"payload":"p","root":{}} é'])
   assert.equal(to.startsWith('https://app.example/drive/?a=1#muid='), true)
   assert.deepEqual(JSON.parse(Buffer.from(to.split('#muid=')[1], 'base64url').toString('utf8')), { v: 1, state: 'S_t-9', handOff: '{"payload":"p","root":{}} é' })
   assert.match(to.split('#muid=')[1], /^[A-Za-z0-9_-]+$/)
+})
+
+test('a request for several audiences: `auds` in place of `aud`, 1 to 8 each once; answered with a hand-off for each, in its order', async () => {
+  const { readRequest, answer, audiencesOf, delegations, MAX_BATCH } = records
+  const { aud, ...R } = { v: 1, agent: 'drive', subject: SUBJECT, aud: 'https://node.example', scopes: ['store.blob'], days: 7, return: 'https://app.example/drive/', state: 'S-1' }
+  const fragment = (r) => '#muid-request=' + Buffer.from(JSON.stringify(r)).toString('base64url')
+  const AUDS = ['https://b.example', 'https://a.example']
+  const { v, ...asked } = R
+  assert.deepEqual(readRequest(fragment({ ...R, auds: AUDS })), { ...asked, auds: AUDS, from: 'https://app.example' })
+  assert.equal('aud' in readRequest(fragment({ ...R, auds: AUDS })), false)
+  const eight = Array.from({ length: MAX_BATCH }, (_, i) => `https://s${i}.example`)
+  for (const auds of [['https://a.example'], eight, [''], ['a'.repeat(2048)]]) assert.deepEqual(readRequest(fragment({ ...R, auds })).auds, auds)
+  assert.notEqual(readRequest(fragment({ ...R, auds: AUDS })).auds, AUDS)
+  // With the secret too.
+  const app = await globalThis.crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, false, ['deriveBits'])
+  const sealTo = Buffer.from(await globalThis.crypto.subtle.exportKey('raw', app.publicKey)).toString('base64url')
+  const sealed = readRequest(fragment({ ...R, auds: AUDS, seal_to: sealTo }))
+  assert.deepEqual([sealed.auds, sealed.sealTo], [AUDS, sealTo])
+  const refused = { message: 'that request is not one this page can read' }
+  for (const bad of [{ ...R }, { ...R, aud, auds: AUDS }, { ...R, auds: [] }, { ...R, auds: [...eight, 'https://s8.example'] }, { ...R, auds: ['https://a.example', 'https://a.example'] },
+    { ...R, auds: 'https://a.example' }, { ...R, auds: [7] }, { ...R, auds: ['a'.repeat(2049)] }, { ...R, auds: null }, { ...R, auds: { 0: 'https://a.example', length: 1 } }, { ...R, aud: 7 }]) {
+    assert.throws(() => readRequest(fragment(bad)), refused, JSON.stringify(bad).slice(0, 120))
+  }
+  assert.deepEqual(audiencesOf(readRequest(fragment({ ...R, auds: AUDS }))), AUDS)
+  assert.deepEqual(audiencesOf(readRequest(fragment({ ...R, aud }))), [aud])
+  // The answer: `handOffs`, one line for each audience in the request's order, and no `handOff`.
+  const read = (to) => JSON.parse(Buffer.from(to.split('#muid=')[1], 'base64url').toString('utf8'))
+  assert.deepEqual(read(answer(readRequest(fragment({ ...R, auds: AUDS })), ['h1', 'h2'])), { v: 1, state: 'S-1', handOffs: ['h1', 'h2'] })
+  assert.deepEqual(read(answer(sealed, ['h1', 'h2'])), { v: 1, state: 'S-1', handOffs: ['h1', 'h2'], secret: null })
+  // One delegation for each audience, identical but for it, in its order; their ids sorted for one assertion.
+  const root = rootRecord(SPKI, -7, RP_ID)
+  const fields = { agent: 'drive', subject: SUBJECT, scopes: ['store.blob'], lifetime: 600, identity: root.identity, membership: root.identity, root: root.id, now: NOW }
+  const r = delegations(AUDS, fields)
+  assert.deepEqual(r.delegations.map((d) => d.body.aud), AUDS)
+  for (const d of r.delegations) assert.deepEqual({ ...d.body, aud: '' }, { ...r.delegations[0].body, aud: '' })
+  assert.deepEqual(r.covers, r.delegations.map((d) => d.id).sort())
+  assert.equal(delegations(eight, fields).covers.length, MAX_BATCH)
+  assert.throws(() => delegations([], fields), { message: `name 1 to ${MAX_BATCH} audiences` })
+  assert.throws(() => delegations([...eight, 'https://s8.example'], fields), { message: `name 1 to ${MAX_BATCH} audiences` })
+  assert.throws(() => delegations(['https://a.example', 'https://a.example'], fields), { message: 'an audience is named twice' })
+  assert.throws(() => delegations(['https://a.example', 'a.example'], fields), { message: 'the audience must be an origin, such as https://app.example' })
 })
 
 test('an identity opened with its passkey: only a root of its current membership, by an assertion over its possession value', () => {
@@ -480,8 +521,8 @@ test('an application\'s secret: asked for by a key to seal it to, from the prf o
   // The answer carries it, sealed, or null; and nothing of it when it was not asked for.
   const asked = readRequest(fragment({ ...R, seal_to: sealTo }))
   const read = (to) => JSON.parse(Buffer.from(to.split('#muid=')[1], 'base64url').toString('utf8'))
-  assert.deepEqual(read(answer(asked, 'h')), { v: 1, state: 'S-1', handOff: 'h', secret: null })
-  assert.deepEqual(read(answer(readRequest(fragment(R)), 'h', { epk: 'x' })), { v: 1, state: 'S-1', handOff: 'h' })
+  assert.deepEqual(read(answer(asked, ['h'])), { v: 1, state: 'S-1', handOff: 'h', secret: null })
+  assert.deepEqual(read(answer(readRequest(fragment(R)), ['h'], { epk: 'x' })), { v: 1, state: 'S-1', handOff: 'h' })
   // The prf's input: of the origin alone, under its own label.
   assert.deepEqual(Buffer.from(secretInput('https://app.example')), sha256('muid/v1/app-secret\nhttps://app.example'))
   assert.notDeepEqual(Buffer.from(secretInput('https://app.example')), Buffer.from(secretInput('https://other.example')))
