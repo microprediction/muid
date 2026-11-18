@@ -50,10 +50,13 @@ const opened = new Set()
 const CLOSE_WITHIN = 60_000
 after(async () => {
   const late = new Promise((resolve) => setTimeout(resolve, CLOSE_WITHIN, 'late').unref())
-  const closed = Promise.all([...opened].map((end) => end()))
+  const closed = Promise.all([...opened].map((end) => end())).then(async () => { if (shared !== undefined) await (await shared).close() })
   if (await Promise.race([closed, late]) === 'late') throw new Error(`${opened.size} browser(s) still open ${CLOSE_WITHIN / 1000}s after the last test`)
 })
 
+// One browser for the file: each test's devices are contexts of it, each with its own storage and authenticator,
+// closed when the test ends. Launching one for every test was most of what a test cost.
+let shared
 async function open ({ init } = {}) {
   const holder = {}
   const keys = [{ key: WITNESS, nbf: 0, exp: 4_000_000_000 }]
@@ -64,8 +67,10 @@ async function open ({ init } = {}) {
     contestWindow: 60, skew: 60, maxLifetime: 2_592_000 })
   const real = witnessService({ witness: w, holdings: memoryHoldings(), log: memoryLog(), clock, headInterval: 0 })
   holder.svc = real
-  const browser = await chromium.launch({ channel: 'chrome', headless: true })
-  const end = async () => { opened.delete(end); await browser.close(); site.close() }
+  shared ??= chromium.launch({ channel: 'chrome', headless: true })
+  const browser = await shared
+  const contexts = []
+  const end = async () => { opened.delete(end); await Promise.all(contexts.map((c) => c.close())); site.close() }
   opened.add(end)
   const problems = []
   const pages = []
@@ -91,6 +96,7 @@ async function open ({ init } = {}) {
   }
   async function device () {
     const context = await browser.newContext()
+    contexts.push(context)
     if (FAIL_FAST) context.setDefaultTimeout(WAIT)
     await activate(context)
     if (init !== undefined) await context.addInitScript(init)
