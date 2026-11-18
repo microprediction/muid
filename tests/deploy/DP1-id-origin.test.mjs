@@ -2,7 +2,9 @@
 // witness service with holdings and a key that outlast the process; nothing else is served.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, statSync, writeFileSync, cpSync, mkdirSync, symlinkSync } from 'node:fs'
+import { spawn } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { ed25519 } from '@noble/curves/ed25519.js'
@@ -130,4 +132,44 @@ test('the witness makes its pass by itself: a change settles once its window has
     for (let i = 0; i < 50 && (await held()).settlements.length === 0; i++) await new Promise((resolve) => setTimeout(resolve, 100))
     assert.equal((await held()).settlements.length, 1, 'signed by the witness\'s own pass, with nothing asked of it')
   } finally { await s.close() }
+})
+
+test('installed as a dependency, with its own dependencies beside it and not inside it, the program serves what the page imports', { timeout: 60_000 }, async () => {
+  // A copy of the package under another's node_modules, as npm lays it out: @noble is the parent's, hoisted.
+  const parent = dir()
+  const root = fileURLToPath(new URL('../../', import.meta.url))
+  const installed = join(parent, 'node_modules', 'muid')
+  mkdirSync(installed, { recursive: true })
+  for (const part of ['package.json', 'deploy', 'id', 'src', 'witness']) cpSync(join(root, part), join(installed, part), { recursive: true })
+  symlinkSync(join(root, 'node_modules', '@noble'), join(parent, 'node_modules', '@noble'))
+  const child = spawn(process.execPath, [join(installed, 'deploy', 'id-origin.mjs')], { cwd: parent, env: { PATH: process.env.PATH, MUID_ORIGIN: 'http://localhost:8080', MUID_PORT: '0', MUID_DATA: join(parent, 'data') } })
+  const ended = new Promise((resolve) => child.once('exit', resolve))
+  try {
+    let out = ''
+    let err = ''
+    child.stderr.on('data', (d) => { err += d })
+    const url = await new Promise((resolve, reject) => {
+      child.stdout.on('data', (d) => { out += d; const m = /listening at (http:\/\/\S+)/.exec(out); if (m) resolve(m[1]) })
+      ended.then((code) => reject(new Error(`the program ended (${code}): ${err}`)))
+    })
+    for (const path of ['/id/', '/id/page.js', '/src/verifier.js', '/node_modules/@noble/hashes/sha2.js', '/node_modules/@noble/curves/ed25519.js', '/node_modules/@noble/curves/nist.js']) {
+      assert.equal((await fetch(url + path)).status, 200, path)
+    }
+    assert.equal((await fetch(url + '/node_modules/@noble/hashes/package.json')).status, 404)
+    assert.match(out, /witness keys, for relying parties to pin: \[\{"key":"[0-9a-f]{64}"/)
+    // Asked to stop, it stops, with a passing status.
+    child.kill('SIGTERM')
+    assert.equal(await ended, 0)
+  } finally {
+    child.kill('SIGKILL')
+    await ended
+  }
+})
+
+test('a configuration that is refused ends the program with its reason and a failing status', { timeout: 60_000 }, async () => {
+  const child = spawn(process.execPath, [fileURLToPath(new URL('../../deploy/id-origin.mjs', import.meta.url))], { env: { PATH: process.env.PATH, MUID_DATA: dir() } })
+  let err = ''
+  child.stderr.on('data', (d) => { err += d })
+  const code = await new Promise((resolve) => child.once('exit', resolve))
+  assert.deepEqual([code, err], [1, 'muid id origin: MUID_ORIGIN is required\n'])
 })

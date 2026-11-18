@@ -21,7 +21,8 @@
 // may be read from any origin, as a worker in another origin's page reads them. Nothing else is served.
 import { createServer } from 'node:http'
 import { readFile, mkdir, writeFile, chmod } from 'node:fs/promises'
-import { join, normalize } from 'node:path'
+import { realpathSync } from 'node:fs'
+import { join, normalize, dirname } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { Readable } from 'node:stream'
 import { randomBytes } from 'node:crypto'
@@ -33,7 +34,11 @@ import { tesseraLog } from '../witness/log.js'
 
 const hex = (b) => Buffer.from(b).toString('hex')
 const HERE = (path) => fileURLToPath(new URL(path, import.meta.url))
-const MOUNTS = [['/id/', HERE('../id/')], ['/src/', HERE('../src/')], ['/node_modules/@noble/', HERE('../node_modules/@noble/')]]
+// The two packages the page imports are found as Node finds them from this file: beside it in a checkout, in the
+// parent's node_modules where this package is installed as a dependency.
+const PACKAGE = (file) => dirname(fileURLToPath(import.meta.resolve(file))) + '/'
+const MOUNTS = [['/id/', HERE('../id/')], ['/src/', HERE('../src/')],
+  ['/node_modules/@noble/hashes/', PACKAGE('@noble/hashes/sha2.js')], ['/node_modules/@noble/curves/', PACKAGE('@noble/curves/ed25519.js')]]
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css' }
 const KEY_YEARS = 20
 const attribute = (s) => s.replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;')
@@ -145,7 +150,9 @@ export async function start (config, { clock = () => Math.floor(Date.now() / 100
   }
 }
 
-if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
+// Run as a program (by whatever path: a module's own URL is its real path, a command line's may go through links).
+const program = () => { try { return pathToFileURL(realpathSync(process.argv[1])).href } catch { return undefined } }
+if (import.meta.url === program()) {
   try {
     const running = await start(configuration(process.env))
     for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => running.close().then(() => process.exit(0)))
