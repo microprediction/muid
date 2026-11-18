@@ -10,7 +10,9 @@ import { join } from 'node:path'
 import { ed25519 } from '@noble/curves/ed25519.js'
 import { configuration, start } from '../../deploy/id-origin.mjs'
 import { envelope, root as rootModule, verifier as verifierModule } from '../impl.mjs'
-import { KEY, ORIGIN } from '../assertion/helpers.mjs'
+import { KEY, ORIGIN, RP_ID, make } from '../assertion/helpers.mjs'
+import { newKey, enrol, request } from '../worker/impl.mjs'
+import { relyingParty, memoryStore } from '../adapter/impl.mjs'
 import { IDENTITY, BASE, M2, signed, rootText } from '../witness/fixtures.mjs'
 
 const hex = (b) => Buffer.from(b).toString('hex')
@@ -172,4 +174,54 @@ test('a configuration that is refused ends the program with its reason and a fai
   child.stderr.on('data', (d) => { err += d })
   const code = await new Promise((resolve) => child.once('exit', resolve))
   assert.deepEqual([code, err], [1, 'muid id origin: MUID_ORIGIN is required\n'])
+})
+
+test('a restart on the same data, its log in memory and so empty again: identities, enrolled workers and a relying party\'s memory all carry on', { timeout: 60_000 }, async () => {
+  const data = dir()
+  const config = configuration({ MUID_ORIGIN: ORIGIN, MUID_DATA: data, MUID_PORT: '0' })
+  const rootText = envelope.wrap(envelope.seal('root', { pub: KEY, rp_id: RP_ID }).payload)
+  const root = rootModule.checkRoot(rootText, { rpId: RP_ID }).id
+  const identity = rootModule.identityOf(root)
+  const aud = 'https://node.example'
+  const url = aud + '/blobs'
+  const now = () => Math.floor(Date.now() / 1000)
+  // The id page's hand-off for a worker's key, signed by the identity's passkey.
+  const handOffFor = (subject, agent) => {
+    const d = envelope.seal('delegation', { agent, identity, membership: identity, root, subject, aud, scopes: ['store.blob'], nbf: now(), exp: now() + 3600 })
+    return JSON.stringify({ payload: d.payload, root: make({ covers: [d.id] }) })
+  }
+  const call = () => ({ now: now(), scope: 'store.blob', method: 'PUT', url, revoked: [] })
+  const ask = (w, key, witness, n) => request(w, key.secret, { scope: 'store.blob', method: 'PUT', url, data: { n }, at: now() }, { witness })
+
+  let s = await start(config, quiet)
+  let rp, first, key, keys, handOff
+  try {
+    keys = s.witnessKeys
+    const witness = s.url + '/witness/'
+    assert.equal((await (await fetch(witness + 'v1/records', { method: 'POST', body: JSON.stringify({ identity, type: 'root', text: rootText }) })).json()).ok, true)
+    key = newKey()
+    handOff = handOffFor(key.subject, 'before')
+    first = await enrol({ handOff, secret: key.secret, witness })
+    // The relying party pins the witness's key once, and remembers the heads it has seen across the restart.
+    rp = relyingParty({ verifier: verifierModule.verifier({ rpId: RP_ID, origin: ORIGIN, audience: aud, witnessKeys: keys, skew: 60, maxLifetime: 2_592_000, maxStaleness: 86_400, maxClaimAge: 300 }), store: memoryStore(), clock: now })
+    assert.equal((await rp.acceptClaim(await ask(first, key, witness, 1), call(), () => {})).ok, true)
+  } finally { await s.close() }
+
+  await new Promise((resolve) => setTimeout(resolve, 1100)) // a head signed after the restart is later than the last one seen
+  s = await start(config, quiet)
+  try {
+    const witness = s.url + '/witness/'
+    assert.deepEqual(s.witnessKeys, keys)
+    // A worker enrolled before: its logged record still stands, with a head signed since the restart.
+    const after = await rp.acceptClaim(await ask(first, key, witness, 2), call(), (r) => r.delegation.body.identity)
+    assert.equal(after.ok, true, JSON.stringify(after))
+    assert.equal(after.value, identity)
+    // Enrolled again, it is given the same logged record, not a second one.
+    assert.equal((await enrol({ handOff, secret: key.secret, witness })).logged, first.logged)
+    // The identity authorises a new worker as before.
+    const key2 = newKey()
+    const second = await enrol({ handOff: handOffFor(key2.subject, 'after'), secret: key2.secret, witness })
+    assert.equal((await rp.acceptClaim(await ask(second, key2, witness, 3), call(), () => {})).ok, true)
+    assert.deepEqual((await (await fetch(witness + `v1/identities/${identity}/records`)).json()).roots, [rootText])
+  } finally { await s.close() }
 })
