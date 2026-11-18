@@ -114,9 +114,22 @@ The v1 core in [`src/`](src/) is written and tested: canonical records, Ed25519 
 roots, delegations, provider attestations, membership changes with recovery, transparency-log proofs and receipts,
 and the verifier relying parties call. Around it: the relying-party adapter ([`adapter/`](adapter/)), the witness
 and its service ([`witness/`](witness/)), the transparency log (Tessera, [`log/`](log/)), the identity page
-([`id/`](id/)), and a two-application demo ([`demo/`](demo/)) that runs the example above end to end. Not yet:
-apps requesting delegations from the identity page, recovery actions on the page, issuing provider attestations,
-renewal without a weekly passkey prompt, client packages, and a deployment.
+([`id/`](id/)), the worker's side of a delegation ([`worker/`](worker/)), a runnable id origin
+([`deploy/`](deploy/)), and a two-application demo ([`demo/`](demo/)) that runs the example above end to end. Not
+yet: apps requesting delegations from the identity page (the hand-off is the user's copy and paste), issuing
+provider attestations, renewal without a weekly passkey prompt, a tagged release, and a hosted deployment.
+
+### Running an id origin
+
+```sh
+MUID_ORIGIN=http://localhost:8080 MUID_DATA=./data node deploy/id-origin.mjs
+```
+
+serves the identity page at `/id/` and its witness service at `/witness/`, with the witness's key and holdings kept
+in `./data`, and prints the witness keys a relying party pins. Passkeys work at `localhost` or over https: for a
+real origin, put it behind a proxy that terminates TLS and set `MUID_ORIGIN` to that origin. A passkey is bound to
+the origin's host for good, so choose it before anyone makes an identity they mean to keep. The options are at the
+top of [`deploy/id-origin.mjs`](deploy/id-origin.mjs).
 
 Every rule is tested against known-answer vectors, independent implementations and executable models; deliberately
 broken copies of each module must fail the tests, mutation testing gates every module, and the core is fuzzed
