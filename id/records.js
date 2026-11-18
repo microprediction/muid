@@ -114,8 +114,8 @@ function sealKey (text) {
   if (typeof text !== 'string' || text.length !== 87 || !B64U.test(text)) return undefined
   try {
     const bytes = fromB64u(text)
-    p256.Point.fromBytes(bytes).assertValidity()
-    return bytes[0] === 4 ? text : undefined
+    p256.Point.fromBytes(bytes).assertValidity() // of 65 bytes, only an uncompressed point is read
+    return text
   } catch {
     return undefined
   }
@@ -133,7 +133,7 @@ export function readRequest (fragment) {
   } catch {
     throw refused
   }
-  const keys = Array.isArray(r) ? '' : Object.keys(r).sort().join()
+  const keys = Object.keys(r).sort().join() // an object: JSON gives no other value with a return address
   if ((keys !== REQUEST_KEYS && keys !== SECRET_KEYS) || (keys === SECRET_KEYS && sealKey(r.seal_to) === undefined) || r.v !== 1 || !short(r.agent) || typeof r.subject !== 'string' || !ID.test(r.subject) ||
     typeof r.aud !== 'string' || r.aud.length > 2048 || !Array.isArray(r.scopes) || r.scopes.length < 1 || r.scopes.length > 16 || !r.scopes.every(short) ||
     !Number.isSafeInteger(r.days) || r.days < 1 || r.days > 7 || typeof r.state !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(r.state) ||
