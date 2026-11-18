@@ -11,7 +11,7 @@ import * as wf from '../witness/fixtures.mjs'
 import { root as rootModule, assertion as assertionModule, delegation as delegationModule, envelope } from '../impl.mjs'
 import { challengeFor, authData, clientData, signOver, sha256 } from '../assertion/helpers.mjs'
 
-const { opened, possessionId } = records
+const { opened, possessionId, firstRootIdentities } = records
 const { rootRecord, challenge, assertion, delegation, handOff, b64u, fromB64u, MAX_LIFETIME, currentMembership, addRoot, rootSigned, changeToSign, storedWorkers, remember, retired, renewals, MAX_WORKERS, MAX_BATCH } = records
 const hex = (b) => Buffer.from(b).toString('hex')
 const RP_ID = 'localhost'
@@ -458,4 +458,24 @@ test('an identity opened with its passkey: only a root of its current membership
   // The other passkey, when it is a root of the membership too, opens the identity as itself.
   assert.equal(opened({ ...ctx, state: { roots: [r.id, other.id] }, assertion: signedBy(OTHER_SECRET, [value]) }).id, other.id)
   assert.throws(() => opened({ ...ctx, identity: 'x', assertion: signedBy(SECRET, [value]) }), { message: 'a record id is 64 lowercase hex digits' })
+})
+
+test('the identity a passkey is the first root of, from its assertion alone: found among two candidates, and nothing from what is no signature', () => {
+  const r = rootRecord(SPKI, -7, RP_ID)
+  const covers = [possessionId('ab'.repeat(32))]
+  const ad = authData({ rpId: RP_ID, flags: 0x05 })
+  const cdj = Buffer.from(clientData({ challenge: challengeFor(covers), origin: ORIGIN }))
+  const signature = signOver(ad, cdj, SECRET)
+  const found = firstRootIdentities({ authenticatorData: ad, clientDataJSON: cdj, signature }, RP_ID)
+  assert.equal(found.includes(r.identity), true)
+  assert.equal(found.length >= 1 && found.length <= 2, true, `${found.length} candidates`)
+  assert.equal(new Set(found).size, found.length)
+  for (const id of found) assert.match(id, /^[0-9a-f]{64}$/)
+  // Under another rp ID the same key is another root, of another identity.
+  assert.equal(firstRootIdentities({ authenticatorData: ad, clientDataJSON: cdj, signature }, 'other.example').includes(r.identity), false)
+  // The signature over other bytes recovers another key: not this identity.
+  assert.equal(firstRootIdentities({ authenticatorData: ad, clientDataJSON: Buffer.from(clientData({ challenge: challengeFor(covers), origin: 'http://localhost:9090' })), signature }, RP_ID).includes(r.identity), false)
+  for (const bad of [new Uint8Array(0), Buffer.from('not der'), Buffer.alloc(70)]) {
+    assert.deepEqual(firstRootIdentities({ authenticatorData: ad, clientDataJSON: cdj, signature: bad }, RP_ID), [])
+  }
 })
