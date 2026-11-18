@@ -1038,12 +1038,13 @@ its own), and a registration or a co-signature the witness took marks only the r
 **A request from an application.** An application may send the person to the page with its request in the
 fragment: `#muid-request=` and the base64url of `{ v: 1, agent, subject, aud, scopes, days, return, state }`. The
 request only fills the Authorise form, once the page has an identity (one who has none makes it first): the page says
-who asked, by the origin of the `return` address, and nothing is reviewed or signed by arriving. What the person then
-reviews is the fields of the exact payload (I4), which they may have changed, and it is signed by the same button
-and assertion as anything typed. When the worker authorised is the request's `subject`, the page goes to `return`
+who asked, by the origin of the `return` address, and, as soon as the witness knows the identity, shows the review
+without being asked, since nothing in the form is left for the person to type. Nothing is signed by arriving. What
+is reviewed is the fields of the exact payload (I4); an edit withdraws it as ever, and what the person reviews again
+is signed by the same button and assertion as anything typed. When the worker authorised is the request's `subject`, the page goes to `return`
 with `#muid=` and the base64url of `{ v: 1, state, handOff }`, the hand-off being the line it would otherwise show;
 for any other key it stays and shows it. The `return` address is https (http at localhost alone), as the browser
-writes it, with no name, password or fragment; a request not of this form is said and ignored whole. Nothing is
+writes it, with no name, password or fragment; a request not of this form is said, for as long as the page is open, and ignored whole. Nothing is
 trusted for having arrived this way: the hand-off is a delegation to the worker's key, of use to nobody without that
 key's secret, and the application checks what it is handed as it would a pasted line. Both directions travel in
 fragments, which no server is sent. Framed, the page does nothing, as before.

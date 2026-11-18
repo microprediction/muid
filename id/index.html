@@ -80,7 +80,7 @@
   <section id="authorise" hidden>
     <h2>Authorise a worker</h2>
     <p>A worker is an application or agent that acts for you. It shows you its key; you say here what it may do, where, and for how long, sign with your passkey, and give it back the line this page then shows. That is all an application needs from this page.</p>
-    <p id="request" hidden><strong id="request-from"></strong> sent you here and asks you to authorise it. What it asks is filled in below: review it, and sign only if it is what you expect. Signing sends you back there.</p>
+    <p id="request" hidden><strong id="request-from"></strong> sent you here and asks you to authorise it. What it asks is filled in and shown below: sign only if it is what you expect. Signing sends you back there.</p>
     <label>Agent name <input id="agent" autocomplete="off" spellcheck="false" placeholder="forecaster"></label>
     <label>Worker key (Ed25519, hex) <input id="subject" autocomplete="off" spellcheck="false"></label>
     <label>Audience <input id="aud" autocomplete="off" placeholder="https://app.example"></label>
@@ -198,6 +198,7 @@
       <button id="rescue-sign" type="button">Sign with your passkey</button>
     </div>
   </section>
+  <p id="request-unread" role="alert" hidden>An application sent you here, but what it asked is not something this page can read, so nothing was filled in. Go back to it and try again.</p>
   <p id="status" role="status"></p>
   <p id="error" role="alert"></p>
 </main>

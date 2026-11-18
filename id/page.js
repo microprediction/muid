@@ -57,6 +57,7 @@ try {
   request = readRequest(location.hash)
 } catch (e) { unread = e }
 let filled = false
+let reviewed = false
 const pending = { delegation: null, change: null, cosign: null, renewal: null, designation: null, recoveryCosign: null, proof: null, recover: null, rescue: null }
 
 // A change to the stored root, made only while storage holds the root it was decided for (`mine`, its id: null
@@ -166,6 +167,13 @@ function show () {
     $('scopes').value = request.scopes.join(' ')
     $('days').value = String(request.days)
   }
+  // And reviewed at once, when the witness knows the identity: nothing in the form was typed by the person, so
+  // there is nothing for them to finish before they are shown what would be signed.
+  if (filled && !reviewed && !$('request').hidden && root.registered === true) {
+    reviewed = true
+    $('review').click()
+  }
+  $('request-unread').hidden = unread === undefined
   // R11: the recovery under notice, as the witness's records last gave it for the root now held (only a root of its
   // own identity is asked about: not none, and not one that is joining).
   const under = noticed !== null && noticed.root === root?.id ? noticed.state : null
@@ -755,7 +763,6 @@ if (REFUSAL === undefined) {
   }
 }
 show()
-if (unread !== undefined && REFUSAL === undefined) fail(unread)
 // What is kept to be sent (an outbox) is sent again on load. Where the page refuses to act it has read no root.
 if (unregistered()) register()
 else notice()

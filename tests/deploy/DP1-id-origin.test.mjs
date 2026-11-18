@@ -49,7 +49,7 @@ test('the page is served with its configuration, with what it imports, unframeab
     const page = await fetch(s.url + '/id/')
     assert.equal(page.status, 200)
     assert.equal(page.headers.get('content-type'), 'text/html; charset=utf-8')
-    assert.deepEqual([page.headers.get('x-frame-options'), page.headers.get('content-security-policy'), page.headers.get('x-content-type-options')], ['DENY', "frame-ancestors 'none'", 'nosniff'])
+    assert.deepEqual([page.headers.get('x-frame-options'), page.headers.get('content-security-policy'), page.headers.get('x-content-type-options'), page.headers.get('cache-control')], ['DENY', "frame-ancestors 'none'", 'nosniff', 'no-cache, no-transform'])
     const html = await page.text()
     assert.deepEqual([meta(html, 'muid-rp-id'), meta(html, 'muid-origin'), meta(html, 'muid-witness')], ['localhost', 'http://localhost:8080', '/witness/'])
     assert.deepEqual(JSON.parse(meta(html, 'muid-witness-keys')), s.witnessKeys)
@@ -87,7 +87,7 @@ test('the witness service: reached under /witness/, readable from any origin, it
   try {
     keys = s.witnessKeys
     const registered = await fetch(s.url + '/witness/v1/records', { method: 'POST', body: JSON.stringify({ identity, type: 'root', text: rootText }) })
-    assert.deepEqual([registered.status, registered.headers.get('access-control-allow-origin'), registered.headers.get('content-type'), registered.headers.get('cache-control')], [200, '*', 'application/json', 'no-store'])
+    assert.deepEqual([registered.status, registered.headers.get('access-control-allow-origin'), registered.headers.get('content-type'), registered.headers.get('cache-control')], [200, '*', 'application/json', 'no-store, no-transform'])
     assert.equal((await registered.json()).ok, true)
     const head = await (await fetch(s.url + `/witness/v1/identities/${identity}/head`)).json()
     // The head verifies under the keys the page is given, for the configured rp ID and origin.

@@ -3065,7 +3065,7 @@ test('recovery at the page: a new passkey asks, the party signs what it is shown
   } finally { await t.close() }
 })
 
-test('an application\'s request: it waits for an identity, fills the form, is reviewed and signed as anything typed is, and is answered at its own address', { timeout: 180_000 }, async () => {
+test('an application\'s request: it waits for an identity, fills the form and shows the review, is signed as anything typed is, and is answered at its own address', { timeout: 180_000 }, async () => {
   const t = await open()
   try {
     const rpId = 'localhost'
@@ -3089,27 +3089,34 @@ test('an application\'s request: it waits for an identity, fills the form, is re
     assert.equal(await t.page.textContent('#error'), '')
     const r = await createIdentity(t.page)
     const root = rootModule.checkRoot(r.text, { rpId }).id
-    // With one: who asked, by the origin of its return address, and its request in the form. Nothing is reviewed or
-    // signed by arriving.
-    assert.deepEqual(await shown(['request-waiting', 'request']), [true, false])
+    // With one: who asked, by the origin of its return address, its request in the form, and the review of it shown
+    // without being asked for: the fields of the payload that would be signed. Nothing is signed by arriving.
+    const reviewShows = async (days) => {
+      await t.page.waitForSelector('#review-panel:not([hidden])')
+      assert.deepEqual([await t.page.textContent('#show-agent'), await t.page.textContent('#show-aud'), await t.page.textContent('#show-scopes'), await t.page.textContent('#show-subject')],
+        ['drive', 'https://node.example', 'store.blob store.ref', SUBJECT])
+      assert.equal(Math.abs(Date.parse(await t.page.textContent('#show-exp')) / 1000 - (Date.now() / 1000 + days * 86_400)) < 120, true, `${days} days`)
+    }
+    await reviewShows(3)
+    assert.deepEqual(await shown(['request-waiting', 'request', 'request-unread', 'handoff']), [true, false, true, true])
     assert.equal(await t.page.textContent('#request-from'), 'https://app.example')
     assert.deepEqual(await fields(), ['drive', SUBJECT, 'https://node.example', 'store.ref store.blob', '3'])
-    assert.deepEqual(await shown(['review-panel', 'handoff']), [true, true])
+    assert.equal(await t.page.textContent('#error'), '')
     const signs = await signCount(t)
-    // The form is filled once: what the person changes stays changed, whatever the page shows again.
+    // Loaded again with its fragment, it is the request again, and reviewed again.
     await t.page.fill('#days', '2')
     await t.page.reload()
-    await t.page.waitForSelector('#request:not([hidden])')
-    assert.deepEqual(await fields(), ['drive', SUBJECT, 'https://node.example', 'store.ref store.blob', '3'], 'loaded again with its fragment, it is the request again')
+    await reviewShows(3)
+    assert.deepEqual(await fields(), ['drive', SUBJECT, 'https://node.example', 'store.ref store.blob', '3'])
+    // Filled and reviewed once: what the person then changes stays changed and withdraws the review, as any edit
+    // does, and nothing fills or reviews it again, whatever the page shows again.
     await t.page.fill('#days', '2')
+    assert.equal(await t.page.isHidden('#review-panel'), true)
     await change(t.page, 'workers', { rev: 1, workers: [] })
     await idle(t.page)
-    assert.equal(await t.page.inputValue('#days'), '2')
-    // Reviewed as anything typed is: the fields of the payload to be signed.
+    assert.deepEqual([await t.page.inputValue('#days'), await t.page.isHidden('#review-panel')], ['2', true])
     await t.page.click('#review')
-    await t.page.waitForSelector('#review-panel:not([hidden])')
-    assert.deepEqual([await t.page.textContent('#show-agent'), await t.page.textContent('#show-aud'), await t.page.textContent('#show-scopes'), await t.page.textContent('#show-subject')],
-      ['drive', 'https://node.example', 'store.blob store.ref', SUBJECT])
+    await reviewShows(2)
     assert.equal(await signCount(t), signs)
     assert.deepEqual(arrivals, [])
     // Signed: the person is sent to the return address as given, with the state and the hand-off in its fragment.
@@ -3136,7 +3143,7 @@ test('an application\'s request: it waits for an identity, fills the form, is re
     // hand-off is shown here as ever. (The worker is remembered, as any authorised here.)
     const OTHER = hex(ed25519.getPublicKey(Uint8Array.from({ length: 32 }, (_, i) => 31 + i)))
     await arrive({ ...request, state: 'S-2' })
-    await t.page.waitForSelector('#request:not([hidden])')
+    await reviewShows(3)
     assert.equal(await t.page.locator('#workers li').count(), 1)
     await t.page.fill('#subject', OTHER)
     await t.page.fill('#agent', 'other')
@@ -3149,9 +3156,7 @@ test('an application\'s request: it waits for an identity, fills the form, is re
     assert.equal(arrivals.length, 1)
     // The same key again, by a request with another state and a return address that is only a path: answered there.
     await arrive({ ...request, state: 'S-3', return: 'https://app.example/' })
-    await t.page.waitForSelector('#request:not([hidden])')
-    await t.page.click('#review')
-    await t.page.waitForSelector('#review-panel:not([hidden])')
+    await reviewShows(3)
     await t.page.click('#sign')
     await t.page.waitForURL((u) => u.origin === 'https://app.example')
     assert.equal(t.page.url().startsWith('https://app.example/#muid='), true)
@@ -3160,15 +3165,19 @@ test('an application\'s request: it waits for an identity, fills the form, is re
     // A request the page cannot read: said, nothing filled, and the page otherwise as it is without one.
     await arrive('x')
     await t.page.waitForSelector('#identity:not([hidden])')
-    await errorIs(t.page, 'that request is not one this page can read')
-    assert.deepEqual(await shown(['request-waiting', 'request', 'authorise']), [true, true, false])
+    await idle(t.page)
+    assert.deepEqual(await shown(['request-unread', 'request-waiting', 'request', 'authorise', 'review-panel']), [false, true, true, false, true])
     assert.deepEqual(await fields(), ['', '', '', '', '7'])
+    // It stays said, whatever is done next on the page.
+    await t.page.click('#review')
+    await errorShown(t.page)
+    assert.equal(await t.page.isHidden('#request-unread'), false)
     // No request: nothing of one is shown, and a worker authorised is handed over here.
     await t.page.goto('about:blank')
     await t.page.goto(t.site.origin + '/id/')
     await t.page.waitForSelector('#identity:not([hidden])')
     await idle(t.page)
-    assert.deepEqual([...(await shown(['request-waiting', 'request'])), await t.page.textContent('#error')], [true, true, ''])
+    assert.deepEqual([...(await shown(['request-waiting', 'request', 'request-unread'])), await t.page.textContent('#error')], [true, true, true, ''])
     await authorise(t.page, { agent: 'drive', subject: SUBJECT })
     await t.page.waitForSelector('#review-panel:not([hidden])')
     await t.page.click('#sign')
@@ -3185,7 +3194,34 @@ test('an application\'s request: it waits for an identity, fills the form, is re
     await j.page.click('#join-button')
     await j.page.waitForSelector('#joining:not([hidden])')
     assert.deepEqual([await j.page.isHidden('#request-waiting'), await j.page.isHidden('#request')], [true, true])
-    assert.deepEqual(t.problems, [])
+    // An identity the witness does not yet know (it could not be reached): the request is in the form, and is
+    // reviewed only once the identity is registered, when the review can be made.
+    const k = await t.device()
+    await k.page.goto('about:blank')
+    await k.page.goto(link(request))
+    await k.page.waitForSelector('#create:not([hidden])')
+    t.outage('down')
+    await k.page.fill('#name', 'late')
+    await k.page.click('#create-button')
+    await k.page.waitForSelector('#pending:not([hidden])')
+    await errorShown(k.page)
+    await idle(k.page)
+    assert.deepEqual([await k.page.isHidden('#request'), await k.page.inputValue('#subject'), await k.page.isHidden('#review-panel')], [false, SUBJECT, true])
+    assert.doesNotMatch(await k.page.textContent('#error'), /holds no record/, 'no review was tried')
+    t.outage()
+    await k.page.click('#register-retry')
+    await k.page.waitForSelector('#review-panel:not([hidden])')
+    assert.equal(await k.page.textContent('#show-subject'), SUBJECT)
+    // An unreadable request with no identity: said before one is made, and after.
+    const u = await t.device()
+    await u.page.goto('about:blank')
+    await u.page.goto(link('x'))
+    await u.page.waitForSelector('#create:not([hidden])')
+    assert.deepEqual([await u.page.isHidden('#request-unread'), await u.page.isHidden('#request-waiting')], [false, true])
+    await createIdentity(u.page)
+    await idle(u.page)
+    assert.deepEqual([await u.page.isHidden('#request-unread'), await u.page.isHidden('#request'), await u.page.isHidden('#review-panel')], [false, true, true])
+    assert.deepEqual(t.problems.filter((p) => !/status of 503/.test(p)), [])
   } finally { await t.close() }
 })
 
