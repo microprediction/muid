@@ -66,11 +66,11 @@ filed about it.
 49. A delegation with a lifetime longer than the maximum is refused, at the maximum plus one second.
 50. A delegation names its audience; a claim presented to another audience is refused, with no prefix, case or trailing-slash match.
 51. A delegation's scopes are a set; a claim for a scope not in it is refused, with no prefix or wildcard match.
-52. A delegation signed by a root that had no authority at the membership it names is refused.
+52. A delegation presented is refused unless its root is in the authenticated head's authority now and the membership it names is one the head gives; the witness applies the same rule when asked to log it. (What the root could do when it signed is not the question: a root added by a pending change may sign for the successor, which is refused while pending and taken once it settles.)
 53. A delegation naming a membership that has since been replaced is treated as the spec states, the same by the witness and the verifier.
-54. A new key for an agent retires that agent's old key; a claim by the old key after that is refused.
-55. A delegation's subject key cannot be a key that is also a root of the identity.
-56. One passkey assertion covering eight renewals yields eight delegations, each verifiable alone, none alterable without breaking it.
+54. Authorising a new key for an agent at the id page removes the old key from that browser's renewals, and says so; what the old key was given works until it expires or is revoked. Revoking the old key refuses it and whatever is renewed for it; revoking the agent id refuses the new key too.
+55. A delegation's subject is a validated Ed25519 public key (64 hex digits), never a root's P-256 key: the two encodings cannot be equal, and neither is read as the other.
+56. One passkey assertion signs the ids of up to eight renewal payloads. Each becomes a delegation that verifies alone once its own subject has consented and the witness has logged it; a payload changed is no longer one the assertion covers.
 57. A ninth renewal in one assertion is refused.
 58. A delegation with `nbf` in the future beyond the allowed skew is refused by the witness.
 
