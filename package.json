@@ -19,6 +19,7 @@
     "./ed25519": "./src/ed25519.js",
     "./adapter": "./adapter/relying-party.js",
     "./adapter/stores": "./adapter/stores.js",
+    "./worker": "./worker/worker.js",
     "./witness": "./witness/witness.js",
     "./witness/service": "./witness/service.js",
     "./witness/holdings": "./witness/holdings.js",

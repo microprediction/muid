@@ -1,4 +1,4 @@
-// Every core module, and every module of the relying-party adapter, the witness, the id page and the demo, is mutation-tested in CI: it has a Stryker config of its own, and that config is in exactly one of
+// Every core module, and every module of the relying-party adapter, the worker's side, the witness, the id page and the demo, is mutation-tested in CI: it has a Stryker config of its own, and that config is in exactly one of
 // the CI mutation jobs (tests/mutation-plan.mjs), alone or in a group, every member run. A new module cannot skip the gate unnoticed.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -6,7 +6,7 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { JOBS, mutated as fileOf } from '../mutation-plan.mjs'
 
 const ROOT = new URL('../../', import.meta.url)
-const modules = ['src', 'adapter', 'witness', 'id', 'demo'].flatMap((d) => readdirSync(new URL(`${d}/`, ROOT)).filter((f) => f.endsWith('.js')).map((f) => `${d}/${f}`)).sort()
+const modules = ['src', 'adapter', 'worker', 'witness', 'id', 'demo'].flatMap((d) => readdirSync(new URL(`${d}/`, ROOT)).filter((f) => f.endsWith('.js')).map((f) => `${d}/${f}`)).sort()
 const configs = readdirSync(ROOT).filter((f) => /^stryker(\.[a-z0-9-]+)?\.config\.json$/.test(f))
 const read = (c) => JSON.parse(readFileSync(new URL(c, ROOT), 'utf8'))
 const workflow = readFileSync(new URL('.github/workflows/test.yml', ROOT), 'utf8')
@@ -14,7 +14,7 @@ const workflow = readFileSync(new URL('.github/workflows/test.yml', ROOT), 'utf8
 // A module is mutated whole by one config, or in parts by several, each a range of its lines (`file:first-last`):
 // the ranges start at line 1, each begins where the last ended, and the last runs past any length the file could have.
 const OPEN_END = 99999
-test('every module under src/, adapter/, witness/, id/ and demo/ is mutated by exactly one Stryker config, or by configs whose line ranges are the whole of it', () => {
+test('every module under src/, adapter/, worker/, witness/, id/ and demo/ is mutated by exactly one Stryker config, or by configs whose line ranges are the whole of it', () => {
   assert.ok(modules.length >= 5)
   const entries = configs.flatMap((c) => read(c).mutate)
   const whole = entries.filter((e) => fileOf(e) === e)
