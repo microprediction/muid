@@ -478,4 +478,10 @@ test('the identity a passkey is the first root of, from its assertion alone: fou
   for (const bad of [new Uint8Array(0), Buffer.from('not der'), Buffer.alloc(70)]) {
     assert.deepEqual(firstRootIdentities({ authenticatorData: ad, clientDataJSON: cdj, signature: bad }, RP_ID), [])
   }
+  // A signature whose r is no point's x on the curve: neither recovery bit gives a key, and nothing is found.
+  const noPoint = [...Array(64).keys()].map((i) => BigInt(i + 1)).find((x) => {
+    try { p256.Point.fromHex('02' + x.toString(16).padStart(64, '0')); return false } catch { return true }
+  })
+  const der = new p256.Signature(noPoint, 1n).toBytes('der')
+  assert.deepEqual(firstRootIdentities({ authenticatorData: ad, clientDataJSON: cdj, signature: der }, RP_ID), [])
 })
