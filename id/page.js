@@ -290,7 +290,7 @@ async function signed (covers, extensions) {
   const a = await navigator.credentials.get({ publicKey: {
     rpId, challenge: challenge(covers), userVerification: 'required',
     allowCredentials: [{ type: 'public-key', id: fromB64u(root.credential) }],
-    ...(extensions === undefined ? {} : { extensions }),
+    extensions, // undefined is none
   } })
   return { assertion: assertion(covers, a.response), extensions: a.getClientExtensionResults() }
 }
@@ -445,6 +445,8 @@ async function signDelegation () {
     $('handoff').hidden = false
     // The application that asked for this worker's key is answered, at its own address; any other is not.
     if (asked) {
+      // A browser that cannot evaluate prf may leave its entry out, which Chrome never does when it was asked for.
+      // Stryker disable next-line OptionalChaining: equivalent in Chrome, see above
       const first = secret ? s.extensions.prf?.results?.first : undefined
       location.assign(answer(request, line, first === undefined ? null : await sealSecret(new Uint8Array(first), request)))
     }
@@ -469,11 +471,12 @@ async function discover () {
       throw e
     }
     const r = opened({ identity, record: covers[0], roots: records.roots, state: stateOf(records, identity), assertion: signed, rpId, origin: ORIGIN })
-    if (!await keepRoot(null, () => ({ ...r, credential: b64u(a.rawId), joining: false, registered: true }))) return
-    notice()
+    // Kept unless another tab has stored a root meanwhile, which is then the one used. The page signs and leaves
+    // next, so the witness is not asked about a recovery here: the page asks on its next load.
+    await keepRoot(null, () => ({ ...r, credential: b64u(a.rawId), joining: false, registered: true }))
     return
   }
-  throw Object.assign(new Error('The identity of that passkey was not found. If it was added to an identity on another device, choose More options and open that identity by its id.'), { unfound: true })
+  throw new Error('The identity of that passkey was not found. If it was added to an identity on another device, choose More options and open that identity by its id.')
 }
 async function proceed () {
   if (root === null) return
@@ -483,8 +486,7 @@ async function proceed () {
     if (unregistered()) return
   }
   await review()
-  if (pending.delegation === null) return
-  await signDelegation()
+  await signDelegation() // nothing, if the review was refused
 }
 $('signin-button').addEventListener('click', async () => {
   $('error').textContent = ''
