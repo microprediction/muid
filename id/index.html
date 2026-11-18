@@ -76,8 +76,44 @@
     <p id="notice-incoming" hidden>This passkey is the one it makes the identity's. Until then it can do nothing here, and any passkey the identity has now can cancel it.</p>
   </section>
   <p id="notice-unchecked" hidden>The witness could not be asked whether a recovery of this identity is under way. <button id="notice-retry" type="button">Ask again</button></p>
+  <section id="authorise" hidden>
+    <h2>Authorise a worker</h2>
+    <p>A worker is an application or agent that acts for you. It shows you its key; you say here what it may do, where, and for how long, sign with your passkey, and give it back the line this page then shows. That is all an application needs from this page.</p>
+    <label>Agent name <input id="agent" autocomplete="off" spellcheck="false" placeholder="forecaster"></label>
+    <label>Worker key (Ed25519, hex) <input id="subject" autocomplete="off" spellcheck="false"></label>
+    <label>Audience <input id="aud" autocomplete="off" placeholder="https://app.example"></label>
+    <label>Scopes <input id="scopes" autocomplete="off" placeholder="post read"></label>
+    <label>Lifetime in days <input id="days" type="number" value="7" min="1" max="7"></label>
+    <button id="review" type="button">Review</button>
+    <div id="review-panel" hidden>
+      <p>Your passkey will sign exactly this:</p>
+      <dl>
+        <dt>Agent</dt><dd id="show-agent"></dd>
+        <dt>Audience</dt><dd id="show-aud"></dd>
+        <dt>Scopes</dt><dd id="show-scopes"></dd>
+        <dt>Expires</dt><dd id="show-exp"></dd>
+        <dt>Worker key</dt><dd id="show-subject"></dd>
+      </dl>
+      <p id="show-retires"></p>
+      <button id="sign" type="button">Sign with your passkey</button>
+    </div>
+    <textarea id="handoff" readonly hidden aria-label="Give this to the worker"></textarea>
+  </section>
+  <section id="renew" hidden>
+    <h2>Renew workers</h2>
+    <p>One passkey prompt renews up to eight workers, each for the lifetime it was given.</p>
+    <ul id="workers"></ul>
+    <button id="renew-review" type="button">Review</button>
+    <div id="renew-panel" hidden>
+      <p>Your passkey will sign exactly these:</p>
+      <ol id="renew-list"></ol>
+      <button id="renew-sign" type="button">Sign with your passkey</button>
+    </div>
+    <div id="renew-handoffs" hidden></div>
+  </section>
   <section id="add-root" hidden>
     <h2>Add a passkey on another device</h2>
+    <p>Optional. A second passkey, on a phone or another computer, so that losing this device does not lose your identity. Open this page there, choose to join, and paste here the record it shows.</p>
     <label>Its root record <textarea id="new-root" spellcheck="false"></textarea></label>
     <button id="add-review" type="button">Review</button>
     <div id="add-panel" hidden>
@@ -94,7 +130,7 @@
   </section>
   <section id="recovery" hidden>
     <h2>Recovery parties</h2>
-    <p>People or services you trust who, together, can replace this identity's passkeys if you lose them all. Designated now: <span id="recovery-now">not known</span>.</p>
+    <p>Optional. People or services you trust who, together, can replace this identity's passkeys if you lose them all. Each gives you a recovery card from this page on their own device. Designated now: <span id="recovery-now">not known</span>.</p>
     <label>Their recovery cards, one on each line (1 to 3) <textarea id="party-cards" spellcheck="false"></textarea></label>
     <label>Days a recovery waits before it takes effect <input id="recovery-days" type="number" value="14" min="3" max="90"></label>
     <button id="designate-review" type="button">Review</button>
@@ -133,7 +169,7 @@
   </section>
   <section id="party" hidden>
     <h2>Be someone's recovery party</h2>
-    <p>Give them a recovery card. It names this passkey to them alone; make a new one for each person.</p>
+    <p>Optional. If someone asks you to be a recovery party for their identity, give them a recovery card. It names this passkey to them alone; make a new one for each person.</p>
     <button id="card-make" type="button">Make a recovery card</button>
     <textarea id="card" readonly hidden aria-label="Give this recovery card to whoever designates you"></textarea>
     <label>The code they gave you, to show that you hold this passkey <input id="proof-code" autocomplete="off" spellcheck="false"></label>
@@ -158,40 +194,6 @@
       </dl>
       <button id="rescue-sign" type="button">Sign with your passkey</button>
     </div>
-  </section>
-  <section id="authorise" hidden>
-    <h2>Authorise a worker</h2>
-    <label>Agent name <input id="agent" autocomplete="off" spellcheck="false" placeholder="forecaster"></label>
-    <label>Worker key (Ed25519, hex) <input id="subject" autocomplete="off" spellcheck="false"></label>
-    <label>Audience <input id="aud" autocomplete="off" placeholder="https://app.example"></label>
-    <label>Scopes <input id="scopes" autocomplete="off" placeholder="post read"></label>
-    <label>Lifetime in days <input id="days" type="number" value="7" min="1" max="7"></label>
-    <button id="review" type="button">Review</button>
-    <div id="review-panel" hidden>
-      <p>Your passkey will sign exactly this:</p>
-      <dl>
-        <dt>Agent</dt><dd id="show-agent"></dd>
-        <dt>Audience</dt><dd id="show-aud"></dd>
-        <dt>Scopes</dt><dd id="show-scopes"></dd>
-        <dt>Expires</dt><dd id="show-exp"></dd>
-        <dt>Worker key</dt><dd id="show-subject"></dd>
-      </dl>
-      <p id="show-retires"></p>
-      <button id="sign" type="button">Sign with your passkey</button>
-    </div>
-    <textarea id="handoff" readonly hidden aria-label="Give this to the worker"></textarea>
-  </section>
-  <section id="renew" hidden>
-    <h2>Renew workers</h2>
-    <p>One passkey prompt renews up to eight workers, each for the lifetime it was given.</p>
-    <ul id="workers"></ul>
-    <button id="renew-review" type="button">Review</button>
-    <div id="renew-panel" hidden>
-      <p>Your passkey will sign exactly these:</p>
-      <ol id="renew-list"></ol>
-      <button id="renew-sign" type="button">Sign with your passkey</button>
-    </div>
-    <div id="renew-handoffs" hidden></div>
   </section>
   <p id="status" role="status"></p>
   <p id="error" role="alert"></p>
