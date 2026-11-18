@@ -1,6 +1,7 @@
 :root { color-scheme: light dark; font-family: system-ui, sans-serif; line-height: 1.5; }
 body { margin: 0; padding: 16px; }
 [hidden] { display: none !important; }
+textarea[hidden] + button.copy { display: none; }
 main { max-width: 40rem; margin: 0 auto; }
 label { display: block; margin: 0.5rem 0; }
 input, textarea { display: block; width: 100%; box-sizing: border-box; font: inherit; }

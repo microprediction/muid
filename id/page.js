@@ -362,6 +362,16 @@ $('sign').addEventListener('click', async () => {
   } catch (e) { fail(e) }
 })
 
+// What a box shows, copied for the user to give to the worker: the same text, and nothing else.
+async function copy (box) {
+  $('error').textContent = ''
+  try {
+    await navigator.clipboard.writeText(box.value)
+    $('status').textContent = 'Copied.'
+  } catch (e) { fail(e) }
+}
+$('handoff-copy').addEventListener('click', () => copy($('handoff')))
+
 // Decision 3: the ticked workers' delegations, built again from now under the current membership, shown (I4), and
 // signed by one assertion over them all (W0).
 $('renew-review').addEventListener('click', async () => {
@@ -388,12 +398,16 @@ $('renew-sign').addEventListener('click', async () => {
     // A renewal takes effect at this read of storage: a change committed after it is after the renewal.
     if (pending.renewal !== r) return // withdrawn while the passkey was asked
     if (await changedElsewhere() || pending.renewal !== r || lapsed(r.delegations)) return
-    $('renew-handoffs').replaceChildren(...r.delegations.map((d) => {
+    $('renew-handoffs').replaceChildren(...r.delegations.flatMap((d) => {
       const t = element('textarea')
       t.readOnly = true
       t.setAttribute('aria-label', `Give this to ${d.body.agent}`)
       t.value = handOff(d.payload, a)
-      return t
+      const b = element('button', 'Copy')
+      b.type = 'button'
+      b.className = 'copy'
+      b.addEventListener('click', () => copy(t))
+      return [t, b]
     }))
     $('renew-handoffs').hidden = false
   } catch (e) { fail(e) }
