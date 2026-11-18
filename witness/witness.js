@@ -296,6 +296,16 @@ export function witness (config) {
       const own = freeze({ ...held, anchors: held.anchors.filter((t, i) => !isContest(anchors[i])) })
       // A dead or unknown identity has no settled membership and nothing pending: nothing is signed for it.
       const s = stateOf(own)
+      // R11: a settled root's cancel ends a noticed recovery even while an ordinary
+      // successor is pending its contest window. Do this before the pending branch.
+      if (s.ok && !s.dead && s.recovering !== null &&
+        !said(held, 'matured', 'matured', s.recovering.record) &&
+        held.cancels.some((t) => open(t, 'cancel').body.record === s.recovering.record)) {
+        const text = make('cancelled', { identity: held.identity, record: s.recovering.record, at: now })
+        held = add(held, 'cancelled', text)
+        sign1('cancelled', text)
+        continue
+      }
       if (!s.pending) {
         // R3: a held successor of the settled membership that verifiers would see pending. At most one has a strict
         // majority, since each root holds one proposal per prev, so the order they are tried in does not matter.
@@ -322,8 +332,7 @@ export function witness (config) {
         const under = s.recovering
         if (under !== null) {
           if (said(held, 'matured', 'matured', under.record)) break
-          if (held.cancels.some((t) => open(t, 'cancel').body.record === under.record)) state1('cancelled', under.record)
-          else if (now >= under.at + s.recovery.window) state1('matured', under.record)
+          if (now >= under.at + s.recovery.window) state1('matured', under.record)
           else break
           continue
         }
