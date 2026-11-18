@@ -89,7 +89,7 @@ filed about it.
 69. A frozen identity authorises nothing new, and the conditions for freezing and unfreezing are exactly the spec's.
 70. A replaced proposal cannot be submitted again, and the list of such tombstones cannot be made to grow without bound.
 71. The state computed from the witness's records is the same on the witness, in the verifier and in the id page for every history the tests generate.
-72. A root that was removed cannot sign a contest, a cancel, a delegation or a change afterwards.
+72. A root removed from the membership cannot sign a contest, a cancel, a delegation or a change as a root of it. It may sign a later change that adds it back, once the current roots have authorised that change: as every added root must, to show that it holds its key.
 73. Authority is empty during any period the spec says no root has it, and nothing is authorised then.
 
 ## Recovery — `witness/witness.js` (R11), `src/membership.js`, `id/records.js`, `model/recovery.mjs`
