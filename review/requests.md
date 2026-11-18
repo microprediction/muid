@@ -15,7 +15,8 @@ A request is closed here, with the issue that answered it, by whoever asked.
   claim checked against the source. Read one group against the files its heading names and list every claim that is
   wrong about what the system does or should do, cannot arise, or duplicates another.
   One group per run; take the first group not listed here as done.
-  Done: *Relying parties and the demo* (133–142), answered in #111 and corrected.
+  Done: *Relying parties and the demo* (133–142), answered in #111 and corrected; *Verifier and signed heads*
+  (1–18), answered in #115 and corrected.
 - **R2. Recovery at the id page.** `id/page.js` from "R11" onwards, with `id/records.js`: designating parties, a
   party's card and proof, the request to recover, the rescue, the notice and its cancel. Is there any path on which
   a passkey signs something other than what its panel showed, or on which the owner is not told of a recovery under

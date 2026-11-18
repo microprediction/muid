@@ -8,22 +8,22 @@ filed about it.
 
 1. A claim verified against a head signed by a key not in the pinned witness keys is refused.
 2. A head signed by a pinned key before its `nbf` or after its `exp` is refused.
-3. Two heads of the same size with different roots are never both accepted by one verifier.
-4. A head smaller than one the verifier has already accepted is refused, not silently taken.
-5. An inclusion proof valid for tree size n is refused when presented with a head of size m ≠ n.
+3. Given the last membership head it accepted (`lastHead`), a verifier refuses a later head that is not consistent with it: a lower settled epoch, another settled membership, another pending successor. (A membership head has no tree size or Merkle root; those are a log checkpoint's, scenario 5.)
+4. A membership head older than `lastHead` or `minHeadAt` is refused when the caller supplies either; with neither, a head older than the configured freshness window is refused. (The verifier remembers nothing itself: the caller keeps the last head.)
+5. Integration obligation: wherever an inclusion proof is checked, its `size` and `root` both come from one authenticated checkpoint, never from the party presenting the proof. (A root does not commit to its size: the same proof can verify under two sizes, which is tested and intended.)
 6. An inclusion proof with one extra, missing or reordered hash is refused.
 7. A consistency proof between two heads that are not consistent is refused.
 8. A proof for leaf index ≥ tree size is refused without an exception escaping.
 9. A tree of size 0 and a tree of size 1 are each handled, with no proof accepted for a leaf that is not there.
 10. A leaf hash can never be accepted as an interior node hash, nor the reverse (domain separation).
 11. A signed note with a trailing extra line, a missing final newline or a second signature block is refused or read one way only.
-12. A note whose key name matches a pinned key but whose key hash does not is refused.
-13. The verifier's decision is the same whatever order the records it is given arrive in.
+12. A note's signature line whose name and key id do not both match a pinned key never counts as that key; the note is accepted only if a recognised signature verifies, and every recognised one is valid.
+13. The verifier's decision does not depend on the order of the members of the objects it is given, nor on members it does not read. (Order-freedom over an identity's records is scenario 71.)
 14. The verifier never makes a network request: everything it decides on is passed in.
 15. A verification that fails says why in a fixed, enumerable set of reasons, none carrying attacker-chosen text unescaped.
 16. A value that is not an object (null, an array, a string, a number) where a record is expected is refused, not thrown on.
-17. A claim whose delegation chain ends at a root that is not in the identity's settled membership is refused.
-18. A claim for a time before the delegation's `nbf` or at or after its `exp` is refused, at the exact second either side.
+17. A delegation is refused if the membership it names is not among the verified head's settled or pending memberships, or if its root is not in that head's authority. (There are no chains: one root delegates to one subject key. A pending successor's membership is valid for a root it retains.)
+18. A claim at a time before the delegation's `nbf` less the allowed skew, or at or after its `exp`, is refused, at the exact second either side of each.
 
 ## Encoding and envelope — `src/encode.js`, `src/envelope.js`, `src/bytes.js`
 
