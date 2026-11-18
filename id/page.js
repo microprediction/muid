@@ -5,7 +5,7 @@
 // record and the credential id are kept in this browser only. The workers it authorised are remembered here too, so
 // that one assertion renews up to eight of them at once (decision 3).
 import { openStore } from './store.js'
-import { rootRecord, challenge, assertion, delegation, handOff, readRequest, answer, b64u, fromB64u, currentMembership, addRoot, rootSigned, changeToSign, fingerprint, storedRoot, cosignedIdentity, storedWorkers, remember, retired, renewals, cancel, maturesAt, card, kept, newSalt, fromCard, majority, possessionId, shows, designate, undesignate, designated, recoveryChange, MAX_SALTS, recovery, rescue, partySigned } from './records.js'
+import { rootRecord, challenge, assertion, delegation, handOff, readRequest, answer, opened, b64u, fromB64u, currentMembership, addRoot, rootSigned, changeToSign, fingerprint, storedRoot, cosignedIdentity, storedWorkers, remember, retired, renewals, cancel, maturesAt, card, kept, newSalt, fromCard, majority, possessionId, shows, designate, undesignate, designated, recoveryChange, MAX_SALTS, recovery, rescue, partySigned } from './records.js'
 
 const $ = (id) => document.getElementById(id)
 const meta = (name) => document.querySelector(`meta[name="${name}"]`).content
@@ -210,15 +210,16 @@ async function submit (identity, type, text, root) {
   const r = await (await fetch(WITNESS + 'v1/records', { method: 'POST', body: JSON.stringify({ identity, type, text, root }) })).json()
   if (!r.ok) throw new Error(`the witness refused the ${type}: ${r.reason}`)
 }
-async function state (r = root) {
-  const res = await fetch(WITNESS + `v1/identities/${r.identity}/records`)
+async function held (identity) {
+  const res = await fetch(WITNESS + `v1/identities/${identity}/records`)
   // The witness knows no such identity (404), or holds its records; anything else is no answer at all.
   if (!res.ok && res.status !== 404) throw new Error('the witness did not answer')
   // Only a 404 says the identity is unknown: records that were served and do not verify are no answer either.
   if (!res.ok) throw Object.assign(new Error('the witness holds no record of this identity'), { unknown: true })
-  const records = await res.json()
-  return currentMembership(records, { identity: r.identity, rpId, origin: ORIGIN, witnessKeys: WITNESS_KEYS })
+  return res.json()
 }
+const stateOf = (records, identity) => currentMembership(records, { identity, rpId, origin: ORIGIN, witnessKeys: WITNESS_KEYS })
+const state = async (r = root) => stateOf(await held(r.identity), r.identity)
 // The current membership's id, for a delegation: only a root with authority (R6) signs one.
 async function membership () {
   const s = await state()
@@ -342,6 +343,23 @@ async function register () {
   // Now the witness knows the identity: what it holds for it (its designation, a recovery under notice) is asked.
   notice()
 }
+
+// SPEC §8: an identity opened with a passkey this device has (synced to it, or left when the page's storage was
+// cleared). The passkey is asked first, by whatever the platform offers for this site, to sign the identity's
+// possession value; the root it is, by the witness's records, is then kept with its credential id as one made here is.
+$('open-button').addEventListener('click', async () => {
+  withdraw()
+  try {
+    const identity = $('open-identity').value.trim()
+    const covers = [possessionId(identity)]
+    const a = await navigator.credentials.get({ publicKey: { rpId, challenge: challenge(covers), userVerification: 'required' } })
+    const records = await held(identity)
+    const r = opened({ identity, roots: records.roots, state: stateOf(records, identity), assertion: assertion(covers, a.response), rpId, origin: ORIGIN })
+    if (!await keepRoot(null, () => ({ ...r, credential: b64u(a.rawId), joining: false, registered: true }))) return
+    $('status').textContent = 'Opened with your passkey.'
+  } catch (e) { fail(e); return }
+  notice()
+})
 
 $('create-button').addEventListener('click', () => create(false))
 $('register-retry').addEventListener('click', () => { $('error').textContent = ''; register() })

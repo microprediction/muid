@@ -23,6 +23,10 @@
     <label>Name for the passkey <input id="name" autocomplete="off" placeholder="muid identity"></label>
     <button id="create-button" type="button">Create an identity</button>
     <p id="request-waiting" hidden>An application has asked you to authorise it. Create your identity first; what it asks is shown next.</p>
+    <h2>Already have an identity?</h2>
+    <p>If its passkey is on this device (it came with your account, or this browser's data was cleared), open it. Its id is shown on any device where it is open.</p>
+    <label>The identity <input id="open-identity" autocomplete="off" spellcheck="false"></label>
+    <button id="open-button" type="button">Open it with your passkey</button>
     <p>Or, to add this device to an identity you already have: <button id="join-button" type="button">Create a passkey to join</button></p>
   </section>
   <section id="joining" hidden>
