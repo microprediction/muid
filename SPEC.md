@@ -1064,7 +1064,9 @@ answer as `secret`: `{ epk, iv, ct }`, or null if the person declined (the view 
 prf. It is the application's convenience for its own storage and no credential: no verifier reads it, and nothing
 the witness or a relying party decides depends on it. Passkeys are made with prf asked for. Because the secret belongs
 to a passkey, an identity with several roots gives an application a different secret for each: an application that
-keeps data under one must give the person another way in when they first sign in with a second passkey.
+keeps data under one must give the person another way in when they first sign in with a second passkey. A passkey that
+replaces a lost one by recovery is a new root, so its secret is new too: an application should treat it as a second
+passkey and not expect the old secret back.
 
 **A request from an application.** An application may send the person to the page with its request in the
 fragment: `#muid-request=` and the base64url of `{ v: 1, agent, subject, aud, scopes, days, return, state }`. The
