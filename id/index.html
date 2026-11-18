@@ -22,6 +22,7 @@
     <p>Your identity is a passkey on this device. Nothing leaves this page until you hand a record to someone.</p>
     <label>Name for the passkey <input id="name" autocomplete="off" placeholder="muid identity"></label>
     <button id="create-button" type="button">Create an identity</button>
+    <p id="request-waiting" hidden>An application has asked you to authorise it. Create your identity first; what it asks is shown next.</p>
     <p>Or, to add this device to an identity you already have: <button id="join-button" type="button">Create a passkey to join</button></p>
   </section>
   <section id="joining" hidden>
@@ -79,6 +80,7 @@
   <section id="authorise" hidden>
     <h2>Authorise a worker</h2>
     <p>A worker is an application or agent that acts for you. It shows you its key; you say here what it may do, where, and for how long, sign with your passkey, and give it back the line this page then shows. That is all an application needs from this page.</p>
+    <p id="request" hidden><strong id="request-from"></strong> sent you here and asks you to authorise it. What it asks is filled in below: review it, and sign only if it is what you expect. Signing sends you back there.</p>
     <label>Agent name <input id="agent" autocomplete="off" spellcheck="false" placeholder="forecaster"></label>
     <label>Worker key (Ed25519, hex) <input id="subject" autocomplete="off" spellcheck="false"></label>
     <label>Audience <input id="aud" autocomplete="off" placeholder="https://app.example"></label>

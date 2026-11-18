@@ -385,3 +385,47 @@ test('renewals: each worker\'s delegation built again under the current membersh
   assert.throws(() => renewals([W(1), W(3), W(1, { subject: W(2).subject, aud: 'https://other.example' })], ctx), { message: 'an agent is listed with two keys' })
   assert.equal(renewals([W(1), W(1, { aud: 'https://other.example' })], ctx).covers.length, 2, 'one key at two audiences')
 })
+
+test('a request from an application: read from the fragment whole or refused; its answer is its return address with the hand-off', () => {
+  const { readRequest, answer } = records
+  const R = { v: 1, agent: 'drive', subject: SUBJECT, aud: 'https://node.example', scopes: ['store.ref', 'store.blob'], days: 7, return: 'https://app.example/drive/?a=1', state: 'S_t-9' }
+  const fragment = (r) => '#muid-request=' + (typeof r === 'string' ? r : Buffer.from(JSON.stringify(r)).toString('base64url'))
+  const { v, ...asked } = R
+  assert.deepEqual(readRequest(fragment(R)), { ...asked, from: 'https://app.example' })
+  assert.notEqual(readRequest(fragment(R)).scopes, R.scopes)
+  // No request at all: another fragment, none, or not text.
+  for (const none of ['', '#', '#muid=x', '#x#muid-request=' + fragment(R).slice(14), ' ' + fragment(R), undefined, null, 7]) assert.equal(readRequest(none), null, String(none))
+  // At their limits: one scope and sixteen, one day and seven, a name of 64, a state of 128, http at localhost, a port, a path, a query.
+  for (const over of [{ scopes: ['a'] }, { scopes: Array.from({ length: 16 }, (_, i) => 's' + i) }, { days: 1 }, { agent: 'a'.repeat(64) }, { scopes: ['s'.repeat(64)] }, { state: 's'.repeat(128) }, { state: 'a' },
+    { return: 'http://localhost:8080/' }, { return: 'http://localhost/' }, { return: 'https://app.example:8443/x/y?z=1&w=2' }, { return: 'https://app.example/' }, { aud: '' }, { aud: 'a'.repeat(2048) },
+    { return: 'https://app.example/' + 'p'.repeat(2048 - 20) }]) {
+    assert.deepEqual(readRequest(fragment({ ...R, ...over })), { ...asked, from: new URL((over.return ?? R.return)).origin, ...over }, JSON.stringify(over).slice(0, 80))
+  }
+  const refused = { message: 'that request is not one this page can read' }
+  const without = (key) => { const { [key]: _, ...rest } = R; return rest }
+  for (const bad of ['', 'x', '!!!', Buffer.from('{').toString('base64url'), Buffer.from([0xff, 0xfe]).toString('base64url'), ...['null', '7', '"x"', '[]', '{}', 'true'].map((t) => Buffer.from(t).toString('base64url')),
+    [R], { ...R, extra: 1 }, ...Object.keys(R).map(without),
+    { ...R, v: 2 }, { ...R, v: '1' }, { ...R, agent: '' }, { ...R, agent: 'a'.repeat(65) }, { ...R, agent: 7 }, { ...R, agent: ['drive'] },
+    { ...R, subject: SUBJECT.toUpperCase() }, { ...R, subject: SUBJECT + '0' }, { ...R, subject: SUBJECT.slice(1) }, { ...R, subject: [SUBJECT] }, { ...R, subject: 7 },
+    { ...R, aud: 7 }, { ...R, aud: ['https://node.example'] }, { ...R, aud: 'a'.repeat(2049) },
+    { ...R, scopes: [] }, { ...R, scopes: 'store.blob' }, { ...R, scopes: Array.from({ length: 17 }, (_, i) => 's' + i) }, { ...R, scopes: ['a', 7] }, { ...R, scopes: ['a', ''] }, { ...R, scopes: ['s'.repeat(65)] }, { ...R, scopes: { 0: 'a', length: 1 } },
+    { ...R, days: 0 }, { ...R, days: 8 }, { ...R, days: 1.5 }, { ...R, days: '7' }, { ...R, days: -1 },
+    { ...R, state: '' }, { ...R, state: 's'.repeat(129) }, { ...R, state: 'a b' }, { ...R, state: 'a.b' }, { ...R, state: 7 }, { ...R, state: 'ok\n' },
+    // The return address: not a URL, not https, a name or password, a fragment, not as the browser writes it, too long.
+    ...['app.example', '/drive/', 'http://app.example/', 'http://localhost.example/', 'ftp://localhost/', 'javascript:alert(1)', 'data:text/html,x', 'https://user@app.example/', 'https://user:pw@app.example/', 'https://:pw@app.example/',
+      'https://app.example/#x', 'https://app.example/#', 'https://app.example', 'HTTPS://app.example/', 'https://APP.example/', 'https://app.example:443/', 'https://app.example/a b', ' https://app.example/',
+      'https://app.example/' + 'p'.repeat(2048 - 19)].map((to) => ({ ...R, return: to })), { ...R, return: 7 }, { ...R, return: ['https://app.example/'] }, { ...R, return: null }]) {
+    assert.throws(() => readRequest(fragment(bad)), refused, JSON.stringify(bad).slice(0, 120))
+  }
+  // Longer than a request may be, whatever it holds.
+  const long = fragment({ ...R, aud: 'a'.repeat(2048), return: 'https://app.example/' + 'p'.repeat(2000), scopes: Array.from({ length: 16 }, () => 's'.repeat(64)), state: 's'.repeat(128) })
+  assert.equal(long.length <= 8192, true)
+  assert.equal(readRequest(long).state, 's'.repeat(128))
+  assert.throws(() => readRequest(fragment(R) + 'A'.repeat(8193 - fragment(R).length)), refused)
+  assert.equal(fragment(R).length < 8192, true)
+  // The answer: the return address as given, and in its fragment the state and the hand-off, a line of text.
+  const to = answer(readRequest(fragment(R)), '{"payload":"p","root":{}} é')
+  assert.equal(to.startsWith('https://app.example/drive/?a=1#muid='), true)
+  assert.deepEqual(JSON.parse(Buffer.from(to.split('#muid=')[1], 'base64url').toString('utf8')), { v: 1, state: 'S_t-9', handOff: '{"payload":"p","root":{}} é' })
+  assert.match(to.split('#muid=')[1], /^[A-Za-z0-9_-]+$/)
+})

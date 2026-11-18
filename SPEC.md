@@ -1035,6 +1035,19 @@ its own), and a registration or a co-signature the witness took marks only the r
 - The witness hard-codes its issuers and their signing-key endpoints, follows no discovery redirect, and uses a
   distinct redirect URI per provider (GitHub returns no `iss`).
 
+**A request from an application.** An application may send the person to the page with its request in the
+fragment: `#muid-request=` and the base64url of `{ v: 1, agent, subject, aud, scopes, days, return, state }`. The
+request only fills the Authorise form, once the page has an identity (one who has none makes it first): the page says
+who asked, by the origin of the `return` address, and nothing is reviewed or signed by arriving. What the person then
+reviews is the fields of the exact payload (I4), which they may have changed, and it is signed by the same button
+and assertion as anything typed. When the worker authorised is the request's `subject`, the page goes to `return`
+with `#muid=` and the base64url of `{ v: 1, state, handOff }`, the hand-off being the line it would otherwise show;
+for any other key it stays and shows it. The `return` address is https (http at localhost alone), as the browser
+writes it, with no name, password or fragment; a request not of this form is said and ignored whole. Nothing is
+trusted for having arrived this way: the hand-off is a delegation to the worker's key, of use to nobody without that
+key's secret, and the application checks what it is handed as it would a pasted line. Both directions travel in
+fragments, which no server is sent. Framed, the page does nothing, as before.
+
 **The worker's side (`worker/`, `muid/worker`; not core).** What a worker does with the page's hand-off, so that each
 service's client need not write it again. `newKey()` makes the Ed25519 key whose public half the owner gives the
 page. `enrol({ handOff, secret, witness })` countersigns the delegation (D6), refusing one made out to another key;
@@ -1042,8 +1055,8 @@ has the witness log it (R10); and reads the signing root's record from the witne
 plain data without the secret. `request(enrolled, secret, { scope, method, url, data, at }, { witness })` signs a
 claim (C1), refusing a scope the delegation does not give or a time it does not cover, and fetches a head: the five
 records a relying party's adapter verifies. Nothing here is trusted by a verifier, which checks every record itself;
-a refusal here only comes sooner and says why. The hand-off still travels by the user's own copy and paste: the page
-takes no request from another origin.
+a refusal here only comes sooner and says why. The hand-off reaches the worker in the answer to its application's
+request (above), or by the user's own copy and paste.
 
 ## 8a. The two-application demo (`demo/`, not core)
 
