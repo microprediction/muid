@@ -5,6 +5,8 @@ before anything else; [`README.md`](README.md) says how what is found is reporte
 `[automated review] request Rn: <one line>`, also when the answer is that nothing is wrong: a request is a question,
 and silence does not answer it.
 
+A request too large for one run says how it is divided and lists the parts already answered: take the next part.
+
 A request is closed here, with the issue that answered it, by whoever asked.
 
 ## Open
@@ -12,6 +14,8 @@ A request is closed here, with the issue that answered it, by whoever asked.
 - **R1. The scenarios themselves.** `review/scenarios.md` was written from the spec and the code as known, not each
   claim checked against the source. Read one group against the files its heading names and list every claim that is
   wrong about what the system does or should do, cannot arise, or duplicates another.
+  One group per run; take the first group not listed here as done.
+  Done: *Relying parties and the demo* (133–142), answered in #111 and corrected.
 - **R2. Recovery at the id page.** `id/page.js` from "R11" onwards, with `id/records.js`: designating parties, a
   party's card and proof, the request to recover, the rescue, the notice and its cancel. Is there any path on which
   a passkey signs something other than what its panel showed, or on which the owner is not told of a recovery under
