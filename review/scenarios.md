@@ -77,15 +77,15 @@ filed about it.
 ## Membership: adding roots, contests, settlement — `src/membership.js`, `witness/witness.js`
 
 59. A change adding a root takes effect only with the signatures the spec requires, including the added root's own.
-60. A change is not in force until its contest window has passed uncontested, to the second.
-61. A contest signed by a current root within the window has the effect the spec states, and one a second late has none.
+60. A pending successor becomes the settled membership only once its contest window has passed uncontested, to the second. From the moment it is anchored, a root it removes has no authority; a root it adds has none until it settles.
+61. A contest ends the identity only if a strict majority of the settled roots have signed it and the witness anchors it strictly before the successor's anchor time plus the contest window; at or after that moment the successor settles instead. Signing or submitting a contest earlier is not enough on its own.
 62. A contest signed by a root that is not in the settled membership has no effect.
 63. Two changes with the same `prev` cannot both settle.
 64. A change whose `epoch` is not exactly its predecessor's plus one is refused.
 65. A change whose `prev` is not the settled membership is refused, or held as the spec states, never applied.
 66. A change that removes every root is refused.
 67. A change with a root listed twice, or roots not in canonical order, is refused.
-68. An identity that has ended accepts no further record of any type and nothing is signed for it again.
+68. An identity that has ended accepts no further record of any type, root records included (one already held is held again, and changes nothing), and nothing is signed for it again.
 69. A frozen identity authorises nothing new, and the conditions for freezing and unfreezing are exactly the spec's.
 70. A replaced proposal cannot be submitted again, and the list of such tombstones cannot be made to grow without bound.
 71. The state computed from the witness's records is the same on the witness, in the verifier and in the id page for every history the tests generate.

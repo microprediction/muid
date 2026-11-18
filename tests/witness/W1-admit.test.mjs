@@ -147,6 +147,23 @@ test('nothing is admitted to a dead identity', () => {
   assert.equal(refused(w.admit(dead, 'freeze', signed('freeze', { identity: IDENTITY, membership: IDENTITY }, 'a'))), 'dead')
 })
 
+// Review #132: a root record took another path than every other type, and was admitted to a dead identity if a held
+// membership record named it.
+test('nor a root record: one a held proposal names is refused once the identity is dead, and one already held changes nothing', () => {
+  const pending = w.advance(withM2(), BASE).held
+  const M3 = mBody(3, ['a', 'b', 'c'], mId(M2))
+  const proposed = admitAll(pending, [['membership', signed('membership', M3, 'a')]])
+  assert.equal(w.admit(proposed, 'root', rootText('c')).ok, true, 'while the identity lives, the root the proposal names is taken')
+  const dead = w.advance(admitAll(proposed, [['contest', signed('contest', { identity: IDENTITY, record: mId(M2) }, 'a')]]), BASE + 1).held
+  assert.equal(state(dead).dead, true)
+  assert.equal(dead.roots.includes(rootText('c')), false)
+  assert.equal(refused(w.admit(dead, 'root', rootText('c'))), 'dead')
+  assert.equal(refused(w.admit(dead, 'root', rootText('d'))), 'dead', 'dead comes before unnamed: nothing is said of a dead identity\'s proposals')
+  assert.equal(refused(w.admit(dead, 'root', 'x')), 'envelope-encoding', 'what is no root record is refused as that, as ever')
+  const same = w.admit(dead, 'root', rootText('a'))
+  assert.deepEqual([same.ok, same.held], [true, dead], 'a record already held is held, and nothing changes')
+})
+
 test('each list is capped at MAX_RECORDS (256): a new record is refused when its list is full, before any check', () => {
   const s = start()
   // Built directly: the cap is checked before the state is computed, so the full list need not verify.
