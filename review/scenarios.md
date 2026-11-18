@@ -104,7 +104,7 @@ filed about it.
 81. A party signature is accepted only with the salt that opens that party's commitment in the designation in force.
 82. Notice is given only once the new root has itself signed, and its root record is held.
 83. The roots change no earlier than the notice time plus the full waiting period.
-84. A cancel signed by any one current root, any time before the wait ends, stops the recovery.
+84. A cancel signed by any one root of the settled membership, any time before the wait ends, stops the recovery and is acknowledged even while an ordinary successor is pending.
 85. A cancel signed by the incoming root, a party, or a removed root does nothing.
 86. After a cancel, no recovery is put under notice during the cooling-off period, and one may be afterwards.
 87. Two different recoveries for one identity cannot both be under notice.
