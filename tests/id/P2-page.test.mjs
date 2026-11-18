@@ -3071,10 +3071,9 @@ test('an application\'s request: it waits for an identity, fills the form and sh
     const rpId = 'localhost'
     const request = { v: 1, agent: 'drive', subject: SUBJECT, aud: 'https://node.example', scopes: ['store.ref', 'store.blob'], days: 3, return: 'https://app.example/drive/?a=1', state: 'S-1' }
     const link = (r) => t.site.origin + '/id/#muid-request=' + (typeof r === 'string' ? r : Buffer.from(JSON.stringify(r)).toString('base64url'))
-    // The application's own page, stood in for; the id page's count of what it ran is taken as it leaves.
+    // The application's own page, stood in for.
     const arrivals = []
     await t.context.route('https://app.example/**', async (route) => {
-      await t.collect()
       arrivals.push(route.request().url())
       await route.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><title>app</title>' })
     })

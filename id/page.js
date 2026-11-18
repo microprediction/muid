@@ -156,7 +156,7 @@ function show () {
   $('renew').hidden = root === null || joining || workers.length === 0
   listWorkers()
   $('pending').hidden = !unregistered()
-  $('request-waiting').hidden = request === null || root !== null
+  $('request-waiting').hidden = request === null // inside the creation section, shown only with no root
   $('request').hidden = request === null || root === null || joining
   if (!$('request').hidden && !filled) {
     filled = true
