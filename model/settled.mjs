@@ -97,8 +97,15 @@ export function witness (genesis, items, pick = (ids) => ids[0]) {
     if (e.dead) return out
     const cur = payloadsOf(out).get(e.base.id) ?? genesisOf(genesis)
     const anchoredIds = new Set(out.filter((it) => it.kind === 'A').map((it) => it.id))
+    const has = (kind, id) => out.some((it) => it.kind === kind && it.id === id)
+    // R11: cancelling under notice does not wait for an unrelated ordinary
+    // successor to settle. The settled roots still own this cancellation.
+    if (e.notice && !has('U', e.notice.id) && rule('cancel') &&
+      out.some((it) => it.kind === 'X' && it.record === e.notice.id && cur.roots.includes(it.signer))) {
+      out = [...out, { kind: 'K', id: e.notice.id, at: t }]
+      continue
+    }
     if (!e.pending) {
-      const has = (kind, id) => out.some((it) => it.kind === kind && it.id === id)
       const successors = [...payloadsOf(out).values()].filter((p) => p.prev === cur.id)
       const next = successors.filter((p) => validNext(cur, p, has('U', p.id))).map((p) => p.id).sort()
       if (next.length > 0) {
@@ -112,10 +119,6 @@ export function witness (genesis, items, pick = (ids) => ids[0]) {
       const under = recoveries.find((p) => has('N', p.id) && !has('K', p.id) && !has('U', p.id))
       if (under) {
         const began = Math.min(...out.filter((it) => it.kind === 'N' && it.id === under.id).map((it) => it.at))
-        if (rule('cancel') && out.some((it) => it.kind === 'X' && it.record === under.id && cur.roots.includes(it.signer))) {
-          out = [...out, { kind: 'K', id: under.id, at: t }]
-          continue
-        }
         if (!rule('mature') || t >= began + cur.rec.w) {
           out = [...out, { kind: 'U', id: under.id, at: t }]
           continue
