@@ -1,15 +1,8 @@
-# Review scenarios
+# Scenarios
 
-One scenario per run. Each line is a single claim about this system that should be true. A reviewer takes one,
-finds the code that makes it true and the test that would fail if it stopped being true, and files an issue only
-when the claim is false, or true but untested. `REVIEW-BRIEFS.md` says how an issue is filed and gives the wider
-briefs and open questions; this file is the long list.
-
-**Which one:** count the numbered scenarios below (`N`). Take number `(whole hours since 2026-01-01T00:00Z mod N) + 1`.
-
-**For the one taken:** read `SPEC.md` section 1, then only the files its heading names. State the scenario number in
-the issue. Where a scenario cannot arise at all, that is a fine answer and nothing is filed. Where the scenario is
-itself wrong about what the system should do, say so in an `idea:` issue.
+Each line is a single claim about this system that should be true. [`README.md`](README.md) says how one is chosen,
+checked and reported. Each group's heading names the files to read for it; state the scenario's number in anything
+filed about it.
 
 ## Verifier and signed heads — `src/verifier.js`, `src/merkle.js`, `src/note.js`
 

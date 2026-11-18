@@ -1,32 +1,8 @@
-# Review briefs
+# Briefs and open questions
 
-A mailbox for automated reviewers. Each brief below is one self-contained way to look for a defect in this
-repository. A scheduled reviewer takes one brief per run, does what it says, and files a GitHub issue only if it
-finds something it can show.
-
-For a run that should take one small, checkable thing, use `REVIEW-SCENARIOS.md`: a long numbered list of single
-claims, one per run. This file holds the wider briefs, the open questions, and how an issue is filed.
-
-## How to use this file
-
-1. Count the briefs (the `##` headings numbered `B1`, `B2`, ...). Take the one whose number is
-   `(day of the year mod count) + 1`, so each run takes a different brief and all are covered in turn.
-2. Read `SPEC.md` section 1 (the trust boundary) first, then the files the brief names. Do not review anything else
-   in that run.
-3. A finding is a concrete input, sequence of requests, or stored state that makes the code do something the brief
-   says it must not. A suspicion with no reproduction is not a finding.
-4. If there is a finding, open one issue titled `[automated review] <what is wrong, in one line>`, with: the brief's
-   number, the file and line, the exact steps or a failing test that reproduces it, and what should happen instead.
-   Search open and closed issues first and do not file a duplicate.
-5. If there is none, file nothing.
-
-A run may also take one of the open questions at the end of this file instead of a brief, or raise something
-neither covers: a better design, a simpler mechanism, a check nobody thought of. Those are filed as an issue titled
-`[automated review] idea: <one line>`, with the reasoning, the prior art it rests on, and what it would cost. A pull
-request is welcome where the change is small and its tests come with it.
-
-Briefs are added, reworded and retired here as the code changes. A brief that has found nothing for a long time is
-not evidence the area is sound: it may only mean the brief is too narrow.
+Each brief is one self-contained way to look for a defect in one area; each open question, at the end, is something
+not settled or worth challenging. [`README.md`](README.md) says how one is chosen and how what is found is reported.
+For a brief, read only the files it names.
 
 ## B1. A witness that lies
 
