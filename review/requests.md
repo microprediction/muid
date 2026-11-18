@@ -1,0 +1,28 @@
+# Review requests
+
+Specific things a maintainer has asked to have looked at. A scheduled review takes the first open request here
+before anything else; [`README.md`](README.md) says how what is found is reported. Answer in an issue titled
+`[automated review] request Rn: <one line>`, also when the answer is that nothing is wrong: a request is a question,
+and silence does not answer it.
+
+A request is closed here, with the issue that answered it, by whoever asked.
+
+## Open
+
+- **R1. The scenarios themselves.** `review/scenarios.md` was written from the spec and the code as known, not each
+  claim checked against the source. Read one group against the files its heading names and list every claim that is
+  wrong about what the system does or should do, cannot arise, or duplicates another.
+- **R2. Recovery at the id page.** `id/page.js` from "R11" onwards, with `id/records.js`: designating parties, a
+  party's card and proof, the request to recover, the rescue, the notice and its cancel. Is there any path on which
+  a passkey signs something other than what its panel showed, or on which the owner is not told of a recovery under
+  way? This is the newest code in the page.
+- **R3. Tests that wait for nothing.** `tests/id/P2-page.test.mjs` had checks that something did not happen which
+  ran before it could have (now waiting on `idle`). Are there any left, there or in `tests/id/P4-recovery.test.mjs`
+  and `tests/witness/`, including fixed waits (`waitForTimeout`) that a slow machine would outrun?
+- **R4. The mutation split.** `tests/mutation-plan.mjs`, `tests/guards/mutation-coverage.test.mjs` and the
+  `stryker.id-page-*.config.json` files divide `id/page.js` by line range. Can a line be left in no part, or the
+  guard pass while one is?
+
+## Closed
+
+None yet.
