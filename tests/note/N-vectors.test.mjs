@@ -32,6 +32,16 @@ test('a repeated signature line from a known key is refused (Go ignores it)', ()
   assert.equal(verifyNote(go.text + '\n' + go.enochSig + go.enochSig + go.peterSig, { keys: [go.vkeys.peter] }).ok, true, 'unknown repeats are ignored')
 })
 
+// A line is a known key's only by its name and key id together: one that bears a pinned key's name over another
+// key's id is nobody's here. It never counts as that key, and it does not spoil a note the key did sign.
+test("a signature line with a known key's name and another key's id is an unknown line: ignored, never that key's", () => {
+  const named = go.enochSig.replace('EnochRoot', 'PeterNeumann')
+  assert.notEqual(named, go.enochSig)
+  assert.deepEqual(plain(verifyNote(go.text + '\n' + named, { keys: [go.vkeys.peter] })), { ok: false, reason: 'unverified' })
+  assert.deepEqual(plain(verifyNote(go.text + '\n' + go.peterSig + named, { keys: [go.vkeys.peter] })), { ok: true, text: go.text, signers: ['PeterNeumann'] })
+  assert.deepEqual(plain(verifyNote(go.text + '\n' + named + go.peterSig, { keys: [go.vkeys.peter] })), { ok: true, text: go.text, signers: ['PeterNeumann'] })
+})
+
 test('Go TestNewVerifier and transparency-dev: malformed verifier keys are programming errors', () => {
   for (const k of [...go.badVkeys, ...td.badVkeys, 'PeterNeumann+C74F20A3+ARpc2QcUPDhMQegwxbzhKqiBfsVkmqq/LDE4izWy10TW']) {
     assert.throws(() => verifyNote(go.text + '\n' + go.peterSig, { keys: [k] }), /not a verifier key of type 1/, k)
