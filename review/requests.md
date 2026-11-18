@@ -18,7 +18,8 @@ A request is closed here, with the issue that answered it, by whoever asked.
   Done: *Relying parties and the demo* (133–142), answered in #111 and corrected; *Verifier and signed heads*
   (1–18), answered in #115 and corrected; *Encoding and envelope* (19–32), answered in #119 and corrected;
   *Roots, passkey assertions* (33–46), answered in #122 and corrected; *Ed25519 delegate keys and delegations*
-  (47–58), answered in #128 and corrected.
+  (47–58), answered in #128 and corrected; *Membership: adding roots, contests, settlement* (59–73), answered in
+  #130 and #132, corrected, and a witness defect fixed.
 - **R2. Recovery at the id page.** `id/page.js` from "R11" onwards, with `id/records.js`: designating parties, a
   party's card and proof, the request to recover, the rescue, the notice and its cancel. Is there any path on which
   a passkey signs something other than what its panel showed, or on which the owner is not told of a recovery under

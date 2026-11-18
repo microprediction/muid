@@ -257,10 +257,12 @@ export function witness (config) {
     return s.dead ? refuse('dead') : s // a refusal (an unknown identity) is passed on as it is
   }
 
-  // A root record: the identity's first root, or one a held membership record names.
+  // A root record: the identity's first root, or one a held membership record names. None for a dead identity,
+  // as nothing else is admitted to one (a holding with no root yet has no state, and is not dead).
   function admitRoot (held, text) {
     const r = checkRoot(text, { rpId })
     if (!r.ok) return r
+    if (stateOf(held).dead === true) return refuse('dead')
     if (identityOf(r.id) !== held.identity && !held.memberships.some((t) => has(open(t, 'membership').body.roots, r.id))) {
       return refuse('root-unnamed')
     }
