@@ -96,9 +96,9 @@ filed about it.
 
 74. A designation with zero parties, more than three parties, or a threshold that is not a strict majority is refused.
 75. A designation with a waiting period below the minimum or above the maximum is refused, at one second either side.
-76. A designation naming one of the identity's own roots as a party is refused.
+76. The id page refuses to designate a party whose card names a current root. The core and witness cannot tell which root a salted commitment hides, so they do not refuse the designation on that basis; an existing member root never counts as a recovery party when it opens the commitment.
 77. A designation naming the same party twice (the same root under two salts) is refused or counted once.
-78. A party's commitment reveals nothing about which root it is until that party opens it.
+78. A published salted commitment does not identify the party's root to an observer without the salt or recovery card. A holder of the card can identify it before any recovery, and a party's published recovery signature reveals the opening.
 79. A recovery signed by fewer parties than the threshold never gets notice.
 80. A recovery signed by parties of an earlier, replaced designation never gets notice.
 81. A party signature is accepted only with the salt that opens that party's commitment in the designation in force.
@@ -112,7 +112,7 @@ filed about it.
 89. An ordinary change signed by the roots while a recovery is under notice has the effect the spec states, and cannot be used by the parties to shorten the wait.
 90. A recovery carries the designation forward or ends it exactly as its payload states, and that is what was shown to each signer.
 91. The witness's notice, cancelled and matured statements cannot be given for a record it does not hold.
-92. A witness that backdates a notice is detected by a verifier holding an earlier head.
+92. A verifier checks the signature, shape, freshness and usual consistency of a head carrying a notice, but `lastHead` alone cannot detect a backdated notice. Recovery timing trusts the witness; auditing such timing requires independent monitoring of logged heads.
 93. A party that has given out the maximum number of recovery cards gives no more and loses none.
 94. A recovery card for one rp ID is refused at another.
 
