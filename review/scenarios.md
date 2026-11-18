@@ -32,15 +32,15 @@ filed about it.
 21. A number written as `1.0`, `1e0`, `01`, `-0` or beyond the safe integer range is refused where an integer is expected.
 22. A string containing a lone surrogate is refused.
 23. Two strings that differ only by Unicode normalisation are two different values, never treated as equal.
-24. Hex in upper case is refused where lower-case hex is specified.
+24. Hex in upper case is refused in every record field where lower-case hex is specified. (`fromHex` in `src/bytes.js` is an unchecked conversion: each caller checks the form first.)
 25. Hex of odd length, or of the wrong length for its field, is refused.
 26. Bytes after the end of a record are refused.
 27. A record is hashed and verified over the bytes received, never over bytes produced by serialising it again.
-28. An envelope opened as one record type is refused when its body is of another type.
-29. A field not in the record type's definition is refused, not ignored.
+28. `open(text, type)` refuses a payload whose own `type` is not the type asked for. What a record of that type must hold in its body is checked by that type's own checker (`checkRoot`, `checkDelegation` and the rest), not by `open`.
+29. A key that does not belong in the envelope, or in the payload's `{ body, type, v }`, is refused by `open`; a key that does not belong in a record's body or signature is refused by that type's own checker before the record is accepted. (`seal` and `open` do not judge a body.)
 30. A record nested deeper than the format allows is refused without exhausting the stack.
 31. A very long string or list in a record is refused by a stated size limit before it is processed.
-32. `__proto__`, `constructor` and `prototype` as keys change nothing but the record's own content, and no lookup table is reachable through them.
+32. `__proto__` is not a legal key and is refused. `constructor` and `prototype` are legal keys and ordinary data: no prototype and no lookup table is reachable through a decoded record.
 
 ## Roots, passkey assertions — `src/root.js`, `src/assertion.js`, `src/p256.js`, `src/origin.js`
 
