@@ -131,3 +131,7 @@ Answer one as an `idea:` issue; say plainly if the answer is that the current ap
   the rest of the design quietly depends on?
 - **Q6. What would you remove?** Name a mechanism, record type or rule that could be deleted, or replaced by a
   better-understood one, with nothing of value lost.
+- **Q7. Should the relying-party replay store have a capacity bound?** `adapter/stores.js` keeps each consumed claim
+  id until it expires, with no limit on how many. Every entry costs its sender a valid signed claim, so growth is
+  bounded by rate and window, not by count. Is that enough, and if not, what is the established policy that does not
+  let one caller evict another's unexpired entry?

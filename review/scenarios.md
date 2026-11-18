@@ -165,16 +165,16 @@ filed about it.
 
 ## Relying parties and the demo — `adapter/relying-party.js`, `adapter/stores.js`, `demo/`
 
-133. A signed request is accepted once: the same request sent again is refused.
-134. A request signed for one method, path, body or host is refused when any of them differs.
+133. A signed request's claim is consumed at most once: the same claim presented again to an adapter sharing the same store is refused, for as long as it could otherwise be accepted. (At most once, not exactly once: an action that fails leaves its claim consumed.)
+134. A claim signed for one method, origin or path is refused when any of them differs (query and fragment are not bound). Where the relying party requires a digest of the received body, a claim with no `content_digest`, or one that does not match, is refused.
 135. A request older or newer than the allowed time window is refused.
-136. The replay store is bounded and cannot be filled by one caller to make the service forget another's requests.
+136. A consumed claim id is kept for its whole acceptance window plus clock grace: accepting any number of other claims never evicts an unexpired one. (There is no bound on the count of entries, only on their lifetime; whether there should be one is open question Q7 in `briefs.md`.)
 137. Credit goes to the identity that delegated to the signing key, and to no identity named anywhere in the request by its sender.
-138. A request signed by a key whose delegation is for a different audience is refused.
-139. A request whose delegation has expired, or whose agent key has been retired, is refused even if the adapter cached an earlier acceptance.
-140. A forecast cannot be altered after the fact, and its payout cannot be claimed twice or by a second identity.
-141. The adapter verifies against a witness head it obtained and checked itself, not one supplied by the caller.
-142. An error from the adapter tells the caller nothing about other identities.
+138. Integration check of scenario 50: a request whose delegation is for a different audience is refused before the protected action runs.
+139. A delegation that has expired is refused at the moment of authorisation, including one that expired while the request waited. Once the adapter has seen a revocation in a verified head, no other valid head presented later restores that authority while the revocation must be kept. (Replacing an agent's key at the id page stops renewal; it does not itself revoke what was already issued.)
+140. A submitted record cannot be altered; a standing forecast may be superseded only until its question closes; a balance cannot be collected twice or by an identity other than its beneficiary. (Within one process: the demo does not claim persistence across a restart.)
+141. The adapter verifies the head a request presents under its own pinned witness keys and against the head and revocations it remembers itself; a caller cannot supply or replace that remembered state.
+142. An ordinary refusal by the adapter is one of a fixed set of reason codes, and carries no stored record content and no identifier of anything unrelated to the request.
 
 ## Receipts and attestations — `src/receipt.js`, `src/attestation.js`
 
