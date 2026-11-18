@@ -47,17 +47,17 @@ filed about it.
 33. An assertion whose client data `type` is not `webauthn.get` is refused.
 34. An assertion whose client data origin is not exactly the configured origin is refused (a different port, scheme, trailing dot, sub-domain, or case).
 35. An assertion whose authenticator data rpIdHash is not the hash of the configured rp ID is refused.
-36. An assertion without the user-verified flag is refused wherever user verification is required.
+36. Every root assertion missing the user-verified flag is refused.
 37. An assertion without the user-present flag is refused.
 38. An assertion whose challenge is not exactly the challenge derived from the record ids it covers is refused.
 39. An assertion covering record ids A and B cannot be presented as covering only A, or A and C.
 40. A P-256 signature with s in the upper half of the range, r or s of zero, or r or s ≥ n is handled as the spec states, the same way everywhere.
-41. A P-256 public key that is not on the curve, is the point at infinity, or is in compressed or hybrid form is refused.
+41. A P-256 public key is accepted only as a valid uncompressed `04 || x || y` point. Compressed or hybrid forms and the `00` point-at-infinity encoding are refused as `key-encoding`; an `04` point with invalid curve coordinates is refused as `key-point`.
 42. A DER signature with trailing bytes, a non-minimal length or a negative integer is refused.
-43. Client data JSON with a duplicate `challenge`, `origin` or `type` member is refused or read as a browser would produce it, never as an attacker prefers.
+43. Client data JSON with any repeated reserved member (`type`, `challenge`, `origin`, `crossOrigin`, `topOrigin`) is refused, even when values agree. `topOrigin` is refused even without a duplicate.
 44. `crossOrigin: true` in client data is refused.
 45. A root record names one key and one rp ID; a root for another rp ID is never accepted here.
-46. An identity's id is derived from its first root alone and cannot be claimed by a different root.
+46. An identity's public id is derived from its first root alone. Another root may name that id but gains no authority by naming it or publishing a root record; authority requires a valid membership or recovery transition.
 
 ## Ed25519 delegate keys and delegations — `src/ed25519.js`, `src/delegation.js`
 

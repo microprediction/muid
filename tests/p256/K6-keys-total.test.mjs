@@ -19,7 +19,7 @@ test('the control case verifies', () => assert.deepEqual(result(SIG, MSG, KEY), 
 test('key encodings other than lowercase uncompressed hex are refused', () => {
   const x = KEY.slice(2, 66)
   const odd = (parseInt(KEY.slice(-2), 16) & 1) === 1
-  for (const k of [(odd ? '03' : '02') + x, '06' + KEY.slice(2), '07' + KEY.slice(2), KEY.toUpperCase(), KEY.slice(2),
+  for (const k of ['00', (odd ? '03' : '02') + x, '06' + KEY.slice(2), '07' + KEY.slice(2), KEY.toUpperCase(), KEY.slice(2),
     KEY + '00', KEY.slice(0, -2), '', '05' + KEY.slice(2)]) {
     rejects(SIG, MSG, k, 'key-encoding', k.slice(0, 8))
   }
