@@ -235,12 +235,23 @@ test('create an identity and authorise a worker: the core, the witness and the v
     assert.equal(await t.page.textContent('#show-subject'), SUBJECT)
     const exp = Date.parse(await t.page.textContent('#show-exp')) / 1000
     assert.ok(Math.abs(exp - (Date.now() / 1000 + 86_400)) < 120)
+    assert.equal(await t.page.isHidden('#handoff-copy'), true, 'nothing to copy before anything is handed over')
     await t.page.click('#sign')
     await t.page.waitForSelector('#handoff:not([hidden])')
     const h = JSON.parse(await t.page.inputValue('#handoff'))
-    // Reviewing again withdraws what was handed over until it is signed again.
+    // The Copy button puts exactly the line shown on the clipboard, and says so; a clipboard that refuses is said.
+    await t.context.grantPermissions(['clipboard-read', 'clipboard-write'])
+    await t.page.click('#handoff-copy')
+    await t.page.waitForFunction(() => document.getElementById('status').textContent === 'Copied.')
+    assert.equal(await t.page.evaluate(() => navigator.clipboard.readText()), await t.page.inputValue('#handoff'))
+    await t.page.evaluate(() => { navigator.clipboard.writeText = async () => { throw new Error('the clipboard refused') } })
+    await t.page.click('#handoff-copy')
+    await errorShown(t.page)
+    assert.equal(await t.page.textContent('#error'), 'the clipboard refused')
+    // Reviewing again withdraws what was handed over until it is signed again, and the button with it.
     await t.page.click('#review')
     assert.equal(await t.page.isHidden('#handoff'), true)
+    assert.equal(await t.page.isHidden('#handoff-copy'), true)
 
     // The worker consents (D6) and has a delegation the core accepts.
     const id = envelope.open(envelope.wrap(h.payload, { root: h.root, subject: '0'.repeat(128) }), 'delegation').id
@@ -1169,6 +1180,18 @@ test('renewal: the workers authorised here are remembered, and one assertion ren
     await t.page.waitForSelector('#renew-handoffs:not([hidden])')
     assert.equal(await signCount(t) - before, 1, 'one assertion')
     const areas = await t.page.$$eval('#renew-handoffs textarea', (ts) => ts.map((x) => ({ value: x.value, readOnly: x.readOnly, label: x.getAttribute('aria-label') })))
+    // Each hand-off has its own Copy button, after it, which copies that one and no other; a failure clears on the next.
+    assert.deepEqual(await t.page.$$eval('#renew-handoffs > *', (xs) => xs.map((x) => [x.tagName, x.className, x.type, x.tagName === 'BUTTON' ? x.textContent : ''])),
+      areas.flatMap(() => [['TEXTAREA', '', 'textarea', ''], ['BUTTON', 'copy', 'button', 'Copy']]))
+    await t.context.grantPermissions(['clipboard-read', 'clipboard-write'])
+    await t.page.evaluate(() => { document.getElementById('error').textContent = 'an earlier error' })
+    for (let i = areas.length - 1; i >= 0; i--) {
+      await t.page.evaluate(() => { document.getElementById('status').textContent = '' })
+      await t.page.locator('#renew-handoffs button.copy').nth(i).click()
+      await t.page.waitForFunction(() => document.getElementById('status').textContent === 'Copied.')
+      assert.equal(await t.page.evaluate(() => navigator.clipboard.readText()), areas[i].value)
+      assert.equal(await t.page.textContent('#error'), '')
+    }
     assert.deepEqual(areas.map((a) => [a.readOnly, a.label]), expected.map((w) => [true, `Give this to ${w.agent}`]))
     const now = Math.floor(Date.now() / 1000)
     const { head } = await t.witnessGet(`/v1/identities/${r.identity}/head`)
