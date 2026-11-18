@@ -5,7 +5,7 @@
 // record and the credential id are kept in this browser only. The workers it authorised are remembered here too, so
 // that one assertion renews up to eight of them at once (decision 3).
 import { openStore } from './store.js'
-import { rootRecord, challenge, assertion, delegation, handOff, readRequest, answer, opened, b64u, fromB64u, currentMembership, addRoot, rootSigned, changeToSign, fingerprint, storedRoot, cosignedIdentity, storedWorkers, remember, retired, renewals, cancel, maturesAt, card, kept, newSalt, fromCard, majority, possessionId, shows, designate, undesignate, designated, recoveryChange, MAX_SALTS, recovery, rescue, partySigned } from './records.js'
+import { rootRecord, challenge, assertion, delegation, handOff, readRequest, answer, opened, firstRootIdentities, b64u, fromB64u, currentMembership, addRoot, rootSigned, changeToSign, fingerprint, storedRoot, cosignedIdentity, storedWorkers, remember, retired, renewals, cancel, maturesAt, card, kept, newSalt, fromCard, majority, possessionId, shows, designate, undesignate, designated, recoveryChange, MAX_SALTS, recovery, rescue, partySigned } from './records.js'
 
 const $ = (id) => document.getElementById(id)
 const meta = (name) => document.querySelector(`meta[name="${name}"]`).content
@@ -58,6 +58,8 @@ try {
 } catch (e) { unread = e }
 let filled = false
 let reviewed = false
+// The sign-in view: for one arriving with a request, what it asks and one button, until they ask for more.
+let full = false
 const pending = { delegation: null, change: null, cosign: null, renewal: null, designation: null, recoveryCosign: null, proof: null, recover: null, rescue: null }
 
 // A change to the stored root, made only while storage holds the root it was decided for (`mine`, its id: null
@@ -169,9 +171,9 @@ function show () {
   }
   // And reviewed at once, when the witness knows the identity: nothing in the form was typed by the person, so
   // there is nothing for them to finish before they are shown what would be signed.
-  if (filled && !reviewed && !$('request').hidden && root.registered === true) {
+  if (filled && !reviewed && full && !$('request').hidden && root.registered === true) {
     reviewed = true
-    $('review').click()
+    review()
   }
   $('request-unread').hidden = unread === undefined
   // R11: the recovery under notice, as the witness's records last gave it for the root now held (only a root of its
@@ -193,12 +195,35 @@ function show () {
     $('notice-incoming').hidden = own
   }
   $('cosign-pending').hidden = root?.cosigned === undefined
+  signinView(joining)
   if (root !== null) {
     $('identity-id').textContent = root.identity
     $('root-text').value = root.text
     $('join-root').value = root.text
     $('join-fingerprint').textContent = fingerprint(root.id)
   }
+}
+
+// The sign-in view replaces the page's sections for one arriving with a request: who asks, what for, and one
+// button. What it says is the request's fields, which are what is signed (the delegation is built from them alone,
+// under the identity this button makes, finds or holds), with the exact payload's fields under Details. A recovery
+// under notice, and a witness that could not be asked, are still said.
+const host = (origin) => new URL(origin).host
+function signinView (joining) {
+  const on = request !== null && !full
+  $('signin').hidden = !on
+  if (!on) return
+  for (const id of ['create', 'joining', 'identity', 'add-root', 'authorise', 'recovery', 'party', 'renew', 'request-waiting', 'request']) $(id).hidden = true
+  $('signin-title').textContent = `${host(request.from)} asks to act for you`
+  const days = request.days === 1 ? '1 day' : `${request.days} days`
+  $('signin-what').textContent = `It will be able to ${request.scopes.join(', ')} at ${host(request.aud)}, under the name ${request.agent}, for ${days}, and nothing else.` +
+    (root === null || joining ? ' You sign in with a passkey: the one you already have for this page, or a new one.' : '')
+  $('signin-button').textContent = root === null || joining ? 'Continue with a passkey' : 'Sign in with your passkey'
+  $('signin-agent').textContent = request.agent
+  $('signin-aud').textContent = request.aud
+  $('signin-scopes').textContent = [...new Set(request.scopes)].sort().join(' ')
+  $('signin-exp').textContent = `${days} from when you sign`
+  $('signin-subject').textContent = request.subject
 }
 
 function fail (e) {
@@ -366,7 +391,7 @@ $('register-retry').addEventListener('click', () => { $('error').textContent = '
 $('join-button').addEventListener('click', () => create(true))
 for (const id of ['agent', 'subject', 'aud', 'scopes', 'days', 'new-root', 'cosign-payload', 'party-cards', 'recovery-days', 'recovery-cosign-payload', 'proof-code', 'recover-identity', 'rescue-request', 'rescue-card']) $(id).addEventListener('input', withdraw)
 
-$('review').addEventListener('click', async () => {
+async function review () {
   withdraw()
   const asked = withdrawals
   try {
@@ -387,9 +412,10 @@ $('review').addEventListener('click', async () => {
     $('show-retires').textContent = old.length === 0 ? '' : `This replaces the key remembered for ${d.body.agent}, ${old.join()}: that key will no longer be renewed here. It keeps working until what it was given expires, unless it is revoked.`
     $('review-panel').hidden = false
   } catch (e) { if (asked === withdrawals) fail(e) } // a refusal of what was withdrawn is not shown
-})
+}
+$('review').addEventListener('click', () => review())
 
-$('sign').addEventListener('click', async () => {
+async function signDelegation () {
   const d = pending.delegation
   if (d === null || lapsed([d]) || await changedElsewhere()) return
   $('error').textContent = ''
@@ -408,7 +434,62 @@ $('sign').addEventListener('click', async () => {
     // The application that asked for this worker's key is answered, at its own address; any other is not.
     if (request !== null && request.subject === d.body.subject) location.assign(answer(request, line))
   } catch (e) { fail(e) }
+}
+$('sign').addEventListener('click', () => signDelegation())
+
+// The sign-in view's button. With no identity here, the passkey the platform offers for this site is asked first,
+// over a fresh value that is no record's id; the identity it is the first root of is opened as by its id. Then the
+// identity is registered if it is not yet, the request reviewed, and signed: the person is sent back with the answer.
+const freshValue = () => Array.from(crypto.getRandomValues(new Uint8Array(32)), (x) => x.toString(16).padStart(2, '0')).join('')
+async function discover () {
+  const covers = [possessionId(freshValue())]
+  const a = await navigator.credentials.get({ publicKey: { rpId, challenge: challenge(covers), userVerification: 'required' } })
+  const signed = assertion(covers, a.response)
+  for (const identity of firstRootIdentities(a.response, rpId)) {
+    let records
+    try {
+      records = await held(identity)
+    } catch (e) {
+      if (e.unknown === true) continue
+      throw e
+    }
+    const r = opened({ identity, record: covers[0], roots: records.roots, state: stateOf(records, identity), assertion: signed, rpId, origin: ORIGIN })
+    if (!await keepRoot(null, () => ({ ...r, credential: b64u(a.rawId), joining: false, registered: true }))) return
+    notice()
+    return
+  }
+  throw Object.assign(new Error('The identity of that passkey was not found. If it was added to an identity on another device, choose More options and open that identity by its id.'), { unfound: true })
+}
+async function proceed () {
+  if (root === null) return
+  if (root.joining === true) { fail(new Error('This passkey is joining an identity and can sign nothing until that change has settled.')); return }
+  if (unregistered()) {
+    await register()
+    if (unregistered()) return
+  }
+  await review()
+  if (pending.delegation === null) return
+  await signDelegation()
+}
+$('signin-button').addEventListener('click', async () => {
+  $('error').textContent = ''
+  $('signin-new').hidden = true
+  if (root === null) {
+    try {
+      await discover()
+    } catch (e) {
+      $('signin-new').hidden = false
+      if (e.name !== 'NotAllowedError') fail(e)
+      return
+    }
+  }
+  await proceed()
 })
+$('signin-create').addEventListener('click', async () => {
+  await create(false)
+  await proceed()
+})
+$('signin-more').addEventListener('click', () => { full = true; show() })
 
 // What a box shows, copied for the user to give to the worker: the same text, and nothing else.
 async function copy (box) {

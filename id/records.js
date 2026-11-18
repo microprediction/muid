@@ -2,10 +2,11 @@
 // challenge, the assertion object (W0–W6) from what the passkey returns, and a delegation to a worker's key, whose
 // fields the page shows (I4) before the passkey signs. Nothing here signs; the passkey does, in the browser.
 import { sha256 } from '@noble/hashes/sha2.js'
+import { p256 } from '@noble/curves/nist.js'
 import { seal, wrap, open } from '../src/envelope.js'
 import { membershipState, isMembership, recoveryCommitment, MIN_RECOVERY_WINDOW, MAX_RECOVERY_WINDOW } from '../src/membership.js'
 import { checkRootAssertion } from '../src/assertion.js'
-import { checkRoot, identityOf } from '../src/root.js'
+import { checkRoot, identityOf, rootIdOf } from '../src/root.js'
 import { isCanonicalOrigin } from '../src/origin.js'
 import { checkEd25519Key } from '../src/ed25519.js'
 
@@ -268,13 +269,39 @@ export function possessionId (record) {
 // id and signs nothing else; the root it belongs to is the one, among the root records the witness holds and the
 // roots of the identity's current membership, whose key made that assertion: { text, id, identity }. The assertion is
 // then discarded. Nothing is taken on anyone's word: a passkey that is none of the identity's opens nothing.
-export function opened ({ identity, roots, state, assertion, rpId, origin }) {
-  const record = possessionId(identity)
+export function opened ({ identity, roots, state, assertion, rpId, origin, record = possessionId(identity) }) {
   for (const text of roots) {
     const r = checkRoot(text, { rpId })
     if (r.ok && state.roots.includes(r.id) && checkRootAssertion(assertion, { record, rpId, origin, key: r.key }).ok) return { text, id: r.id, identity }
   }
   throw new Error("that passkey is not one of this identity's")
+}
+
+// The identities a passkey's assertion may be the first root of, from its signature alone: an ECDSA signature over a
+// known message gives its public key up to two candidates, and a root's key gives its id, and a first root's id the
+// identity. Nothing is taken from this but where to look: `opened` then requires the witness to hold that root, in
+// the identity's current membership, and the assertion to verify under it. (A root added later, by joining, is not
+// found this way: its identity is not its own id's.)
+export function firstRootIdentities ({ authenticatorData, clientDataJSON, signature }, rpId) {
+  const ad = new Uint8Array(authenticatorData)
+  const message = new Uint8Array(ad.length + 32)
+  message.set(ad)
+  message.set(sha256(new Uint8Array(clientDataJSON)), ad.length)
+  const digest = sha256(message)
+  const out = []
+  let sig
+  try {
+    sig = p256.Signature.fromBytes(new Uint8Array(signature), 'der')
+  } catch {
+    return out
+  }
+  for (const bit of [0, 1]) {
+    try {
+      const id = identityOf(rootIdOf(rpId, hex(sig.addRecoveryBit(bit).recoverPublicKey(digest).toBytes(false))))
+      if (!out.includes(id)) out.push(id)
+    } catch { /* no key for this bit */ }
+  }
+  return out
 }
 
 // What a party gives whoever would designate it: its root record and a salt it keeps. { root, key, salt,

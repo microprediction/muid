@@ -1043,6 +1043,16 @@ those of its current membership, whose key made that assertion, with the credent
 same root of the same identity, not a new one: nothing is submitted, and nothing waits. A passkey that is none of the
 identity's opens nothing. The assertion is then discarded.
 
+**The sign-in view.** One arriving with a request is shown the request alone: who asks, what it may do in words,
+the exact fields under a fold, and one button; the rest of the page is under More options. A recovery under notice
+is still said. With an identity stored here, the button reviews and signs (one prompt). With none, it first asks the
+platform for any passkey of this site, over a fresh value that is no record's id, and looks for the identity that
+passkey is the first root of: an ECDSA signature gives its public key up to two candidates, each key a root id, each
+first root an identity, and the root is kept only if the witness holds it in that identity's current membership and
+the assertion verifies under it (as opening by id). Then it reviews and signs. If no passkey is used, the person is
+offered to make one, which then signs. A root added by joining is not found this way; its identity is opened by id.
+What is signed is the delegation the request's fields make, under the identity so found, made or held.
+
 **A request from an application.** An application may send the person to the page with its request in the
 fragment: `#muid-request=` and the base64url of `{ v: 1, agent, subject, aud, scopes, days, return, state }`. The
 request only fills the Authorise form, once the page has an identity (one who has none makes it first): the page says

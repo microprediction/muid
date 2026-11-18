@@ -3077,7 +3077,12 @@ test('an application\'s request: it waits for an identity, fills the form and sh
       arrivals.push(route.request().url())
       await route.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><title>app</title>' })
     })
-    const arrive = async (r) => { await t.page.goto('about:blank'); await t.page.goto(link(r)) }
+    // The page as it was before the sign-in view: More options, pressed on arrival.
+    const arrive = async (r) => {
+      await t.page.goto('about:blank')
+      await t.page.goto(link(r))
+      if (typeof r !== 'string') { await t.page.waitForSelector('#signin:not([hidden])'); await t.page.click('#signin-more') }
+    }
     const shown = (ids) => Promise.all(ids.map((id) => t.page.isHidden('#' + id)))
     const fields = () => Promise.all(['agent', 'subject', 'aud', 'scopes', 'days'].map((id) => t.page.inputValue('#' + id)))
 
@@ -3105,6 +3110,8 @@ test('an application\'s request: it waits for an identity, fills the form and sh
     // Loaded again with its fragment, it is the request again, and reviewed again.
     await t.page.fill('#days', '2')
     await t.page.reload()
+    await t.page.waitForSelector('#signin:not([hidden])')
+    await t.page.click('#signin-more')
     await reviewShows(3)
     assert.deepEqual(await fields(), ['drive', SUBJECT, 'https://node.example', 'store.ref store.blob', '3'])
     // Filled and reviewed once: what the person then changes stays changed and withdraws the review, as any edit
@@ -3189,6 +3196,7 @@ test('an application\'s request: it waits for an identity, fills the form and sh
     assert.deepEqual([await j.page.isHidden('#request-waiting'), await j.page.isHidden('#request')], [true, true])
     await j.page.goto('about:blank')
     await j.page.goto(link(request))
+    await j.page.click('#signin-more')
     await j.page.waitForSelector('#create:not([hidden])')
     await j.page.click('#join-button')
     await j.page.waitForSelector('#joining:not([hidden])')
@@ -3198,6 +3206,7 @@ test('an application\'s request: it waits for an identity, fills the form and sh
     const k = await t.device()
     await k.page.goto('about:blank')
     await k.page.goto(link(request))
+    await k.page.click('#signin-more')
     await k.page.waitForSelector('#create:not([hidden])')
     t.outage('down')
     await k.page.fill('#name', 'late')
@@ -3292,6 +3301,107 @@ test('an identity opened with a passkey this device has: only the identity\'s ow
     await errorIs(f.page, 'The passkey request was cancelled.')
     assert.equal(await held(f.page, 'root'), null)
     assert.deepEqual(t.problems.filter((p) => !/status of 404/.test(p)), [])
+  } finally { await t.close() }
+})
+
+test('the sign-in view: one arriving with a request sees what it asks and one button, which finds, makes or uses the identity and signs', { timeout: 180_000 }, async () => {
+  const t = await open()
+  try {
+    const rpId = 'localhost'
+    const request = { v: 1, agent: 'drive', subject: SUBJECT, aud: 'https://node.example', scopes: ['store.ref', 'store.blob'], days: 7, return: 'https://app.example/drive/', state: 'S-1' }
+    const link = (r) => t.site.origin + '/id/#muid-request=' + Buffer.from(JSON.stringify(r)).toString('base64url')
+    // The application's own page, stood in for on every device.
+    const arrivals = []
+    const app = (context) => context.route('https://app.example/**', async (route) => {
+      arrivals.push(route.request().url())
+      await route.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><title>app</title>' })
+    })
+    await app(t.context)
+    const SECTIONS = ['create', 'joining', 'identity', 'add-root', 'authorise', 'recovery', 'party', 'renew', 'request-waiting', 'request', 'signin']
+    const visible = async (page) => (await Promise.all(SECTIONS.map(async (id) => (await page.isHidden('#' + id)) ? null : id))).filter((x) => x !== null)
+    const answered = async (page, state) => {
+      await page.waitForURL((u) => u.origin === 'https://app.example')
+      const back = JSON.parse(Buffer.from(page.url().split('#muid=')[1], 'base64url').toString('utf8'))
+      assert.equal(back.state, state)
+      return JSON.parse(back.handOff)
+    }
+    const go = async (page, r) => { await page.goto('about:blank'); await page.goto(link(r)); await page.waitForSelector('#signin:not([hidden])') }
+
+    // A newcomer: the view says who asks and what for, in words, and offers one button; nothing else of the page.
+    await go(t.page, request)
+    assert.deepEqual(await visible(t.page), ['signin'])
+    assert.equal(await t.page.textContent('#signin-title'), 'app.example asks to act for you')
+    assert.equal(await t.page.textContent('#signin-what'), 'It will be able to store.ref, store.blob at node.example, under the name drive, for 7 days, and nothing else. You sign in with a passkey: the one you already have for this page, or a new one.')
+    assert.equal(await t.page.textContent('#signin-button'), 'Continue with a passkey')
+    assert.deepEqual(await Promise.all(['agent', 'aud', 'scopes', 'exp', 'subject'].map((f) => t.page.textContent('#signin-' + f))), ['drive', 'https://node.example', 'store.blob store.ref', '7 days from when you sign', SUBJECT])
+    // No passkey for this site here: said, with the way to make one.
+    await t.page.click('#signin-button')
+    await t.page.waitForSelector('#signin-new:not([hidden])')
+    assert.equal(await t.page.textContent('#error'), '')
+    await t.page.click('#signin-create')
+    const h = await answered(t.page, 'S-1')
+    assert.equal(arrivals.length, 1)
+    const { credentials } = await t.cdp.send('WebAuthn.getCredentials', { authenticatorId: t.authenticatorId })
+    assert.equal(credentials.length, 1)
+    const counted = credentials[0].signCount
+    const d = envelope.open(envelope.wrap(h.payload, { root: h.root, subject: '0'.repeat(128) }), 'delegation')
+    const kept = await (async () => { await t.page.goto(t.site.origin + '/id/'); await t.page.waitForSelector('#identity:not([hidden])'); return held(t.page, 'root') })()
+    assert.deepEqual(JSON.parse(JSON.stringify({ ...d.body, nbf: 0, exp: 0 })), { agent: 'drive', aud: 'https://node.example', exp: 0, identity: kept.identity, membership: kept.identity, nbf: 0, root: kept.id ?? rootModule.checkRoot(kept.text, { rpId }).id, scopes: ['store.blob', 'store.ref'], subject: SUBJECT })
+    assert.equal(d.body.exp - d.body.nbf, 7 * 86_400)
+    const consent = hex(ed25519.sign(Buffer.concat([Buffer.from('muid/v1/accept\n'), Buffer.from(d.id, 'hex')]), WORKER))
+    assert.equal(delegationModule.checkDelegation(envelope.wrap(h.payload, { root: h.root, subject: consent }), { rootKey: rootModule.checkRoot(kept.text, { rpId }).key, rpId, origin: t.site.origin, now: Math.floor(Date.now() / 1000), skew: 60, maxLifetime: 2_592_000 }).ok, true)
+
+    // The same device again: the button says so, and one passkey prompt signs.
+    await go(t.page, { ...request, state: 'S-2' })
+    assert.equal(await t.page.textContent('#signin-button'), 'Sign in with your passkey')
+    assert.equal((await t.page.textContent('#signin-what')).endsWith('and nothing else.'), true)
+    await t.page.click('#signin-button')
+    await answered(t.page, 'S-2')
+    assert.equal((await t.cdp.send('WebAuthn.getCredentials', { authenticatorId: t.authenticatorId })).credentials[0].signCount, counted + 1, 'one prompt')
+
+    // Another device the passkey has synced to: the button finds the identity from the passkey itself, nothing typed.
+    const b = await t.device()
+    await app(b.context)
+    await b.cdp.send('WebAuthn.addCredential', { authenticatorId: b.authenticatorId, credential: credentials[0] })
+    await go(b.page, { ...request, state: 'S-3' })
+    assert.equal(await b.page.textContent('#signin-button'), 'Continue with a passkey')
+    await b.page.click('#signin-button')
+    await answered(b.page, 'S-3')
+    await b.page.goto(t.site.origin + '/id/')
+    await b.page.waitForSelector('#identity:not([hidden])')
+    assert.deepEqual([(await held(b.page, 'root')).text, (await held(b.page, 'root')).registered], [kept.text, true])
+    assert.equal((await t.witnessGet(`/v1/identities/${kept.identity}/records`)).roots.length, 1, 'the same root: nothing was added')
+
+    // A passkey whose identity the witness does not hold (made while it could not be reached, and forgotten here):
+    // said, with the way on.
+    const e = await t.device()
+    t.outage('down')
+    await e.page.fill('#name', 'lost')
+    await e.page.click('#create-button')
+    await e.page.waitForSelector('#pending:not([hidden])')
+    t.outage()
+    await drop(e.page, 'root')
+    await go(e.page, { ...request, state: 'S-4' })
+    await e.page.click('#signin-button')
+    await errorIs(e.page, 'The identity of that passkey was not found. If it was added to an identity on another device, choose More options and open that identity by its id.')
+    assert.equal(await e.page.isHidden('#signin-new'), false)
+    assert.equal(await held(e.page, 'root'), null)
+
+    // The passkey request refused: nothing said but the way on, and nothing kept.
+    const f = await t.device()
+    await f.cdp.send('WebAuthn.removeVirtualAuthenticator', { authenticatorId: f.authenticatorId })
+    const { authenticatorId } = await f.cdp.send('WebAuthn.addVirtualAuthenticator', { options: { protocol: 'ctap2', transport: 'internal', hasResidentKey: true, hasUserVerification: false, automaticPresenceSimulation: true } })
+    await f.cdp.send('WebAuthn.addCredential', { authenticatorId, credential: credentials[0] })
+    await go(f.page, { ...request, state: 'S-5' })
+    await f.page.click('#signin-button')
+    await f.page.waitForSelector('#signin-new:not([hidden])')
+    assert.deepEqual([await f.page.textContent('#error'), await held(f.page, 'root')], ['', null])
+
+    // More options: the whole page, as it is without the view, the request waiting for an identity.
+    await f.page.click('#signin-more')
+    assert.deepEqual(await visible(f.page), ['create', 'request-waiting'])
+    assert.equal(arrivals.length, 3, 'one answer for each sign-in, none for the others')
+    assert.deepEqual(t.problems.filter((p) => !/status of (404|503)/.test(p)), [])
   } finally { await t.close() }
 })
 

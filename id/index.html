@@ -18,6 +18,23 @@
 <body>
 <main>
   <h1>Your identity</h1>
+  <section id="signin" hidden>
+    <h2 id="signin-title"></h2>
+    <p id="signin-what"></p>
+    <button id="signin-button" type="button"></button>
+    <p id="signin-new" hidden>No passkey of yours was found here. If you are new, <button id="signin-create" type="button">create a passkey</button>. If your passkey is on another device, use it there, or choose it when your browser offers it.</p>
+    <details>
+      <summary>Exactly what your passkey signs</summary>
+      <dl>
+        <dt>Agent</dt><dd id="signin-agent"></dd>
+        <dt>Where</dt><dd id="signin-aud"></dd>
+        <dt>What it may do</dt><dd id="signin-scopes"></dd>
+        <dt>Until</dt><dd id="signin-exp"></dd>
+        <dt>Its key</dt><dd id="signin-subject"></dd>
+      </dl>
+    </details>
+    <p><button id="signin-more" type="button">More options</button></p>
+  </section>
   <section id="create" hidden>
     <p>Your identity is a passkey on this device. Nothing leaves this page until you hand a record to someone.</p>
     <label>Name for the passkey <input id="name" autocomplete="off" placeholder="muid identity"></label>
