@@ -5,7 +5,7 @@
 // record and the credential id are kept in this browser only. The workers it authorised are remembered here too, so
 // that one assertion renews up to eight of them at once (decision 3).
 import { openStore } from './store.js'
-import { rootRecord, challenge, assertion, delegations, handOff, readRequest, audiencesOf, answer, opened, firstRootIdentities, secretInput, sealSecret, b64u, fromB64u, currentMembership, addRoot, rootSigned, changeToSign, fingerprint, storedRoot, cosignedIdentity, storedWorkers, remember, retired, renewals, cancel, maturesAt, card, kept, newSalt, fromCard, majority, possessionId, shows, designate, undesignate, designated, recoveryChange, MAX_SALTS, recovery, rescue, partySigned } from './records.js'
+import { rootRecord, challenge, assertion, delegations, handOff, readRequest, audiencesOf, answer, opened, firstRootIdentities, secretInput, prfOutput, sealSecret, b64u, fromB64u, currentMembership, addRoot, rootSigned, changeToSign, fingerprint, storedRoot, cosignedIdentity, storedWorkers, remember, retired, renewals, cancel, maturesAt, card, kept, newSalt, fromCard, majority, possessionId, shows, designate, undesignate, designated, recoveryChange, MAX_SALTS, recovery, rescue, partySigned } from './records.js'
 
 const $ = (id) => document.getElementById(id)
 const meta = (name) => document.querySelector(`meta[name="${name}"]`).content
@@ -452,8 +452,8 @@ async function signDelegation () {
     if (asked) {
       // A browser that cannot evaluate prf may leave its entry out, which Chrome never does when it was asked for.
       // Stryker disable next-line OptionalChaining: equivalent in Chrome, see above
-      const first = secret ? s.extensions.prf?.results?.first : undefined
-      location.assign(answer(request, lines, first === undefined ? null : await sealSecret(new Uint8Array(first), request)))
+      const first = secret ? prfOutput(s.extensions.prf?.results?.first) : null
+      location.assign(answer(request, lines, first === null ? null : await sealSecret(first, request)))
     }
   } catch (e) { fail(e) }
 }
