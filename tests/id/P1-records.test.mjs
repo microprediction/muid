@@ -424,6 +424,22 @@ test('a request from an application: read from the fragment whole or refused; it
   assert.equal(readRequest(long).state, 's'.repeat(128))
   assert.throws(() => readRequest(fragment(R) + 'A'.repeat(8193 - fragment(R).length)), refused)
   assert.equal(fragment(R).length < 8192, true)
+  // A request of a valid form but over the limit (eight audiences can make one): refused; at the limit exactly, read.
+  const { aud: _a, ...noAud } = R
+  const sized = (n) => fragment({ ...noAud, auds: Array.from({ length: 8 }, (_, i) => `https://s${i}.example/` + 'p'.repeat(n)) })
+  let n = 0
+  while (sized(n + 1).length <= 8192) n++
+  assert.equal(readRequest(sized(n)).auds.length, 8)
+  const exact = Array.from({ length: 16 }, (_, k) => fragment({ ...noAud, state: 'S'.repeat(1 + k), auds: Array.from({ length: 8 }, (_, i) => `https://s${i}.example/` + 'p'.repeat(n)) })).find((f) => f.length === 8192)
+  assert.notEqual(exact, undefined)
+  assert.equal(readRequest(exact).auds.length, 8)
+  assert.throws(() => readRequest(sized(n + 1)), refused)
+  // Text that is not UTF-8 where any text may be: refused, not read with a replacement character.
+  const bytes = Buffer.from(JSON.stringify({ ...R, agent: 'dr~ve' }))
+  assert.equal(bytes.indexOf('~'), bytes.lastIndexOf('~'))
+  bytes[bytes.indexOf('~')] = 0xff
+  assert.throws(() => readRequest('#muid-request=' + bytes.toString('base64url')), refused)
+  assert.equal(readRequest(fragment({ ...R, agent: 'dr~ve' })).agent, 'dr~ve', 'the same request, with a byte that is text, is read')
   // The answer: the return address as given, and in its fragment the state and the hand-off, a line of text.
   const to = answer(readRequest(fragment(R)), ['{"payload":"p","root":{}} é'])
   assert.equal(to.startsWith('https://app.example/drive/?a=1#muid='), true)
