@@ -3605,12 +3605,26 @@ test('a request for several audiences: all shown, one passkey prompt signs a del
     await t.page.click('#review')
     await errorIs(t.page, 'an audience is named twice')
     assert.equal(await t.page.isHidden('#review-panel'), true)
-    // One audience typed there: the answer is still in the request's form, a list, of one.
-    await t.page.fill('#aud', AUDS[1])
+    // Another key authorised at several audiences: the application is not answered, and the hand-offs are shown
+    // here, one line for each.
+    const OTHER = hex(ed25519.getPublicKey(Uint8Array.from({ length: 32 }, (_, i) => 31 + i)))
+    await t.page.fill('#agent', 'other')
+    await t.page.fill('#subject', OTHER)
+    await t.page.fill('#aud', AUDS.join(' '))
     await t.page.click('#review')
     await t.page.waitForSelector('#review-panel:not([hidden])')
     await t.page.click('#sign')
-    assert.deepEqual((await answered('S-3')).map((h) => envelope.open(envelope.wrap(h.payload, { root: h.root, subject: '0'.repeat(128) }), 'delegation').body.aud), [AUDS[1]])
+    await t.page.waitForSelector('#handoff:not([hidden])')
+    assert.deepEqual((await t.page.inputValue('#handoff')).split('\n').map((line) => envelope.open(envelope.wrap(JSON.parse(line).payload, { root: JSON.parse(line).root, subject: '0'.repeat(128) }), 'delegation').body.aud), AUDS)
+    // The request's key again, with its audiences typed in another order, spaced as a person might: the answer is
+    // in the order typed.
+    await t.page.fill('#agent', 'drive')
+    await t.page.fill('#subject', SUBJECT)
+    await t.page.fill('#aud', ` ${AUDS[1]}   ${AUDS[0]} `)
+    await t.page.click('#review')
+    await t.page.waitForSelector('#review-panel:not([hidden])')
+    await t.page.click('#sign')
+    assert.deepEqual((await answered('S-3')).map((h) => envelope.open(envelope.wrap(h.payload, { root: h.root, subject: '0'.repeat(128) }), 'delegation').body.aud), [AUDS[1], AUDS[0]])
     assert.deepEqual(t.problems.filter((p) => !/status of (404|503)/.test(p)), [])
   } finally { await t.close() }
 })

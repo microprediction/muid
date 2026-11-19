@@ -449,7 +449,7 @@ test('a request for several audiences: `auds` in place of `aud`, 1 to 8 each onc
   assert.deepEqual([sealed.auds, sealed.sealTo], [AUDS, sealTo])
   const refused = { message: 'that request is not one this page can read' }
   for (const bad of [{ ...R }, { ...R, aud, auds: AUDS }, { ...R, auds: [] }, { ...R, auds: [...eight, 'https://s8.example'] }, { ...R, auds: ['https://a.example', 'https://a.example'] },
-    { ...R, auds: 'https://a.example' }, { ...R, auds: [7] }, { ...R, auds: ['a'.repeat(2049)] }, { ...R, auds: null }, { ...R, auds: { 0: 'https://a.example', length: 1 } }, { ...R, aud: 7 }]) {
+    { ...R, auds: 'https://a.example' }, { ...R, auds: [7] }, { ...R, auds: ['https://a.example', 7] }, { ...R, auds: ['a'.repeat(2049)] }, { ...R, auds: null }, { ...R, auds: { 0: 'https://a.example', length: 1 } }, { ...R, aud: 7 }]) {
     assert.throws(() => readRequest(fragment(bad)), refused, JSON.stringify(bad).slice(0, 120))
   }
   assert.deepEqual(audiencesOf(readRequest(fragment({ ...R, auds: AUDS }))), AUDS)
@@ -466,6 +466,7 @@ test('a request for several audiences: `auds` in place of `aud`, 1 to 8 each onc
   for (const d of r.delegations) assert.deepEqual({ ...d.body, aud: '' }, { ...r.delegations[0].body, aud: '' })
   assert.deepEqual(r.covers, r.delegations.map((d) => d.id).sort())
   assert.equal(delegations(eight, fields).covers.length, MAX_BATCH)
+  assert.deepEqual(delegations(['https://a.example'], fields).delegations.map((d) => d.body.aud), ['https://a.example'])
   assert.throws(() => delegations([], fields), { message: `name 1 to ${MAX_BATCH} audiences` })
   assert.throws(() => delegations([...eight, 'https://s8.example'], fields), { message: `name 1 to ${MAX_BATCH} audiences` })
   assert.throws(() => delegations(['https://a.example', 'https://a.example'], fields), { message: 'an audience is named twice' })
