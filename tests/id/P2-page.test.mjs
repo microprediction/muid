@@ -3549,6 +3549,86 @@ test('an application\'s secret: from the passkey that signs, sealed to the appli
   } finally { await t.close() }
 })
 
+test('a request for several audiences: all shown, one passkey prompt signs a delegation to each, and each comes back, in the request\'s order', { timeout: 180_000 }, async () => {
+  const t = await open()
+  try {
+    const rpId = 'localhost'
+    const AUDS = ['https://store-b.example', 'https://store-a.example']
+    const request = { v: 1, agent: 'drive', subject: SUBJECT, auds: AUDS, scopes: ['store.blob'], days: 2, return: 'https://app.example/drive/', state: 'S-1' }
+    const link = (r) => t.site.origin + '/id/#muid-request=' + Buffer.from(JSON.stringify(r)).toString('base64url')
+    await t.context.route('https://app.example/**', (route) => route.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><title>app</title>' }))
+    const go = async (r) => { await t.page.goto('about:blank'); await t.page.goto(link(r)); await t.page.waitForSelector('#signin:not([hidden])') }
+    const answered = async (state) => {
+      await t.page.waitForURL((u) => u.origin === 'https://app.example')
+      const back = JSON.parse(Buffer.from(t.page.url().split('#muid=')[1], 'base64url').toString('utf8'))
+      assert.deepEqual([Object.keys(back), back.state], [['v', 'state', 'handOffs'], state])
+      return back.handOffs.map((line) => JSON.parse(line))
+    }
+    // The view names every audience, in the request's order.
+    await go(request)
+    assert.equal(await t.page.textContent('#signin-what'), 'It will be able to store.blob at store-b.example and store-a.example, under the name drive, for 2 days, and nothing else. You sign in with a passkey: the one you already have for this page, or a new one.')
+    assert.equal(await t.page.textContent('#signin-aud'), AUDS.join(' '))
+    await t.page.click('#signin-button')
+    await t.page.waitForSelector('#signin-new:not([hidden])')
+    await t.page.click('#signin-create')
+    const first = await answered('S-1')
+    await t.page.goto(t.site.origin + '/id/')
+    await t.page.waitForSelector('#identity:not([hidden])')
+    const r = await held(t.page, 'root')
+    // One delegation to each audience, in order, identical but for it, under one assertion, each accepted by the core.
+    const now = Math.floor(Date.now() / 1000)
+    const opened = first.map((h) => envelope.open(envelope.wrap(h.payload, { root: h.root, subject: '0'.repeat(128) }), 'delegation'))
+    assert.deepEqual(opened.map((d) => d.body.aud), AUDS)
+    assert.deepEqual(JSON.parse(JSON.stringify({ ...opened[1].body, aud: '' })), JSON.parse(JSON.stringify({ ...opened[0].body, aud: '' })))
+    assert.deepEqual(first[0].root, first[1].root, 'one assertion')
+    assert.deepEqual(first[0].root.covers, opened.map((d) => d.id).sort())
+    for (const [i, h] of first.entries()) {
+      const consent = hex(ed25519.sign(Buffer.concat([Buffer.from('muid/v1/accept\n'), Buffer.from(opened[i].id, 'hex')]), WORKER))
+      const c = delegationModule.checkDelegation(envelope.wrap(h.payload, { root: h.root, subject: consent }), { rootKey: rootModule.checkRoot(r.text, { rpId }).key, rpId, origin: t.site.origin, now, skew: 60, maxLifetime: 2_592_000 })
+      assert.deepEqual([c.ok, c.body?.aud], [true, AUDS[i]], JSON.stringify(c))
+    }
+    // Each is remembered for renewal.
+    assert.deepEqual((await kept(t.page)).map((w) => w.aud), AUDS)
+    // Again, with the device's passkey: one prompt for both.
+    const { credentials } = await t.cdp.send('WebAuthn.getCredentials', { authenticatorId: t.authenticatorId })
+    await go({ ...request, state: 'S-2' })
+    await t.page.click('#signin-button')
+    assert.equal((await answered('S-2')).length, 2)
+    assert.equal((await t.cdp.send('WebAuthn.getCredentials', { authenticatorId: t.authenticatorId })).credentials[0].signCount, credentials[0].signCount + 1, 'one prompt')
+    // The whole page: the form holds every audience, the review shows them all, and an audience named twice is refused.
+    await go({ ...request, state: 'S-3' })
+    await t.page.click('#signin-more')
+    await t.page.waitForSelector('#review-panel:not([hidden])')
+    assert.equal(await t.page.inputValue('#aud'), AUDS.join(' '))
+    assert.equal(await t.page.textContent('#show-aud'), AUDS.join(' '))
+    await t.page.fill('#aud', `${AUDS[0]} ${AUDS[0]}`)
+    await t.page.click('#review')
+    await errorIs(t.page, 'an audience is named twice')
+    assert.equal(await t.page.isHidden('#review-panel'), true)
+    // Another key authorised at several audiences: the application is not answered, and the hand-offs are shown
+    // here, one line for each.
+    const OTHER = hex(ed25519.getPublicKey(Uint8Array.from({ length: 32 }, (_, i) => 31 + i)))
+    await t.page.fill('#agent', 'other')
+    await t.page.fill('#subject', OTHER)
+    await t.page.fill('#aud', AUDS.join(' '))
+    await t.page.click('#review')
+    await t.page.waitForSelector('#review-panel:not([hidden])')
+    await t.page.click('#sign')
+    await t.page.waitForSelector('#handoff:not([hidden])')
+    assert.deepEqual((await t.page.inputValue('#handoff')).split('\n').map((line) => envelope.open(envelope.wrap(JSON.parse(line).payload, { root: JSON.parse(line).root, subject: '0'.repeat(128) }), 'delegation').body.aud), AUDS)
+    // The request's key again, with its audiences typed in another order, spaced as a person might: the answer is
+    // in the order typed.
+    await t.page.fill('#agent', 'drive')
+    await t.page.fill('#subject', SUBJECT)
+    await t.page.fill('#aud', ` ${AUDS[1]}   ${AUDS[0]} `)
+    await t.page.click('#review')
+    await t.page.waitForSelector('#review-panel:not([hidden])')
+    await t.page.click('#sign')
+    assert.deepEqual((await answered('S-3')).map((h) => envelope.open(envelope.wrap(h.payload, { root: h.root, subject: '0'.repeat(128) }), 'delegation').body.aud), [AUDS[1], AUDS[0]])
+    assert.deepEqual(t.problems.filter((p) => !/status of (404|503)/.test(p)), [])
+  } finally { await t.close() }
+})
+
 test('histories: two tabs, steps drawn at random, each judged by what the model states of every state', { timeout: 3_600_000 }, async () => {
   const t = await open({ init: HOLD_STORAGE })
   try {

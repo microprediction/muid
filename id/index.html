@@ -105,7 +105,7 @@
     <p id="request" hidden><strong id="request-from"></strong> sent you here and asks you to authorise it. What it asks is filled in and shown below: sign only if it is what you expect. Signing sends you back there<span id="request-secret" hidden>, with a key of its own made by your passkey for your data there</span>.</p>
     <label>Agent name <input id="agent" autocomplete="off" spellcheck="false" placeholder="forecaster"></label>
     <label>Worker key (Ed25519, hex) <input id="subject" autocomplete="off" spellcheck="false"></label>
-    <label>Audience <input id="aud" autocomplete="off" placeholder="https://app.example"></label>
+    <label>Audience (several, separated by spaces) <input id="aud" autocomplete="off" placeholder="https://app.example"></label>
     <label>Scopes <input id="scopes" autocomplete="off" placeholder="post read"></label>
     <label>Lifetime in days <input id="days" type="number" value="7" min="1" max="7"></label>
     <button id="review" type="button">Review</button>

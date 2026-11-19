@@ -122,6 +122,9 @@ function sealKey (text) {
 }
 const MAX_REQUEST = 8192
 const short = (x) => typeof x === 'string' && x.length >= 1 && x.length <= 64
+const audience = (x) => typeof x === 'string' && x.length <= 2048
+// A request names one audience, `aud`, or several, `auds`: 1 to MAX_BATCH, each once, for one assertion to sign.
+const audiences = (x) => Array.isArray(x) && x.length >= 1 && x.length <= MAX_BATCH && x.every(audience) && new Set(x).size === x.length
 export function readRequest (fragment) {
   if (typeof fragment !== 'string' || !fragment.startsWith(REQUEST)) return null
   const refused = new Error('that request is not one this page can read')
@@ -133,21 +136,25 @@ export function readRequest (fragment) {
   } catch {
     throw refused
   }
-  const keys = Object.keys(r).sort().join() // an object: JSON gives no other value with a return address
-  if ((keys !== REQUEST_KEYS && keys !== SECRET_KEYS) || (keys === SECRET_KEYS && sealKey(r.seal_to) === undefined) || r.v !== 1 || !short(r.agent) || typeof r.subject !== 'string' || !ID.test(r.subject) ||
-    typeof r.aud !== 'string' || r.aud.length > 2048 || !Array.isArray(r.scopes) || r.scopes.length < 1 || r.scopes.length > 16 || !r.scopes.every(short) ||
+  const many = Object.hasOwn(r, 'auds') // an object: JSON gives no other value with a return address
+  const keys = Object.keys(r).sort().join().replace(',auds,', ',aud,') // `auds` sorts where `aud` does
+  if ((keys !== REQUEST_KEYS && keys !== SECRET_KEYS) || (many ? !audiences(r.auds) : !audience(r.aud)) || (keys === SECRET_KEYS && sealKey(r.seal_to) === undefined) || r.v !== 1 || !short(r.agent) || typeof r.subject !== 'string' || !ID.test(r.subject) ||
+    !Array.isArray(r.scopes) || r.scopes.length < 1 || r.scopes.length > 16 || !r.scopes.every(short) ||
     !Number.isSafeInteger(r.days) || r.days < 1 || r.days > 7 || typeof r.state !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(r.state) ||
     // The return address as the browser would go to it, and nothing a reader could mistake: https (http at localhost
     // alone), no name or password, no fragment of its own.
     r.return.length > 2048 || to.href !== r.return || (to.protocol !== 'https:' && !(to.protocol === 'http:' && to.hostname === 'localhost')) ||
     to.username !== '' || to.password !== '' || r.return.includes('#')) throw refused
-  const read = { agent: r.agent, subject: r.subject, aud: r.aud, scopes: [...r.scopes], days: r.days, return: r.return, state: r.state, from: to.origin }
+  const read = { agent: r.agent, subject: r.subject, ...(many ? { auds: [...r.auds] } : { aud: r.aud }), scopes: [...r.scopes], days: r.days, return: r.return, state: r.state, from: to.origin }
   return keys === SECRET_KEYS ? { ...read, sealTo: r.seal_to } : read
 }
-// Where the page goes once the request's worker is authorised: the return address, with the hand-off in its
-// fragment, and the application's secret, sealed, or null, when the request asked for one.
-export function answer (request, handOff, secret) {
-  const a = { v: 1, state: request.state, handOff }
+// The audiences a request names, in its order.
+export const audiencesOf = (request) => request.auds ?? [request.aud]
+// Where the page goes once the request's worker is authorised: the return address, with the hand-offs in its
+// fragment, one for each audience in the request's order (`handOff` alone when it named one by `aud`), and the
+// application's secret, sealed, or null, when the request asked for one.
+export function answer (request, lines, secret) {
+  const a = { v: 1, state: request.state, ...(request.auds === undefined ? { handOff: lines[0] } : { handOffs: lines }) }
   if (request.sealTo !== undefined) a.secret = secret ?? null
   return request.return + '#muid=' + b64u(new TextEncoder().encode(JSON.stringify(a)))
 }
@@ -169,6 +176,15 @@ export async function sealSecret (secret, request, subtle = globalThis.crypto.su
   const iv = globalThis.crypto.getRandomValues(new Uint8Array(12))
   const ct = await subtle.encrypt({ name: 'AES-GCM', iv, additionalData: text.encode(request.from) }, key, secret)
   return { epk: b64u(await subtle.exportKey('raw', mine.publicKey)), iv: b64u(iv), ct: b64u(ct) }
+}
+
+// One delegation for each audience, identical but for it, and their ids, sorted, for the one assertion that signs
+// them all (W0): { delegations, covers }.
+export function delegations (auds, fields) {
+  if (auds.length < 1 || auds.length > MAX_BATCH) throw new Error(`name 1 to ${MAX_BATCH} audiences`)
+  if (new Set(auds).size !== auds.length) throw new Error('an audience is named twice')
+  const list = auds.map((aud) => delegation({ ...fields, aud }))
+  return { delegations: list, covers: list.map((d) => d.id).sort() }
 }
 
 // Decision 3's batched renewal. The page remembers each worker it authorised (what the user entered, never a secret),
