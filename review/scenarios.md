@@ -150,18 +150,18 @@ filed about it.
 118. A request that is not JSON, or JSON of the wrong shape, gets a refusal with a fixed reason, never a stack trace.
 119. One identity's records are never returned in answer to a request about another.
 120. The number of records held per identity and per type is bounded, and reaching the bound refuses the next rather than dropping an earlier one.
-121. One client cannot fill the service's per-identity or global limits for others (rate and burst limits hold per source as stated).
+121. Revocation admission applies a per-root token bucket (an initial burst, replenished at one token per day); the service does not enforce per-request-source rate limits.
 122. A record accepted is in durable holdings before the client is told it was accepted.
 123. A crash between writing holdings and appending to the log leaves a state the next start repairs or refuses to run on, never a silent fork.
 124. The log is append-only: no code path rewrites or truncates an entry already covered by a signed head.
 125. Two instances of the service started on the same holdings cannot both sign heads.
-126. A head is never signed for a tree the service could not reproduce from its holdings.
+126. An identity membership head is derived from that identity's committed holding and signed only after its pending outbox has been appended. A cached head is reused within `headInterval` while the holding is unchanged. It is not a transparency-log checkpoint.
 127. The service's clock going backwards produces no statement dated earlier than one already signed.
 128. Submitting the same record twice is accepted once and changes nothing the second time.
 129. Identity ids, record ids and file names derived from request input cannot reach outside the storage directory or name a special file.
 130. Unknown paths and methods are refused; no path exposes holdings wholesale or any signing key.
 131. The witness signs only statements of the types the spec lists, each over a domain-separated encoding.
-132. Timeouts and retry waits are measured on a monotonic clock.
+132. When the log loses an append acknowledgement, the next submission, head request or tick for that identity retries the exact outbox texts before deciding or signing anything new. This service has no timed retry wait.
 
 ## Relying parties and the demo — `adapter/relying-party.js`, `adapter/stores.js`, `demo/`
 
