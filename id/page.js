@@ -291,8 +291,21 @@ async function notice () {
   show()
 }
 
+// SPEC §7: a change notice need not arrive, so the root is read from storage before the passkey is asked, and again
+// before what it signed is handed over. One that another tab replaced meanwhile is adopted, as a notice would have
+// it adopted, and what was reviewed for the old one is withdrawn: neither asked for nor handed over. (What is sent
+// to the witness instead is checked there against the identity it names.)
+async function stillHeld () {
+  if (rootOf(await store.get(KEY))?.id === root.id) return
+  await refresh()
+  withdraw()
+  show()
+  notice()
+  throw new Error('The passkey for this page was changed in another tab: review again.')
+}
 // One user-verified assertion by this identity's own passkey over the records in `covers` (W1).
 async function signed (covers, extensions) {
+  await stillHeld()
   const a = await navigator.credentials.get({ publicKey: {
     rpId, challenge: challenge(covers), userVerification: 'required',
     allowCredentials: [{ type: 'public-key', id: fromB64u(root.credential) }],
@@ -450,6 +463,7 @@ async function signDelegation () {
     const given = r.delegations.map(({ body: { agent, subject, aud, scopes, nbf, exp } }) => ({ agent, subject, aud, scopes, lifetime: exp - nbf }))
     if (await keepWorkers((list) => given.reduce((l, w) => remember(l, w), list), seen, () => pending.delegation === r) !== 'saved') return
     if (pending.delegation !== r || lapsed(r.delegations)) return // withdrawn, or expired, while it was saved
+    await stillHeld()
     const lines = r.delegations.map((x) => handOff(x.payload, a)) // in the order of the audiences
     $('handoff').value = lines.join('\n')
     $('handoff').hidden = false
@@ -560,6 +574,7 @@ $('renew-sign').addEventListener('click', async () => {
     // A renewal takes effect at this read of storage: a change committed after it is after the renewal.
     if (pending.renewal !== r) return // withdrawn while the passkey was asked
     if (await changedElsewhere() || pending.renewal !== r || lapsed(r.delegations)) return
+    await stillHeld()
     $('renew-handoffs').replaceChildren(...r.delegations.flatMap((d) => {
       const t = element('textarea')
       t.readOnly = true
