@@ -196,7 +196,7 @@ function each (records, key, f) {
 function copy (a, n = a.length) {
   // Stryker disable next-line ArrayDeclaration: equivalent; every index is assigned before it is read
   const out = []
-  // Stryker disable next-line EqualityOperator: equivalent; one more step copies undefined, which is ignored
+  // An inclusive loop bound would append undefined and change the returned array's length; do not suppress its mutant.
   for (let i = 0; i < n; i++) out[i] = a[i]
   return out
 }
