@@ -164,6 +164,34 @@ test('a recovery that adds no root needs the parties alone: it gets notice, and 
   assert.equal(state(r.held).recovering, null)
 })
 
+test('a root removed by a settled change cannot cancel a later recovery', () => {
+  // b was a root in epoch 2; it has a valid held root record, but is not a current root in epoch 3.
+  const d = designated(D(), ['a', 'b'])
+  const M3 = d.next(['a'], D())
+  const proposed = admitAll(d.held, [
+    ['membership', signed('membership', M3, 'a')],
+    ['membership', signed('membership', M3, 'b')],
+  ])
+  const anchored = w.advance(proposed, T0 + 1).held
+  const changed = w.advance(anchored, T0 + 1 + WINDOW).held
+  assert.deepEqual([...state(changed).roots], ids('a'))
+  assert.equal(changed.roots.includes(rootText('b')), true, 'b is still held, so this tests authority rather than a missing key')
+
+  // A fresh party recovery of epoch 3 is under notice.
+  const R4 = { identity: IDENTITY, prev: mId(M3), epoch: 4, roots: ids('n') }
+  const at = T0 + WINDOW + 5
+  const noticed = w.advance(asked(changed, R4), at).held
+  assert.deepEqual({ ...state(noticed).recovering }, { record: mId(R4), at })
+
+  const oldRootCancel = w.admit(noticed, 'cancel', cancel(mId(R4), 'b'))
+  assert.deepEqual([oldRootCancel.ok, oldRootCancel.reason], [false, 'signer'])
+  assert.deepEqual(types(w.advance(noticed, at + 1)), [], 'the invalid cancel did not affect the notice')
+
+  const currentRootCancel = w.admit(noticed, 'cancel', cancel(mId(R4), 'a'))
+  assert.equal(currentRootCancel.ok, true)
+  assert.deepEqual(types(w.advance(currentRootCancel.held, at + 1)), ['cancelled'])
+})
+
 test('after a cancel, no recovery is put under notice for three days; then another may be', () => {
   const d = designated(D())
   const R = d.next(['n'])
