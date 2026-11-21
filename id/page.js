@@ -287,13 +287,30 @@ async function notice () {
   show()
 }
 
+// SPEC §7: a broadcast only prompts a tab to read again; it is not a lock or a guarantee of delivery.
+// A tab may still display a review for a root replaced in storage without a notice. Never ask its old passkey to
+// sign, or hand over an assertion whose prompt was in flight when the root changed. Compare the full stored root:
+// changes to its credential, joining state or recovery-card salts also withdraw a review made before them.
+async function requireHeldRoot (expected) {
+  const held = rootOf(await store.get(KEY))
+  if (expected !== null && text(held) === text(expected) && text(root) === text(expected)) return
+  root = held
+  withdraw()
+  show()
+  notice()
+  throw new Error('The stored passkey was changed in another tab: review again.')
+}
+
 // One user-verified assertion by this identity's own passkey over the records in `covers` (W1).
 async function signed (covers, extensions) {
+  const r = root
+  await requireHeldRoot(r)
   const a = await navigator.credentials.get({ publicKey: {
     rpId, challenge: challenge(covers), userVerification: 'required',
-    allowCredentials: [{ type: 'public-key', id: fromB64u(root.credential) }],
+    allowCredentials: [{ type: 'public-key', id: fromB64u(r.credential) }],
     extensions, // undefined is none
   } })
+  await requireHeldRoot(r)
   return { assertion: assertion(covers, a.response), extensions: a.getClientExtensionResults() }
 }
 const sign = async (covers) => (await signed(covers)).assertion
