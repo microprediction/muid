@@ -2807,11 +2807,11 @@ test('recovery parties, two passkeys: one designates and hands the change over; 
     assert.equal(await b.page.textContent('#recovery-cosign-recovery'), `1 of 1, after 14 days; parties ${d.body.recovery.parties.map(print).join(', ')}`)
     assert.equal(await b.page.textContent('#recovery-cosign-roots'), [aId, bId].sort().join(' '))
     assert.equal(await b.page.textContent('#recovery-cosign-epoch'), '3')
-    const other = envelope.seal('membership', { ...d.body, recovery: { ...d.body.recovery, parties: ['ab'.repeat(32)] } }).payload
+    const other = envelope.seal('membership', { ...d.body, recovery: { ...d.body.recovery, parties: ['ab'.repeat(32), 'cd'.repeat(32)], threshold: 2 } }).payload
     await b.page.fill('#recovery-cosign-payload', other)
     await b.page.click('#recovery-cosign-review')
     await b.page.waitForSelector('#recovery-cosign-panel:not([hidden])')
-    assert.equal(await b.page.textContent('#recovery-cosign-recovery'), '1 of 1, after 14 days; parties abab abab abab abab abab abab')
+    assert.equal(await b.page.textContent('#recovery-cosign-recovery'), '2 of 2, after 14 days; parties abab abab abab abab abab abab, cdcd cdcd cdcd cdcd cdcd cdcd')
     await b.page.fill('#recovery-cosign-payload', payload)
     await b.page.click('#recovery-cosign-review')
     await b.page.waitForSelector('#recovery-cosign-panel:not([hidden])')
