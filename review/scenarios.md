@@ -190,12 +190,12 @@ filed about it.
 149. Every mutant excluded by a `Stryker disable` comment is truly equivalent, for the reason the comment gives.
 150. Every "twin" (a deliberately broken copy of the code) still applies to the current source and is caught by a test for the reason it names.
 151. Every check that something did not happen waits long enough for it to have happened.
-152. Every action the code can take on witness state is an action in the TLA+ model, with the same guard.
+152. The witness service's staged outbox and settled holding follow the transitions and guards of `model/tla/WitnessOutbox.tla`; the witness's `admit`, `log`, `revoke` and `advance` decisions are checked separately against the JavaScript models in `model/`, not that TLA+ model.
 153. Every invariant claimed in `model/STATE.md` is checked by a model run in CI, and that run would fail if the invariant were deleted from the model.
-154. The Tamarin model's adversary can do at least what `SPEC.md` section 1 says an attacker can.
+154. The Tamarin authentication-chain model permits a Dolev–Yao network adversary to intercept, forge, replay and reorder messages and to learn root and delegate signing keys; its claims do not model corrupted browser storage, provider responses or witness state from `SPEC.md` section 1.
 155. Each fuzz target in `fuzz/` reaches the code it names, and its seeds include at least one valid input.
 156. Every GitHub Action is pinned to a commit, and no workflow gives a pull request from a fork a token that can write.
 157. Every dependency is pinned to an exact version with an integrity hash, and none runs an install script.
-158. The published package contains only the files it means to, and nothing from `tests/`, `model/` or `research/`.
+158. The packable npm artifact includes every public export target but excludes `tests/`, `model/` and `research/`, checked by `tests/guards/package-pack.test.mjs`. Publication itself is disabled by `package.json`'s `private: true`.
 159. The code in `src/` uses no clock, no randomness, no network and no global state of its own.
 160. Each number in `SPEC.md` (a window, a limit, a maximum) is the same number in the code and in the model.
