@@ -163,6 +163,13 @@ export function answer (request, lines, secret) {
 // same wherever the passkey is, another for another origin or another passkey.
 const SECRET_LABEL = 'muid/v1/app-secret\n'
 export const secretInput = (origin) => sha256(new TextEncoder().encode(SECRET_LABEL + origin))
+// A PRF result returned by the browser is untrusted extension output. WebAuthn defines it as exactly 32 bytes: copy
+// that value before it is sealed, and treat every other shape as no result. In particular, Uint8Array(number) would
+// otherwise turn a non-buffer value into a zero-filled "secret".
+export function prfOutput (value) {
+  const bytes = value instanceof ArrayBuffer ? new Uint8Array(value) : ArrayBuffer.isView(value) ? new Uint8Array(value.buffer, value.byteOffset, value.byteLength) : null
+  return bytes?.byteLength === 32 ? bytes.slice() : null
+}
 // The secret sealed to the key the request gave (ECDH P-256, HKDF-SHA-256, AES-256-GCM), so that nothing but the
 // application's page that holds the private key can read it on its way through the address bar:
 // { epk, iv, ct }, each base64url.

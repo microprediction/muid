@@ -519,7 +519,7 @@ test('an identity opened with its passkey: only a root of its current membership
 })
 
 test('an application\'s secret: asked for by a key to seal it to, from the prf of its own origin, sealed so that only its key opens it', async () => {
-  const { readRequest, answer, secretInput, sealSecret } = records
+  const { readRequest, answer, secretInput, prfOutput, sealSecret } = records
   const subtle = globalThis.crypto.subtle
   const app = await subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, false, ['deriveBits'])
   const sealTo = Buffer.from(await subtle.exportKey('raw', app.publicKey)).toString('base64url')
@@ -543,6 +543,17 @@ test('an application\'s secret: asked for by a key to seal it to, from the prf o
   // The prf's input: of the origin alone, under its own label.
   assert.deepEqual(Buffer.from(secretInput('https://app.example')), sha256('muid/v1/app-secret\nhttps://app.example'))
   assert.notDeepEqual(Buffer.from(secretInput('https://app.example')), Buffer.from(secretInput('https://other.example')))
+  // WebAuthn's PRF result is one 32-byte BufferSource. Other extension output is no secret (and is never coerced
+  // into a zero-filled typed array); accepted output is copied before it is sealed.
+  const result = Uint8Array.from({ length: 32 }, (_, i) => i)
+  const copied = prfOutput(result)
+  assert.deepEqual(copied, result)
+  assert.deepEqual(prfOutput(new DataView(result.buffer)), result)
+  assert.deepEqual(prfOutput(result.buffer.slice(0)), result, 'an ArrayBuffer, as Chrome gives it')
+  assert.deepEqual(prfOutput(new Uint8Array(new ArrayBuffer(40), 8, 32)), new Uint8Array(32), 'a view reads its own bytes alone')
+  result[0] = 99
+  assert.equal(copied[0], 0)
+  for (const bad of [undefined, null, 7, 'x', {}, new Uint8Array(31), new Uint8Array(33), new DataView(new ArrayBuffer(0)), new ArrayBuffer(31), new ArrayBuffer(33), [...result]]) assert.equal(prfOutput(bad), null)
   // Sealed: opened by the application's key, with its state and origin; by nothing else.
   const secret = Uint8Array.from({ length: 32 }, (_, i) => i * 7)
   const box = await sealSecret(secret, asked)
