@@ -262,11 +262,14 @@ async function membership () {
 let noticed = null
 let known = null
 let unchecked = false
+let asking = null // the latest question: only its answer is kept
 async function notice () {
   const r = root
   // A root not yet registered is unknown to the witness: it is asked once the registration is kept, which this
   // tab's own registering, or the tab that registered it, brings about.
   if (r === null || r.joining === true || r.registered !== true) return
+  const asked = {}
+  asking = asked
   let s = null
   let failed = false
   try {
@@ -278,8 +281,9 @@ async function notice () {
     failed = e.unknown !== true && e.message !== 'this identity has ended'
   }
   // The root can change in another tab while its request is in flight. Its reply says nothing about the root now
-  // held here, so it must not hide or replace that root's newer notice.
-  if (root?.id !== r.id) return
+  // held here, so it must not hide or replace that root's newer notice; nor does it replace the answer to a later
+  // question about the same root, which may already be shown.
+  if (root?.id !== r.id || asked !== asking) return
   noticed = s !== null && s.recovering !== null ? { root: r.id, state: s } : null
   known = { root: r.id, state: s } // no answer is a state of null: nothing is known of this root
   unchecked = failed
