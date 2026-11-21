@@ -156,7 +156,7 @@ filed about it.
 124. The log is append-only: no code path rewrites or truncates an entry already covered by a signed head.
 125. Two instances of the service started on the same holdings cannot both sign heads.
 126. An identity membership head is derived from that identity's committed holding and signed only after its pending outbox has been appended. A cached head is reused within `headInterval` while the holding is unchanged. It is not a transparency-log checkpoint.
-127. The service's clock going backwards produces no statement dated earlier than one already signed.
+127. The service's clock going backwards produces no statement dated earlier than one already signed for the same identity, including after a restart on the same holdings.
 128. Submitting the same record twice is accepted once and changes nothing the second time.
 129. Identity ids, record ids and file names derived from request input cannot reach outside the storage directory or name a special file.
 130. Unknown paths and methods are refused; no path exposes holdings wholesale or any signing key.

@@ -22,8 +22,7 @@ A request is closed here, with the issue that answered it, by whoever asked.
   #130 and #132, corrected, and a witness defect fixed; *Recovery* (74–94), answered in #137, #141, #143, #146,
   #147, #149 and #150, corrected, and witness defects fixed; *The id page* (95–112), answered in #154 and #158 and
   corrected; *The page's store* (113–116), answered in #161 and corrected; *The witness service* (117–132),
-  answered in #166, with inaccurate claims 121, 126 and 132 corrected here and the remaining timestamp defect in
-  scenario 127 tracked in #166.
+  answered in #166, with inaccurate claims 121, 126 and 132 corrected and the witness defect behind 127 fixed.
 - **R2. Recovery at the id page.** `id/page.js` from "R11" onwards, with `id/records.js`: designating parties, a
   party's card and proof, the request to recover, the rescue, the notice and its cancel. Is there any path on which
   a passkey signs something other than what its panel showed, or on which the owner is not told of a recovery under
