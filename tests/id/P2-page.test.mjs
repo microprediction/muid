@@ -1528,6 +1528,67 @@ const CHANGED = 'The remembered workers were changed in another tab: review agai
 const UNSAVED = 'This browser could not save the change to the remembered workers: they are listed as it holds them.'
 const keys = (page) => page.$$eval('#workers code', (cs) => cs.map((c) => c.textContent))
 
+// SPEC §7 and scenario 116: an origin's other tab may write the root without a BroadcastChannel notice.
+// The review on this tab then belongs to a root that is no longer stored, even though it remains visible here.
+test('an unannounced stored-root switch withdraws a stale review before the old passkey is asked', { timeout: 180_000 }, async () => {
+  const t = await open()
+  try {
+    const a = await createIdentity(t.page)
+    await authorise(t.page, { agent: 'forecaster', subject: workerPub(1), scopes: 'post' })
+    await t.page.waitForSelector('#review-panel:not([hidden])')
+    const before = await signCount(t)
+    const another = await t.device()
+    const b = await createIdentity(another.page)
+    const bRoot = await held(another.page, 'root')
+    await hold(t.page, 'root', bRoot) // direct IndexedDB write, intentionally without a broadcast
+    assert.equal(await t.page.isHidden('#review-panel'), false, 'the stale review is still open without a notice')
+    await t.page.click('#sign')
+    await errorShown(t.page)
+    assert.equal(await t.page.textContent('#error'), 'The stored passkey was changed in another tab: review again.')
+    assert.equal(await signCount(t), before, 'the old passkey was never asked to sign')
+    assert.equal(await t.page.isHidden('#review-panel'), true)
+    assert.equal(await t.page.isHidden('#handoff'), true)
+    assert.equal(await t.page.textContent('#identity-id'), b.identity, 'the tab adopted the root actually stored')
+    assert.deepEqual(await held(t.page, 'root'), bRoot, 'the other root is left intact')
+    assert.equal(a.identity === b.identity, false)
+    assert.deepEqual(t.problems, [])
+  } finally { await t.close() }
+})
+
+// A store change after the authenticator has signed is just as important: its response must never be handed out.
+test('an unannounced root switch while signing drops the old passkey response', { timeout: 180_000 }, async () => {
+  const t = await open()
+  try {
+    await createIdentity(t.page)
+    await authorise(t.page, { agent: 'forecaster', subject: workerPub(1), scopes: 'post' })
+    await t.page.waitForSelector('#review-panel:not([hidden])')
+    await t.page.evaluate(() => {
+      const get = navigator.credentials.get.bind(navigator.credentials)
+      globalThis.signed = new Promise((resolve) => { globalThis.signedOnce = resolve })
+      navigator.credentials.get = async (...args) => {
+        const result = await get(...args)
+        globalThis.signedOnce()
+        await new Promise((resolve) => { globalThis.returnSignature = resolve })
+        return result
+      }
+    })
+    await t.page.click('#sign')
+    await t.page.evaluate(() => globalThis.signed)
+    const another = await t.device()
+    const b = await createIdentity(another.page)
+    const bRoot = await held(another.page, 'root')
+    await hold(t.page, 'root', bRoot) // no notice, after the authenticator answered
+    await t.page.evaluate(() => globalThis.returnSignature())
+    await errorShown(t.page)
+    assert.equal(await t.page.textContent('#error'), 'The stored passkey was changed in another tab: review again.')
+    assert.equal(await t.page.isHidden('#handoff'), true, 'the old assertion was not handed over')
+    assert.equal(await t.page.isHidden('#review-panel'), true)
+    assert.equal(await t.page.textContent('#identity-id'), b.identity)
+    assert.deepEqual(await held(t.page, 'root'), bRoot)
+    assert.deepEqual(t.problems, [])
+  } finally { await t.close() }
+})
+
 test('renewal: a tab not yet told of another tab\'s change does not undo it, and signs nothing reviewed before it', { timeout: 180_000 }, async () => {
   const t = await open({ init: HOLD_STORAGE })
   try {
