@@ -142,7 +142,7 @@ filed about it.
 113. Two tabs updating the same key at once never lose one update silently.
 114. A store opened by a newer version of the page makes an older page stop and say so, not write.
 115. A write that fails (quota, a blocked transaction, private mode) is reported and leaves the page showing what is actually stored.
-116. A tab that missed a change notice still acts on what is stored, not on what it last saw.
+116. A tab that missed a change notice still acts on what is stored, not on what it last saw. In particular, if the stored root changes without notice, the page withdraws a stale signing review before asking the passkey, or drops the assertion if the change happens while signing.
 
 ## The witness service — `witness/service.js`, `witness/holdings.js`, `witness/log.js`
 
