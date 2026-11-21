@@ -120,7 +120,7 @@ filed about it.
 
 95. Every panel shows fields taken from the payload that will be signed, not from the form.
 96. Every input that feeds a review withdraws that review when edited.
-97. Every signing button does nothing when pressed with no review pending, including when pressed by script while hidden.
+97. A signing button that requires a pending review does nothing without that review, even when clicked by script while hidden. The one-click application-request sign-in path creates its own review and may sign only while its sign-in view is visible; its Create fallback is available only after that prompt is offered. Recovery cancellation is instead authorised by an active notice for a current root.
 98. A review that expires before signing is not signed; one that expires during signing is not handed over.
 99. An answer from the witness arriving after its review was withdrawn changes nothing on screen.
 100. A signature completed after its review was withdrawn is not sent, stored or shown.
