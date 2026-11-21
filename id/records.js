@@ -167,9 +167,8 @@ export const secretInput = (origin) => sha256(new TextEncoder().encode(SECRET_LA
 // that value before it is sealed, and treat every other shape as no result. In particular, Uint8Array(number) would
 // otherwise turn a non-buffer value into a zero-filled "secret".
 export function prfOutput (value) {
-  if (value instanceof ArrayBuffer && value.byteLength === 32) return new Uint8Array(value).slice()
-  if (ArrayBuffer.isView(value) && value.byteLength === 32) return new Uint8Array(value.buffer, value.byteOffset, value.byteLength).slice()
-  return null
+  const bytes = value instanceof ArrayBuffer ? new Uint8Array(value) : ArrayBuffer.isView(value) ? new Uint8Array(value.buffer, value.byteOffset, value.byteLength) : null
+  return bytes?.byteLength === 32 ? bytes.slice() : null
 }
 // The secret sealed to the key the request gave (ECDH P-256, HKDF-SHA-256, AES-256-GCM), so that nothing but the
 // application's page that holds the private key can read it on its way through the address bar:
