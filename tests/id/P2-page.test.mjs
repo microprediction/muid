@@ -891,6 +891,37 @@ test('a co-signature is kept, and its root made the identity\'s, only for the ro
   }
 })
 
+test('hidden sign-in shortcuts cannot review and sign in the absence of an app request', { timeout: 120_000 }, async () => {
+  const t = await open()
+  try {
+    await createIdentity(t.page)
+    // Valid form values, but there is no app request and the person has not reviewed a delegation.
+    for (const [id, value] of Object.entries({ agent: 'forecaster', subject: SUBJECT,
+      aud: 'https://app.example', scopes: 'post read', days: '1' })) await t.page.fill('#' + id, value)
+    assert.equal(await t.page.isHidden('#signin'), true)
+    assert.equal(await t.page.isHidden('#signin-new'), true)
+    assert.equal(await t.page.isHidden('#review-panel'), true)
+    await t.page.evaluate(() => {
+      globalThis.__hiddenSigninPrompts = 0
+      navigator.credentials.get = () => {
+        globalThis.__hiddenSigninPrompts++
+        return Promise.reject(new Error('hidden sign-in requested a passkey'))
+      }
+    })
+    // Calling either handler while its view is hidden must not build a fresh review or prompt a passkey.
+    for (const id of ['signin-button', 'signin-create']) {
+      await t.page.evaluate((id) => document.getElementById(id).click(), id)
+      await idle(t.page)
+      assert.equal(await t.page.evaluate(() => globalThis.__hiddenSigninPrompts), 0, id + ' requested a passkey')
+      assert.equal(await t.page.isHidden('#review-panel'), true, id + ' created a review')
+      assert.equal(await t.page.isHidden('#handoff'), true, id + ' made a hand-off')
+    }
+    assert.deepEqual(t.problems, [])
+  } finally {
+    await t.close()
+  }
+})
+
 test('signing buttons do nothing before a review; the witness refusing is shown; a retry clears it', { timeout: 180_000 }, async () => {
   const t = await open()
   try {
