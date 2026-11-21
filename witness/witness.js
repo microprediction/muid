@@ -323,6 +323,7 @@ export function witness (config) {
           continue
         }
         // A dead or unknown identity has no recovery either.
+        // Stryker disable next-line ConditionalExpression,LogicalOperator: equivalent; such a state has no settled membership, so no record below is of its prev
         if (!s.ok || s.dead) break
         // R11. No successor verifiers would follow: a recovery of the settled membership. One is under notice at a
         // time (its cancel is above); left alone for its window it matures, and is anchored above like any record,
