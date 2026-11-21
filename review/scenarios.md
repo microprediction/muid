@@ -186,7 +186,7 @@ filed about it.
 
 146. Every `.test.mjs` file under `tests/` is run by CI.
 147. No test is skipped, marked todo, or exits early on a condition CI always meets.
-148. Every source module is mutated by exactly one mutation configuration, or by contiguous parts covering all of it.
+148. Every source module under `src/`, `adapter/`, `worker/`, `witness/`, `id/` and `demo/`, including modules in subdirectories, is mutated by exactly one mutation configuration, or by contiguous parts covering all of it.
 149. Every mutant excluded by a `Stryker disable` comment is truly equivalent, for the reason the comment gives.
 150. Every "twin" (a deliberately broken copy of the code) still applies to the current source and is caught by a test for the reason it names.
 151. Every check that something did not happen waits long enough for it to have happened.
