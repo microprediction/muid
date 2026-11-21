@@ -588,7 +588,10 @@ freeze or cancel; with a recovery party's signature, `root` may carry the party'
 answered with the `logged` record, appended to the log first when it is new), `GET /v1/identities/{id}/records` (what R8 needs)
 and `GET /v1/identities/{id}/head` (a head, reused for `headInterval` seconds while nothing changes; a resubmission
 that changes nothing, such as a record already held, leaves it as it is); `tick()`
-advances every identity, settling once windows pass. A holding's R8 state is computed once and kept with it, so a
+advances every identity, settling once windows pass. A submission first advances its identity to the present, as a
+tick at that moment would, and is decided after: a record that arrives once a deadline has passed (a recovery's wait,
+a contest window) meets what the deadline brought, whenever the last tick ran, and is never decided as if it came
+before it (issue #143). A cancel held before the wait ended is still honoured, however late the advance. A holding's R8 state is computed once and kept with it, so a
 flood of submissions decided against one holding replays its history once. Each identity's changes are serialised by
 its store (which drops an identity's queue once it is idle), and every
 record the witness signs is appended to the log before the holding that contains it is kept, so nothing is served
