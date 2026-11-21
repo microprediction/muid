@@ -955,6 +955,92 @@ test('a sign-in view open when the store is lost is hidden, and its button then 
   }
 })
 
+// SPEC §7: nothing depends on a change notice arriving. Another tab that replaces the stored root without one, before
+// the passkey is asked or while it is, leaves nothing to sign or hand over for the old root (scenario 116).
+const ROOT_CHANGED = 'The passkey for this page was changed in another tab: review again.'
+test('a root replaced in storage without notice, before or during the passkey prompt, withdraws the review and hands nothing over', { timeout: 180_000 }, async () => {
+  const t = await open()
+  try {
+    await createIdentity(t.page)
+    const b = await t.device()
+    const other = await createIdentity(b.page, 'other')
+    const theirs = await held(b.page, 'root')
+    const mine = await held(t.page, 'root')
+    // Before: the passkey is not asked, and the page shows the root storage holds.
+    const before = await signCount(t)
+    await authorise(t.page)
+    await t.page.waitForSelector('#review-panel:not([hidden])')
+    await hold(t.page, 'root', theirs)
+    // The witness is asked about the root adopted, for any recovery of it under notice.
+    const askedOfOther = t.page.waitForRequest((q) => q.url().includes(`/v1/identities/${other.identity}/records`))
+    await t.page.click('#sign')
+    await errorShown(t.page)
+    assert.equal(await t.page.textContent('#error'), ROOT_CHANGED)
+    assert.equal(await t.page.isHidden('#review-panel'), true)
+    assert.equal(await t.page.isHidden('#handoff'), true)
+    assert.equal(await signCount(t), before, 'the passkey was not asked')
+    await askedOfOther
+    await t.page.waitForFunction((id) => document.getElementById('identity-id').textContent === id, other.identity) // the stored root is adopted
+    // During: the signature is made, and not handed over (the worker is remembered, as any list here may be: a renewal
+    // is reviewed before it is signed).
+    await hold(t.page, 'root', mine)
+    await t.page.reload()
+    await t.page.waitForSelector('#identity:not([hidden])')
+    await t.page.evaluate(() => {
+      const get = navigator.credentials.get.bind(navigator.credentials)
+      globalThis.asked = new Promise((resolve) => { globalThis.asking = resolve })
+      navigator.credentials.get = async (o) => { globalThis.asking(); await new Promise((resolve) => { globalThis.answer = resolve }); return get(o) }
+    })
+    await authorise(t.page)
+    await t.page.waitForSelector('#review-panel:not([hidden])')
+    await t.page.click('#sign')
+    await t.page.evaluate(() => globalThis.asked)
+    await hold(t.page, 'root', theirs)
+    await t.page.evaluate(() => globalThis.answer())
+    await errorShown(t.page)
+    assert.equal(await t.page.textContent('#error'), ROOT_CHANGED)
+    assert.equal(await t.page.isHidden('#review-panel'), true)
+    assert.equal(await t.page.isHidden('#handoff'), true)
+    await t.page.waitForFunction((id) => document.getElementById('identity-id').textContent === id, other.identity)
+    // A renewal, the same: signed, and not handed over.
+    await hold(t.page, 'root', mine)
+    await t.page.reload()
+    await t.page.waitForSelector('#renew:not([hidden])')
+    await t.page.evaluate(() => {
+      const get = navigator.credentials.get.bind(navigator.credentials)
+      globalThis.asked = new Promise((resolve) => { globalThis.asking = resolve })
+      navigator.credentials.get = async (o) => { globalThis.asking(); await new Promise((resolve) => { globalThis.answer = resolve }); return get(o) }
+    })
+    await t.page.click('#renew-review')
+    await t.page.waitForSelector('#renew-panel:not([hidden])')
+    await t.page.click('#renew-sign')
+    await t.page.evaluate(() => globalThis.asked)
+    await hold(t.page, 'root', theirs)
+    await t.page.evaluate(() => globalThis.answer())
+    await errorShown(t.page)
+    assert.equal(await t.page.textContent('#error'), ROOT_CHANGED)
+    assert.equal(await t.page.isHidden('#renew-panel'), true)
+    assert.equal(await t.page.isHidden('#renew-handoffs'), true)
+    await t.page.waitForFunction((id) => document.getElementById('identity-id').textContent === id, other.identity)
+    // No root stored at all: the same, and the page offers only creation.
+    await hold(t.page, 'root', mine)
+    await t.page.reload()
+    await t.page.waitForSelector('#identity:not([hidden])')
+    await authorise(t.page)
+    await t.page.waitForSelector('#review-panel:not([hidden])')
+    await direct(t.page, 'delete', 'root')
+    await t.page.click('#sign')
+    await errorShown(t.page)
+    assert.equal(await t.page.textContent('#error'), ROOT_CHANGED)
+    assert.equal(await t.page.isHidden('#create'), false)
+    assert.equal(await t.page.isHidden('#identity'), true)
+    assert.equal(await t.page.isHidden('#review-panel'), true)
+    assert.deepEqual(t.problems, [])
+  } finally {
+    await t.close()
+  }
+})
+
 test('signing buttons do nothing before a review; the witness refusing is shown; a retry clears it', { timeout: 180_000 }, async () => {
   const t = await open()
   try {
