@@ -187,7 +187,7 @@ filed about it.
 146. Every `.test.mjs` file under `tests/` is run by CI.
 147. No test is skipped, marked todo, or exits early on a condition CI always meets.
 148. Every source module is mutated by exactly one mutation configuration, or by contiguous parts covering all of it.
-149. Every mutant excluded by a `Stryker disable` comment is truly equivalent, for the reason the comment gives.
+149. Every mutant excluded by a `Stryker disable` comment is truly equivalent, for the reason the comment gives. An inclusive array-copy loop that appends an observable `undefined` element must not be excluded.
 150. Every "twin" (a deliberately broken copy of the code) still applies to the current source and is caught by a test for the reason it names.
 151. Every check that something did not happen waits long enough for it to have happened.
 152. Every action the code can take on witness state is an action in the TLA+ model, with the same guard.
