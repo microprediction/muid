@@ -256,6 +256,32 @@ test('a cancel held when the window has passed still cancels: the cancel is look
   assert.deepEqual(types(r), ['cancelled'])
 })
 
+test('a cancel is acknowledged while an ordinary successor is pending', () => {
+  const d = designated(D(), ['a', 'b'])
+  const R = d.next(['n'])
+  const noticed = w.advance(asked(d.held, R), T0 + 5).held
+  const M3 = d.next(['b'], D())
+  const candidate = admitAll(noticed, [
+    ['membership', signed('membership', M3, 'a')],
+    ['membership', signed('membership', M3, 'b')]
+  ])
+  const anchored = w.advance(candidate, T0 + 9)
+  assert.deepEqual(types(anchored), ['anchor'])
+  assert.equal(state(anchored.held).pending, true)
+  assert.deepEqual({ ...state(anchored.held).recovering }, { record: mId(R), at: T0 + 5 })
+
+  const accepted = w.admit(anchored.held, 'cancel', cancel(mId(R), 'b'))
+  assert.equal(accepted.ok, true, 'the retained settled root can cancel')
+  const result = w.advance(accepted.held, T0 + 10)
+  assert.deepEqual(types(result), ['cancelled'])
+  assert.equal(state(result.held).recovering, null)
+  assert.equal(state(result.held).pending, true, 'the unrelated ordinary change remains pending')
+  assert.equal('recovering' in headOf(result.held, T0 + 11), false)
+  const settled = w.advance(result.held, T0 + 9 + WINDOW)
+  assert.deepEqual(types(settled), ['settlement'])
+  assert.equal(state(settled.held).recovering, null)
+})
+
 test("an ordinary change by the owner while a recovery is under notice: anchored at once, and at settlement the recovery is gone", () => {
   const d = designated(D())
   const R = d.next(['n'])

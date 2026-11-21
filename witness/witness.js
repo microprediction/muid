@@ -296,6 +296,19 @@ export function witness (config) {
       const own = freeze({ ...held, anchors: held.anchors.filter((t, i) => !isContest(anchors[i])) })
       // A dead or unknown identity has no settled membership and nothing pending: nothing is signed for it.
       const s = stateOf(own)
+      const state1 = (type, record) => {
+        const text = make(type, { identity: held.identity, record, at: now })
+        held = add(held, type === 'notice' ? 'notices' : type, text)
+        sign1(type, text)
+      }
+      // R11: a cancel by a root of the settled membership ends the recovery under notice, unless it has matured,
+      // whether or not an ordinary successor is pending (its contest window does not hold the cancel back).
+      const under = s.ok && !s.dead ? s.recovering : null
+      if (under !== null && !said(held, 'matured', 'matured', under.record) &&
+        held.cancels.some((t) => open(t, 'cancel').body.record === under.record)) {
+        state1('cancelled', under.record)
+        continue
+      }
       if (!s.pending) {
         // R3: a held successor of the settled membership that verifiers would see pending. At most one has a strict
         // majority, since each root holds one proposal per prev, so the order they are tried in does not matter.
@@ -310,20 +323,14 @@ export function witness (config) {
           continue
         }
         // A dead or unknown identity has no recovery either.
+        // Stryker disable next-line ConditionalExpression,LogicalOperator: equivalent; such a state has no settled membership, so no record below is of its prev
         if (!s.ok || s.dead) break
         // R11. No successor verifiers would follow: a recovery of the settled membership. One is under notice at a
-        // time. A cancel by any root of that membership ends it, and nothing has changed; left alone for its window
-        // it matures, and is anchored above like any record, its contest window still to come.
-        const state1 = (type, record) => {
-          const text = make(type, { identity: held.identity, record, at: now })
-          held = add(held, type === 'notice' ? 'notices' : type, text)
-          sign1(type, text)
-        }
-        const under = s.recovering
+        // time (its cancel is above); left alone for its window it matures, and is anchored above like any record,
+        // its contest window still to come.
         if (under !== null) {
           if (said(held, 'matured', 'matured', under.record)) break
-          if (held.cancels.some((t) => open(t, 'cancel').body.record === under.record)) state1('cancelled', under.record)
-          else if (now >= under.at + s.recovery.window) state1('matured', under.record)
+          if (now >= under.at + s.recovery.window) state1('matured', under.record)
           else break
           continue
         }

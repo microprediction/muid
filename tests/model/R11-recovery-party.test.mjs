@@ -96,6 +96,26 @@ test('any one root cancels a recovery under notice, and the identity is as it wa
   assert.equal(kinds(s, 'U', r.id).length, 1)
 })
 
+test('a settled-root cancel is acknowledged before an ordinary pending successor settles', () => {
+  const { m2, items } = base(one())
+  const r = recovery(m2, one(), ['n'], ['g'])
+  let s = witness('a', [...items, ...r.sign])
+  const next = membershipId(3, ['b'], m2, one())
+  s = witness('a', [...s, ...['a', 'b'].map((signer) =>
+    ({ kind: 'M', n: 3, roots: ['b'], prev: m2, rec: one(), signer }))])
+  assert.equal(kinds(s, 'A', next).length, 1)
+  assert.equal(ev(s).pending, true)
+  assert.equal(ev(s).notice?.id, r.id)
+
+  s = witness('a', [...s, { kind: 'X', record: r.id, signer: 'b' }])
+  assert.equal(kinds(s, 'K', r.id).length, 1)
+  assert.equal(ev(s).pending, true)
+  assert.equal(ev(s).notice, null)
+  s = ticks(s, WINDOW + 1)
+  assert.equal(kinds(s, 'U', r.id).length, 0, 'the cancelled recovery never matures')
+  assert.equal(ev(s).record.id, next, 'the unrelated ordinary successor settles')
+})
+
 // The limits, as properties. A party that turns rogue, against an owner who holds one root.
 test('a rogue party: it can never end the identity or gain authority before a full window passes unanswered; an owner who answers loses nothing', () => {
   const { m2, items } = base(one())
