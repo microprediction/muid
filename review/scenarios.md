@@ -193,7 +193,7 @@ filed about it.
 152. Every action the code can take on witness state is an action in the TLA+ model, with the same guard.
 153. Every invariant claimed in `model/STATE.md` is checked by a model run in CI, and that run would fail if the invariant were deleted from the model.
 154. The Tamarin model's adversary can do at least what `SPEC.md` section 1 says an attacker can.
-155. Each fuzz target in `fuzz/` reaches the code it names, and its seeds include at least one valid input.
+155. Each fuzz target in `fuzz/` reaches the code it names, and its seeds include at least one input its checker actually accepts; the `verify` seed test requires positive verdicts on the unchanged target fixture so an all-refusing verifier setup cannot silently satisfy it.
 156. Every GitHub Action is pinned to a commit, and no workflow gives a pull request from a fork a token that can write.
 157. Every dependency is pinned to an exact version with an integrity hash, and none runs an install script.
 158. The published package contains only the files it means to, and nothing from `tests/`, `model/` or `research/`.
