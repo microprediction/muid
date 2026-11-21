@@ -19,12 +19,13 @@ A request is closed here, with the issue that answered it, by whoever asked.
   (1–18), answered in #115 and corrected; *Encoding and envelope* (19–32), answered in #119 and corrected;
   *Roots, passkey assertions* (33–46), answered in #122 and corrected; *Ed25519 delegate keys and delegations*
   (47–58), answered in #128 and corrected; *Membership: adding roots, contests, settlement* (59–73), answered in
-  #130 and #132, corrected, and a witness defect fixed; *Recovery* (74–94), answered in #137 and corrected;
-  *The id page* (95–112), answered in #154 and corrected.
+  #130 and #132, corrected, and a witness defect fixed; *Recovery* (74–94), answered in #137, #141, #143, #146,
+  #147, #149 and #150, corrected, and witness defects fixed; *The id page* (95–112), answered in #154 and #158 and
+  corrected.
 - **R2. Recovery at the id page.** `id/page.js` from "R11" onwards, with `id/records.js`: designating parties, a
   party's card and proof, the request to recover, the rescue, the notice and its cancel. Is there any path on which
   a passkey signs something other than what its panel showed, or on which the owner is not told of a recovery under
-  way? This is the newest code in the page.
+  way? This is the newest code in the page. Answered so far: #153 (an older notice answer hid a newer one), fixed.
 - **R3. Tests that wait for nothing.** `tests/id/P2-page.test.mjs` had checks that something did not happen which
   ran before it could have (now waiting on `idle`). Are there any left, there or in `tests/id/P4-recovery.test.mjs`
   and `tests/witness/`, including fixed waits (`waitForTimeout`) that a slow machine would outrun?
