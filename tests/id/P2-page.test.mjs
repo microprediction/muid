@@ -3031,6 +3031,17 @@ test('recovery at the page: a new passkey asks, the party signs what it is shown
     // Having signed, it asks the witness at once, and is told what it waits for.
     await n.page.waitForSelector('#recovery-notice:not([hidden])')
     assert.deepEqual([await n.page.isHidden('#notice-incoming'), await n.page.isHidden('#notice-own')], [false, true])
+    // Although the incoming root sees the notice, its Cancel button is hidden and must remain inert
+    // even if another script on this trusted origin dispatches a click on that hidden element.
+    const hiddenCancelPrompts = await n.page.evaluate(() => {
+      let prompts = 0
+      const get = navigator.credentials.get
+      navigator.credentials.get = () => { prompts++; return Promise.reject(new Error('hidden cancel requested a passkey')) }
+      try { document.getElementById('notice-cancel').click() }
+      finally { navigator.credentials.get = get }
+      return prompts
+    })
+    assert.equal(hiddenCancelPrompts, 0, 'an incoming root cannot start a hidden cancellation ceremony')
     await t.svc.tick()
     const noticed = await current()
     assert.equal(noticed.recovering.record, R.id)
