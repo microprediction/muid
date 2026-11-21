@@ -153,6 +153,8 @@ const direct = (page, mode, key, value) => page.evaluate(([mode, key, value]) =>
   }
 }), [mode, key, value])
 const held = (page, key) => direct(page, 'get', key)
+// A designation as the page shows it (R11): its terms, then each party's commitment by its fingerprint.
+const designated = (terms) => new RegExp('^' + terms + '; parties [0-9a-f]{4}( [0-9a-f]{4}){5}(, [0-9a-f]{4}( [0-9a-f]{4}){5})*$')
 // Each page's requests not yet answered, counted from when it was opened.
 const flying = new WeakMap()
 // The page has nothing on its way, for a check that something did not happen: no request unanswered, and the page's
@@ -2221,8 +2223,8 @@ test('a recovery under notice is shown on load with when it takes effect; one pr
     await t.page.fill('#new-root', rootOf('b'))
     await t.page.click('#add-review')
     await t.page.waitForSelector('#add-panel:not([hidden])')
-    assert.equal(await t.page.textContent('#add-recovery'), `1 of 1, after ${WAIT_S} seconds`)
-    assert.equal(await t.page.textContent('#recovery-now'), `1 of 1, after ${WAIT_S} seconds`)
+    assert.match(await t.page.textContent('#add-recovery'), designated(`1 of 1, after ${WAIT_S} seconds`))
+    assert.match(await t.page.textContent('#recovery-now'), designated(`1 of 1, after ${WAIT_S} seconds`))
     await t.page.fill('#new-root', '')
 
     // The party asks for a recovery to a root of its choosing: the witness gives notice.
@@ -2521,7 +2523,7 @@ test('recovery parties: a party gives a card and shows that its passkey is held;
     await t.page.click('#designate-review')
     await t.page.waitForSelector('#designate-panel:not([hidden])')
     assert.equal(await t.page.textContent('#error'), '')
-    assert.equal(await t.page.textContent('#designate-recovery'), '1 of 1, after 302400 seconds')
+    assert.match(await t.page.textContent('#designate-recovery'), designated('1 of 1, after 302400 seconds'))
     assert.equal(await t.page.textContent('#designate-roots'), aId)
     assert.equal(await t.page.textContent('#designate-epoch'), '2')
     assert.equal(await t.page.isHidden('#designate-proofs-part'), false)
@@ -2532,7 +2534,7 @@ test('recovery parties: a party gives a card and shows that its passkey is held;
       await t.page.click('#designate-review')
       await t.page.waitForSelector('#designate-panel:not([hidden])')
     }
-    assert.equal(await t.page.textContent('#designate-recovery'), '1 of 1, after 14 days')
+    assert.match(await t.page.textContent('#designate-recovery'), designated('1 of 1, after 14 days'))
     const code = await t.page.textContent('#designate-code')
     const expected = pageRecords.designate({ identity: a.identity, state: await current(), parties: [pageRecords.fromCard(card, rpId)], threshold: 1, window: 14 * 86_400 })
     assert.equal(code, expected.id)
@@ -2633,7 +2635,7 @@ test('recovery parties: a party gives a card and shows that its passkey is held;
 
     // Loaded again, the page says what is designated; the same check is made over the current membership.
     await t.page.reload()
-    await t.page.waitForFunction(() => document.getElementById('recovery-now').textContent === '1 of 1, after 14 days')
+    await t.page.waitForFunction(() => document.getElementById('recovery-now').textContent.startsWith('1 of 1, after 14 days; parties '))
     assert.equal(await t.page.textContent('#recheck-code'), code)
     await t.page.click('#recheck')
     await errorIs(t.page, 'paste the recovery cards of the parties to check')
@@ -2799,9 +2801,20 @@ test('recovery parties, two passkeys: one designates and hands the change over; 
     await b.page.waitForSelector('#recovery-cosign-panel:not([hidden])')
     assert.equal(await b.page.isHidden('#review-panel'), true, 'the review withdraws whatever else was under review')
     assert.equal(await b.page.textContent('#error'), '')
-    assert.equal(await b.page.textContent('#recovery-cosign-recovery'), '1 of 1, after 14 days')
+    // The parties are shown by their commitments' fingerprints (issue #147): the same change naming another party
+    // reads otherwise, though its terms are the same.
+    const print = (c) => c.slice(0, 24).match(/.{4}/g).join(' ')
+    assert.equal(await b.page.textContent('#recovery-cosign-recovery'), `1 of 1, after 14 days; parties ${d.body.recovery.parties.map(print).join(', ')}`)
     assert.equal(await b.page.textContent('#recovery-cosign-roots'), [aId, bId].sort().join(' '))
     assert.equal(await b.page.textContent('#recovery-cosign-epoch'), '3')
+    const other = envelope.seal('membership', { ...d.body, recovery: { ...d.body.recovery, parties: ['ab'.repeat(32), 'cd'.repeat(32)], threshold: 2 } }).payload
+    await b.page.fill('#recovery-cosign-payload', other)
+    await b.page.click('#recovery-cosign-review')
+    await b.page.waitForSelector('#recovery-cosign-panel:not([hidden])')
+    assert.equal(await b.page.textContent('#recovery-cosign-recovery'), '2 of 2, after 14 days; parties abab abab abab abab abab abab, cdcd cdcd cdcd cdcd cdcd cdcd')
+    await b.page.fill('#recovery-cosign-payload', payload)
+    await b.page.click('#recovery-cosign-review')
+    await b.page.waitForSelector('#recovery-cosign-panel:not([hidden])')
     await b.page.fill('#recovery-cosign-payload', payload)
     assert.equal(await b.page.isHidden('#recovery-cosign-panel'), true, 'an edit withdraws it')
     await b.page.click('#recovery-cosign-review')
@@ -2893,7 +2906,7 @@ test('recovery at the page: a new passkey asks, the party signs what it is shown
     assert.equal(await n.page.textContent('#error'), '')
     assert.equal(await n.page.textContent('#recover-shown'), a.identity)
     assert.equal(await n.page.textContent('#recover-roots'), nId)
-    assert.equal(await n.page.textContent('#recover-recovery'), '1 of 1, after 3 days')
+    assert.match(await n.page.textContent('#recover-recovery'), designated('1 of 1, after 3 days'))
     assert.equal(await n.page.textContent('#recover-wait'), '3 days after enough parties and this passkey have signed, unless a passkey the identity has now cancels it')
     const request = await n.page.inputValue('#recover-request')
     const R = pageRecords.changeToSign(request)
@@ -2997,7 +3010,7 @@ test('recovery at the page: a new passkey asks, the party signs what it is shown
     assert.equal(await g.page.textContent('#rescue-identity'), a.identity)
     assert.equal(await g.page.textContent('#rescue-roots'), nId)
     assert.equal(await g.page.textContent('#rescue-fingerprints'), print)
-    assert.equal(await g.page.textContent('#rescue-recovery'), '1 of 1, after 3 days')
+    assert.match(await g.page.textContent('#rescue-recovery'), designated('1 of 1, after 3 days'))
     assert.equal(await g.page.textContent('#rescue-wait'), '3 days after enough parties and the new passkey have signed, unless a passkey the identity has now cancels it')
     const gSigns = await signCount(g)
     // An edit while the passkey is signing withdraws it: the late signature is sent nowhere.

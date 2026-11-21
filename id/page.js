@@ -111,11 +111,12 @@ const fields = (b) => [['Agent', b.agent], ['Audience', b.aud], ['Scopes', b.sco
 
 // A remembered worker's place in the list: its agent at its audience. Those the user unticked, for as long as they
 // are listed, are not renewed.
-// R11: a designation as a membership change states it (I4): how many of its parties recover, after how long. A
-// change that states none ends the one in force.
+// R11: a designation as a membership change states it (I4): how many of its parties recover, after how long, and
+// which parties, by their commitments' fingerprints, so that two designations of other parties never read alike
+// (issue #147). A change that states none ends the one in force.
 const DAY = 86_400
 const wait = (s) => s % DAY === 0 ? `${s / DAY} days` : `${s} seconds`
-const designation = (r) => r === undefined || r === null ? 'none' : `${r.threshold} of ${r.parties.length}, after ${wait(r.window)}`
+const designation = (r) => r === undefined || r === null ? 'none' : `${r.threshold} of ${r.parties.length}, after ${wait(r.window)}; parties ${r.parties.map(fingerprint).join(', ')}`
 const when = (t) => new Date(t * 1000).toISOString()
 const slot = (w) => JSON.stringify([w.agent, w.aud])
 const unticked = new Set()
