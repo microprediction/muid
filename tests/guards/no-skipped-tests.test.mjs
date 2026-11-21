@@ -24,10 +24,24 @@ const BANNED = [
 ]
 const banned = (source) => BANNED.some((re) => re.test(source))
 
+// Only this one Chrome DevTools-dependent test is deliberately skipped in the Firefox/WebKit
+// jobs (and executed in the Chrome job). The exact expression and its location are pinned.
+const CHROME_SKIP = String.raw`skip: ENGINE !== 'chrome' && 'storage is cleared through Chrome\'s DevTools protocol'`
+const STORE_TEST = 'store/ST1-store.test.mjs'
+
+function forbidden (name, source) {
+  if (name === STORE_TEST) {
+    const parts = source.split(CHROME_SKIP)
+    if (parts.length !== 2) return true // the permitted exception was removed, duplicated or changed
+    source = parts.join('skip: false')
+  }
+  return banned(source)
+}
+
 test('no test is skipped, todo or exclusive', () => {
   const offenders = files(ROOT)
     .filter((p) => relative(ROOT, p) !== SELF)
-    .filter((p) => banned(readFileSync(p, 'utf8')))
+    .filter((p) => forbidden(relative(ROOT, p), readFileSync(p, 'utf8')))
   assert.deepEqual(offenders.map((p) => relative(ROOT, p)), [])
 })
 
@@ -44,4 +58,11 @@ test('the pattern catches what it is meant to catch', () => {
   for (const s of ['skipped', 'const only = 1', 'todoList', '{ skip: false }', '{ todo: false }', '{ only: false }']) {
     assert.ok(!banned(s), s)
   }
+})
+
+test('the only permitted conditional skip is the pinned Chrome-specific one', () => {
+  assert.equal(forbidden(STORE_TEST, `test('x', { ${CHROME_SKIP} }, () => {})`), false)
+  assert.equal(forbidden('id/P2-page.test.mjs', `test('x', { ${CHROME_SKIP} }, () => {})`), true)
+  assert.equal(forbidden(STORE_TEST, `test('x', { ${CHROME_SKIP}, skip: process.env.CI }, () => {})`), true)
+  assert.equal(forbidden(STORE_TEST, "test('x', { skip: false }, () => {})"), true)
 })
