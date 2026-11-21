@@ -185,7 +185,7 @@ filed about it.
 ## Tests, models and the build — `tests/`, `model/`, `.github/workflows/`, `package.json`
 
 146. Every `.test.mjs` file under `tests/` is run by CI.
-147. No test is skipped, marked todo, or exits early on a condition CI always meets.
+147. No test is silently skipped, marked todo, or exits early on a condition CI always meets. The guard rejects conditional skip/todo/only options and test-context skip/todo calls, apart from the single pinned Chrome-DevTools-only test in `tests/store/ST1-store.test.mjs` that is intentionally skipped on Firefox/WebKit and run on Chrome.
 148. Every source module is mutated by exactly one mutation configuration, or by contiguous parts covering all of it.
 149. Every mutant excluded by a `Stryker disable` comment is truly equivalent, for the reason the comment gives.
 150. Every "twin" (a deliberately broken copy of the code) still applies to the current source and is caught by a test for the reason it names.
