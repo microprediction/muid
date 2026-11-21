@@ -651,7 +651,9 @@ $('cosign-retry').addEventListener('click', () => { $('error').textContent = '';
 // is cancelled at its next pass, and the notice goes when it has.
 $('notice-cancel').addEventListener('click', async () => {
   const n = noticed
-  if (n === null || n.root !== root?.id) return // none shown, or one shown for a root this tab no longer holds
+  // The incoming root sees the notice but has no cancel authority; even a scripted click on its hidden button
+  // must not ask that passkey to sign. Use the same current-root test that decides which panel is shown.
+  if (n === null || n.root !== root?.id || !n.state.roots.includes(n.root)) return
   $('error').textContent = ''
   try {
     const c = cancel({ identity: root.identity, state: n.state })
