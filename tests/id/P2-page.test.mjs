@@ -2413,6 +2413,18 @@ test('a recovery under notice is shown on load with when it takes effect; one pr
     assert.equal(await t.page.isHidden('#recovery-notice'), false, 'the late answer does not take the notice down')
     assert.equal(await t.page.isHidden('#notice-unchecked'), true, 'nor is it said of this root that the witness could not be asked')
     await t.page.unroute(`**/v1/identities/${rootModule.identityOf(yId)}/records`)
+    // Two questions about the same root, the first answered last: the older answer does not replace the newer one
+    // (that the witness could not be asked would otherwise take the notice down).
+    const first = await holdNext(t.page, `**${path}`)
+    await change(t.page, 'root', mine)
+    const answerFirst = await first()
+    await change(t.page, 'root', mine)
+    await t.page.waitForTimeout(500) // the first question is still held, so idle() would wait on it
+    assert.equal(await t.page.isHidden('#recovery-notice'), false)
+    await answerFirst(NO_ANSWER)
+    await t.page.waitForTimeout(500)
+    assert.equal(await t.page.isHidden('#recovery-notice'), false, 'an older answer for the same root does not take the notice down')
+    assert.equal(await t.page.isHidden('#notice-unchecked'), true, 'nor says that the witness could not be asked')
 
     // A witness that refuses the cancel: said, and the notice stays.
     t.refusing(true)
