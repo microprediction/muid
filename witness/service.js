@@ -80,12 +80,16 @@ export function witnessService ({ witness, holdings, log, clock, headInterval })
 
   // A submitted record, revocation or delegation: decided against the logged records, advanced, logged, then kept.
   // A delegation's logged record (R10) is signed in the decision itself: appended with the rest when it is new.
+  // What was due by now is done first, as a tick at this moment would have done it: a record that arrives after a
+  // deadline (a recovery's wait, a contest window) is decided after what the deadline brought, not before it.
   function change (identity, decide) {
     return commit(identity, (entry, now) => {
-      const r = decide(entry?.held ?? witness.empty(identity), now)
-      if (!r.ok) return { value: refusal(422, r.reason) }
+      const due = witness.advance(entry?.held ?? witness.empty(identity), now)
+      const r = decide(due.held, now)
+      const done = due.signed.map((x) => x.text)
+      if (!r.ok) return done.length === 0 ? { value: refusal(422, r.reason) } : { entry: { held: due.held }, texts: done, value: refusal(422, r.reason) }
       const a = witness.advance(r.held, now)
-      const texts = [...(r.fresh ? [r.logged] : []), ...a.signed.map((x) => x.text)]
+      const texts = [...done, ...(r.fresh ? [r.logged] : []), ...a.signed.map((x) => x.text)]
       const value = json(200, { ok: true, signed: texts, logged: r.logged })
       // Nothing changed (a record already held, a delegation already logged): the entry, and its head, stay as they are.
       // (A held record or a logged delegation that is new, or anything advance signs, makes a new holding.)

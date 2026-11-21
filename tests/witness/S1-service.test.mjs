@@ -376,3 +376,46 @@ test('a recovery through the service: the notice is logged and served and is in 
   assert.equal('recovering' in bodyOf((await s.call('GET', `/v1/identities/${IDENTITY}/head`)).body.head, 'head'), false)
   assert.deepEqual((await s.submit('cancel', signed('cancel', { identity: IDENTITY, record: mId(R) }, 'a'))).body, { ok: true, signed: [] }, 'the same cancel again: held, nothing signed')
 })
+
+// What was due is done before what arrives (issue #143): a record first submitted after a recovery's wait has
+// ended, with no tick between, is decided after the recovery has matured, as it would have been had the tick come.
+test('a record arriving after a recovery\'s wait, before any tick: the recovery matures and is anchored first', async () => {
+  for (const late of ['cancel', 'ordinary']) {
+    const s = setup({ headInterval: 0 })
+    const D = { parties: [commitmentOf('g')], threshold: 1, window: 259_200 }
+    const m2 = { identity: IDENTITY, prev: IDENTITY, epoch: 2, roots: [rootId('a')], recovery: D }
+    await s.submit('root', rootText('a'))
+    await s.submit('membership', signed('membership', m2, 'a'))
+    s.at(BASE + WINDOW)
+    await s.svc.tick()
+    const R = { identity: IDENTITY, prev: mId(m2), epoch: 3, roots: [rootId('n')] }
+    await s.call('POST', '/v1/records', { identity: IDENTITY, type: 'membership', text: partySigned('membership', R, 'g'), root: rootText('g') })
+    await s.submit('root', rootText('n'))
+    assert.equal((await s.submit('membership', signed('membership', R, 'n'))).body.signed.length, 1, 'the notice')
+    s.at(BASE + WINDOW + D.window)
+    const answer = late === 'cancel'
+      ? await s.submit('cancel', signed('cancel', { identity: IDENTITY, record: mId(R) }, 'a'))
+      : await s.submit('membership', signed('membership', { identity: IDENTITY, prev: mId(m2), epoch: 3, roots: [rootId('a')] }, 'a'))
+    const held = (await s.call('GET', `/v1/identities/${IDENTITY}/records`)).body
+    const [matured] = held.matured
+    const anchor = held.anchors.find((t) => bodyOf(t, 'anchor').record === mId(R))
+    assert.deepEqual([held.matured.length, bodyOf(matured, 'matured').record, held.cancelled], [1, mId(R), []], late)
+    assert.ok(anchor !== undefined && s.log.entries().includes(anchor) && s.log.entries().includes(matured), late)
+    // Too late, each is refused: a cancel of what is no longer under notice, and an ordinary change of a membership
+    // whose successor is now anchored (the owner's way now is the contest, R11). The maturity stands.
+    assert.deepEqual([answer.status, answer.body], [422, { ok: false, reason: late === 'cancel' ? 'record' : 'prev' }], late)
+  }
+  // A refused record arriving late: what was due is still done, and logged.
+  const s = setup({ headInterval: 0 })
+  await s.submit('root', rootText('a'))
+  await s.submit('membership', signed('membership', M2, 'a'))
+  await s.submit('root', rootText('b'))
+  await s.submit('membership', signed('membership', M2, 'b'))
+  s.at(BASE + WINDOW)
+  const refused = await s.submit('membership', 'not a record')
+  assert.equal(refused.status, 422)
+  const [settlement] = (await s.call('GET', `/v1/identities/${IDENTITY}/records`)).body.settlements
+  assert.equal(bodyOf(settlement, 'settlement').outcome, mId(M2), 'the settlement due was signed')
+  assert.ok(s.log.entries().includes(settlement), 'and logged')
+  assert.deepEqual(await s.svc.tick(), [], 'and the tick has nothing left to do')
+})
