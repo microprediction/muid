@@ -94,6 +94,16 @@ test('a delegation to a worker: signed by the passkey and the worker, the core a
   assert.equal(c.ok, true, JSON.stringify(c))
 })
 
+// A raw Ed25519 private seed and a valid compressed public point are both 32-byte strings.
+// An accidental overlap cannot be recognised from the value pasted into a worker-key field.
+test('a private seed can be a valid public-point encoding, so the field cannot detect every seed', () => {
+  const seed = '1a' + '00'.repeat(31)
+  assert.notEqual(hex(ed25519.getPublicKey(Buffer.from(seed, 'hex'))), seed, 'its derived public key differs')
+  const r = rootRecord(SPKI, -7, RP_ID)
+  const d = delegation({ agent: 'worker', identity: r.identity, membership: r.identity, root: r.id, subject: seed,
+    aud: 'https://app.example', scopes: ['read'], now: NOW, lifetime: 3600 })
+  assert.equal(d.body.subject, seed, 'the seed bytes happen to be a canonical prime-order public point')
+})
 test('what the core would refuse is refused first, with a reason to show', () => {
   const base = { agent: 'worker', identity: 'a'.repeat(64), membership: 'a'.repeat(64), root: 'b'.repeat(64), subject: SUBJECT, aud: 'https://app.example',
     scopes: ['post'], now: NOW, lifetime: 3600 }
