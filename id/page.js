@@ -493,7 +493,11 @@ async function proceed () {
   await review()
   await signDelegation() // nothing, if the review was refused
 }
+// The sign-in shortcuts review and sign in one click. Only the visible app-request view authorises that shortcut:
+// a scripted click on a hidden button must not create the review it needs (scenario 97).
+const activeSignin = () => REFUSAL === undefined && request !== null && !full && !$('signin').hidden
 $('signin-button').addEventListener('click', async () => {
+  if (!activeSignin()) return
   $('error').textContent = ''
   $('signin-new').hidden = true
   if (root === null) {
@@ -508,6 +512,7 @@ $('signin-button').addEventListener('click', async () => {
   await proceed()
 })
 $('signin-create').addEventListener('click', async () => {
+  if (!activeSignin() || $('signin-new').hidden) return
   await create(false)
   await proceed()
 })
