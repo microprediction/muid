@@ -194,7 +194,7 @@ filed about it.
 153. Every invariant claimed in `model/STATE.md` is checked by a model run in CI, and that run would fail if the invariant were deleted from the model.
 154. The Tamarin model's adversary can do at least what `SPEC.md` section 1 says an attacker can.
 155. Each fuzz target in `fuzz/` reaches the code it names, and its seeds include at least one valid input.
-156. Every GitHub Action is pinned to a commit, and no workflow gives a pull request from a fork a token that can write.
+156. Every GitHub Action is pinned to a commit, and no workflow requests a write-scoped token for an untrusted pull request. The CI guard catches write permissions in YAML whether bare or quoted (including job-level overrides).
 157. Every dependency is pinned to an exact version with an integrity hash, and none runs an install script.
 158. The published package contains only the files it means to, and nothing from `tests/`, `model/` or `research/`.
 159. The code in `src/` uses no clock, no randomness, no network and no global state of its own.
