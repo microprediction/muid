@@ -66,12 +66,16 @@ export function witnessService ({ witness, holdings, log, clock, headInterval })
   // Runs `step(entry, now)` on the identity's logged entry, inside its update. A step that signs nothing returns
   // { value } or { entry, value }, kept at once; one that signs returns { entry, texts, value }: the entry and texts
   // are kept in the outbox first, then appended, and the value is given only once they are logged.
+  // `now` never runs back past the time of what was last signed for the identity, which its entry keeps (`at`), as a
+  // CT log's tree heads never go back in time: a clock that steps back signs nothing dated before what it signed.
   async function commit (identity, step) {
     const r = await holdings.update(identity, async (entry) => {
       const e = await settle(entry)
-      const s = step(e, clock())
-      if (s.texts === undefined) return { entry: s.entry ?? e, value: { done: s.value } }
-      return { entry: { ...e, outbox: { entry: s.entry, texts: s.texts } }, value: { staged: s.value } }
+      const at = e?.at ?? 0
+      const now = Math.max(clock(), at)
+      const s = step(e, now)
+      if (s.texts === undefined) return { entry: s.entry === undefined ? e : { ...s.entry, at }, value: { done: s.value } }
+      return { entry: { ...e, outbox: { entry: { ...s.entry, at: now }, texts: s.texts } }, value: { staged: s.value } }
     })
     if (r.staged === undefined) return r.done
     await holdings.update(identity, async (entry) => ({ entry: await settle(entry) }))

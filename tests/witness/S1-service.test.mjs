@@ -136,6 +136,30 @@ test('heads: signed when asked, reused within headInterval while nothing changes
   assert.deepEqual((await s.call('GET', `/v1/identities/${IDENTITY}/head`)), { status: 409, body: { ok: false, reason: 'no-head' }, type: 'application/json' })
 })
 
+// Found by review (#166, scenario 127): a clock that stepped back had the witness sign a statement dated before one
+// it had already signed. Its time for an identity now never runs back past what it last signed, across changes that
+// sign nothing and across a restart on the same holdings.
+test('a clock that steps back signs nothing dated before what was already signed for the identity', async () => {
+  const holdings = memoryHoldings()
+  const s = setup({ holdings, headInterval: 0 })
+  await s.submit('root', rootText('a'))
+  s.at(BASE + 100)
+  assert.equal(bodyOf((await s.call('GET', `/v1/identities/${IDENTITY}/head`)).body.head, 'head').at, BASE + 100)
+  s.at(BASE)
+  // A change that signs nothing, at the earlier time, keeps the floor.
+  const revoked = await s.call('POST', '/v1/revocations', { identity: IDENTITY, text: signed('revocation', { identity: IDENTITY, target: del.id, at: BASE }, 'a') })
+  assert.deepEqual([revoked.status, revoked.body.signed], [200, []])
+  const r = await s.submit('membership', signed('membership', mBody(2, ['a'], IDENTITY), 'a'))
+  assert.equal(r.status, 200)
+  assert.equal(bodyOf(r.body.signed[0], 'anchor').at, BASE + 100)
+  // Started again on the same holdings, with the clock further back: the same.
+  const again = setup({ holdings, headInterval: 0 })
+  again.at(BASE - 50)
+  assert.equal(bodyOf((await again.call('GET', `/v1/identities/${IDENTITY}/head`)).body.head, 'head').at, BASE + 100)
+  // And once the clock is past it, its own time again.
+  again.at(BASE + 200)
+  assert.equal(bodyOf((await again.call('GET', `/v1/identities/${IDENTITY}/head`)).body.head, 'head').at, BASE + 200)
+})
 // Found by review: a resubmission that changed nothing (a record already held, a delegation already logged) still
 // dropped the cached head, so anyone could have the witness sign and log a new head on every request.
 test('a resubmission that changes nothing keeps the cached head: no new head is signed or logged', async () => {
