@@ -922,6 +922,37 @@ test('hidden sign-in shortcuts cannot review and sign in the absence of an app r
   }
 })
 
+// The sign-in view of an app request, open when its store is lost: it goes with the rest, and its button is inert.
+test('a sign-in view open when the store is lost is hidden, and its button then asks for no passkey', { timeout: 120_000 }, async () => {
+  const t = await open()
+  try {
+    await createIdentity(t.page)
+    const request = { v: 1, agent: 'drive', subject: SUBJECT, aud: 'https://node.example', scopes: ['store.ref'], days: 1, return: 'https://app.example/drive/', state: 'S-1' }
+    await t.page.goto('about:blank')
+    await t.page.goto(t.site.origin + '/id/#muid-request=' + Buffer.from(JSON.stringify(request)).toString('base64url'))
+    await t.page.waitForSelector('#signin:not([hidden])')
+    const raised = await t.page.evaluate(() => new Promise((resolve) => {
+      const o = indexedDB.open('muid', 2)
+      o.onblocked = () => resolve('blocked')
+      o.onsuccess = () => { o.result.close(); resolve('raised') }
+    }))
+    assert.equal(raised, 'raised')
+    await t.page.waitForFunction(() => document.getElementById('error').textContent !== '')
+    assert.equal(await t.page.isHidden('#signin'), true)
+    await t.page.evaluate(() => {
+      globalThis.__lostSigninPrompts = 0
+      navigator.credentials.get = () => { globalThis.__lostSigninPrompts++; return Promise.reject(new Error('a lost store asked for a passkey')) }
+    })
+    await t.page.evaluate(() => document.getElementById('signin-button').click())
+    await t.page.waitForTimeout(500) // the store is gone, so idle() cannot read it
+    assert.equal(await t.page.evaluate(() => globalThis.__lostSigninPrompts), 0)
+    await t.collect()
+    assert.deepEqual(t.problems, [])
+  } finally {
+    await t.close()
+  }
+})
+
 test('signing buttons do nothing before a review; the witness refusing is shown; a retry clears it', { timeout: 180_000 }, async () => {
   const t = await open()
   try {

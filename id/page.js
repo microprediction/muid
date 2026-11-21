@@ -495,7 +495,8 @@ async function proceed () {
 }
 // The sign-in shortcuts review and sign in one click. Only the visible app-request view authorises that shortcut:
 // a scripted click on a hidden button must not create the review it needs (scenario 97).
-const activeSignin = () => REFUSAL === undefined && request !== null && !full && !$('signin').hidden
+// signinView shows it only for an app request; a lost store hides it with the rest.
+const activeSignin = () => !$('signin').hidden
 $('signin-button').addEventListener('click', async () => {
   if (!activeSignin()) return
   $('error').textContent = ''
@@ -878,7 +879,7 @@ if (REFUSAL === undefined) {
     // cleared it): whatever is open is withdrawn, and the page offers nothing more until it is loaded again.
     store = await openStore('muid', () => {
       withdraw()
-      for (const id of ['create', 'identity', 'authorise', 'renew', 'add-root', 'joining', 'pending', 'recovery-notice', 'notice-unchecked', 'recovery', 'party']) $(id).hidden = true
+      for (const id of ['create', 'identity', 'authorise', 'renew', 'add-root', 'joining', 'pending', 'recovery-notice', 'notice-unchecked', 'recovery', 'party', 'signin']) $(id).hidden = true
       REFUSAL = 'A newer version of this page has taken its storage, or the browser has cleared it: reload this page.'
       show()
     })
