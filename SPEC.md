@@ -417,9 +417,12 @@ is `{ root, salt, assertion }`; a root-signed **cancel** is `{ identity, record 
   - *Recovery.* A recovery is a membership record naming the settled membership as `prev`, signed by at least
     `threshold` of that membership's parties, each signature opening its commitment (`sig` is
     `{ root, salt, assertion }`), and by every root the record adds (a party the record adds as a root signs once,
-    as a party). The witness does not anchor it. If nothing with
-    that `prev` is anchored, no other recovery of it is under notice, and none was cancelled in the last 259,200
-    seconds, the witness signs a **notice** `{ identity, record, at }` and appends it to its log.
+    as a party). A recovery need not add a root: one that only removes roots or changes the designation needs the
+    parties alone, and is answered, as any is, by the owner's cancel. The witness does not anchor it. If nothing with
+    that `prev` is anchored, no other recovery of it is under notice, none was cancelled in the last 259,200
+    seconds, and fewer than `MAX_RECORDS` notices are held (the list is cleared when a successor settles, so once it
+    is full no recovery gets notice until an ordinary change settles), the witness signs a **notice**
+    `{ identity, record, at }` and appends it to its log.
     Being a membership record, a recovery states the restored identity's own `recovery` too, or none: those who
     sign it choose, as they choose its roots. Parties who meet the threshold wrongly could so name themselves again,
     but by then they hold the identity; a restored owner changes it by an ordinary change.

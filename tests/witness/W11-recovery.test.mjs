@@ -153,6 +153,17 @@ test('any one root cancels a recovery under notice: the witness says so, the ide
   }
 })
 
+test('a recovery that adds no root needs the parties alone: it gets notice, and the owner\'s cancel answers it (issue #149)', () => {
+  const d = designated(D()) // root a; party g
+  const R = d.next(['a']) // the same root, and no designation
+  const held = admitAll2(d.held, [['membership', partySigned('membership', R, 'g'), rootText('g')]])
+  const noticed = w.advance(held, T0 + 5)
+  assert.deepEqual(bodies(noticed), [{ type: 'notice', identity: IDENTITY, record: mId(R), at: T0 + 5 }])
+  const r = w.advance(admitAll(noticed.held, [['cancel', cancel(mId(R))]]), T0 + 6)
+  assert.deepEqual(types(r), ['cancelled'])
+  assert.equal(state(r.held).recovering, null)
+})
+
 test('after a cancel, no recovery is put under notice for three days; then another may be', () => {
   const d = designated(D())
   const R = d.next(['n'])
