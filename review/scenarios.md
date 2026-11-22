@@ -193,7 +193,7 @@ filed about it.
 152. The witness service's staged outbox and settled holding follow the transitions and guards of `model/tla/WitnessOutbox.tla`; the witness's `admit`, `log`, `revoke` and `advance` decisions are checked separately against the JavaScript models in `model/`, not that TLA+ model.
 153. Every invariant claimed in `model/STATE.md` is checked by a model run in CI, and that run would fail if the invariant were deleted from the model.
 154. The Tamarin authentication-chain model permits a Dolev–Yao network adversary to intercept, forge, replay and reorder messages and to learn root and delegate signing keys; its claims do not model corrupted browser storage, provider responses or witness state from `SPEC.md` section 1.
-155. Each fuzz target in `fuzz/` reaches the code it names, and its seeds include at least one valid input.
+155. Each fuzz target in `fuzz/` reaches the code it names, and its seeds include at least one input its checker actually accepts; the `verify` seed test requires positive verdicts on the unchanged target fixture so an all-refusing verifier setup cannot silently satisfy it.
 156. Every GitHub Action is pinned to a commit, and no workflow requests a write-scoped token for an untrusted pull request. The CI guard catches write permissions in YAML whether bare or quoted (including job-level overrides).
 157. Every dependency is pinned to an exact version with an integrity hash, and none runs an install script.
 158. The packable npm artifact includes every public export target but excludes `tests/`, `model/` and `research/`, checked by `tests/guards/package-pack.test.mjs`. Publication itself is disabled by `package.json`'s `private: true`.
