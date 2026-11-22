@@ -7,7 +7,7 @@
     ]
   },
   "mutate": [
-    "witness/witness.js:231-357"
+    "witness/witness.js:231-365"
   ],
   "coverageAnalysis": "perTest",
   "thresholds": {
