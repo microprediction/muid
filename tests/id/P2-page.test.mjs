@@ -1116,6 +1116,25 @@ test('signing buttons do nothing before a review; the witness refusing is shown;
   }
 })
 
+test('a change withdrawn while the witness answers its submission is told nothing of the answer', { timeout: 120_000 }, async () => {
+  const t = await open()
+  try {
+    await createIdentity(t.page)
+    const b = await t.device()
+    await b.page.click('#join-button')
+    await b.page.waitForSelector('#joining:not([hidden])')
+    const bRoot = await b.page.inputValue('#join-root')
+    await t.page.bringToFront()
+    for (const answer of [REFUSED, TAKEN]) {
+      await t.page.fill('#new-root', bRoot)
+      await t.page.click('#add-review')
+      await t.page.waitForSelector('#add-panel:not([hidden])')
+      await lateAnswer(t.page, '#add-sign', () => t.page.fill('#new-root', bRoot + ' '), answer)
+      assert.equal(await t.page.isHidden('#add-handoff'), true)
+    }
+  } finally { await t.close() }
+})
+
 test('a change edited while the passkey is signing is not submitted, on either device', { timeout: 180_000 }, async () => {
   const t = await open({ init: () => {
     const get = navigator.credentials.get.bind(navigator.credentials)
@@ -2111,7 +2130,7 @@ test('an added passkey\'s hand-off is not shown if it was withdrawn while the ch
     assert.equal((await t.witnessGet(`/v1/identities/${a.identity}/records`)).memberships.length, 1, 'signed, so submitted')
     await t.page.waitForTimeout(300)
     assert.equal(await t.page.isHidden('#add-handoff'), true)
-    assert.equal(await t.page.textContent('#status'), 'Registered with the witness.')
+    assert.equal(await t.page.textContent('#status'), '', 'what was said before the signing is not left standing')
     assert.deepEqual(t.problems, [])
   } finally {
     await t.close()
@@ -2603,6 +2622,19 @@ async function holdNext (page, url) {
   return () => asked
 }
 const NO_ANSWER = { status: 503, contentType: 'application/json', body: '{}' }
+const REFUSED = { status: 422, contentType: 'application/json', body: '{"ok":false,"reason":"test"}' }
+const TAKEN = { status: 200, contentType: 'application/json', body: '{"ok":true}' }
+// A signed record is sent, its review withdrawn by `edit` while the witness's answer is held, then `answer` given
+// (undefined: the witness's own): nothing is said of it (scenario 99).
+async function lateAnswer (page, sign, edit, answer) {
+  const asked = await holdNext(page, '**/v1/records')
+  await page.click(sign)
+  const go = await asked()
+  await edit()
+  await go(answer)
+  await idle(page)
+  assert.deepEqual([await page.textContent('#status'), await page.textContent('#error')], ['', ''], `${sign}: a late answer`)
+}
 async function proofOf (g, code) {
   await g.page.bringToFront()
   await g.page.fill('#proof-code', code)
@@ -2916,18 +2948,16 @@ test('recovery parties, two passkeys: one designates and hands the change over; 
     const proof = await proofOf(g, code)
     await t.page.bringToFront()
     await t.page.fill('#designate-proofs', proof)
-    // An edit while the witness is given the signed change: it has it, and no hand-off of what was withdrawn is shown.
-    const given = await holdNext(t.page, '**/v1/records')
-    await t.page.click('#designate-sign')
-    const take = await given()
-    await t.page.fill('#recovery-days', '15')
-    await take()
-    await idle(t.page)
-    assert.deepEqual([await t.page.textContent('#status'), await t.page.isHidden('#designate-handoff'), await t.page.textContent('#error')], ['', true, ''])
-    await t.page.fill('#recovery-days', '14')
-    await t.page.click('#designate-review')
-    await t.page.waitForSelector('#designate-panel:not([hidden])')
-    assert.equal(await t.page.textContent('#designate-code'), code)
+    // An edit while the witness is given the signed change: neither its refusal nor its taking it (it has it) is
+    // shown, and no hand-off of what was withdrawn.
+    for (const answer of [REFUSED, undefined]) {
+      await lateAnswer(t.page, '#designate-sign', () => t.page.fill('#recovery-days', '15'), answer)
+      assert.equal(await t.page.isHidden('#designate-handoff'), true)
+      await t.page.fill('#recovery-days', '14')
+      await t.page.click('#designate-review')
+      await t.page.waitForSelector('#designate-panel:not([hidden])')
+      assert.equal(await t.page.textContent('#designate-code'), code)
+    }
     await t.page.click('#designate-sign')
     await statusIs(t.page, 'Signed. Co-sign this change with your other passkeys.')
     assert.equal(await t.page.isHidden('#designate-handoff'), false)
@@ -3004,6 +3034,12 @@ test('recovery parties, two passkeys: one designates and hands the change over; 
     await promptPasskey(b.page)
     await b.page.click('#recovery-cosign-review')
     await b.page.waitForSelector('#recovery-cosign-panel:not([hidden])')
+    // An edit while the witness is given the co-signature: its answer, whichever, is not shown.
+    for (const [i, answer] of [REFUSED, TAKEN].entries()) {
+      await lateAnswer(b.page, '#recovery-cosign-sign', () => b.page.fill('#recovery-cosign-payload', payload + ' '.repeat(i + 1)), answer)
+      await b.page.click('#recovery-cosign-review')
+      await b.page.waitForSelector('#recovery-cosign-panel:not([hidden])')
+    }
     // A witness that refuses is shown, and nothing said of an earlier signing is left standing.
     t.refusing(true)
     await b.page.click('#recovery-cosign-sign')
@@ -3013,7 +3049,7 @@ test('recovery parties, two passkeys: one designates and hands the change over; 
     await b.page.click('#recovery-cosign-sign')
     await statusIs(b.page, 'Co-signed. The change settles once its contest window has passed.')
     assert.equal(await b.page.textContent('#error'), '')
-    assert.equal(await signCount(b), signs + 3)
+    assert.equal(await signCount(b), signs + 5)
     t.advance(61)
     await t.svc.tick()
     t.advance(61)
@@ -3185,6 +3221,12 @@ test('recovery at the page: a new passkey asks, the party signs what it is shown
     await promptPasskey(g.page)
     await g.page.click('#rescue-review')
     await g.page.waitForSelector('#rescue-panel:not([hidden])')
+    // An edit while the witness is given the party's signature: its answer, whichever, is not shown.
+    for (const [i, answer] of [REFUSED, TAKEN].entries()) {
+      await lateAnswer(g.page, '#rescue-sign', () => g.page.fill('#rescue-card', ' '.repeat(i + 1)), answer)
+      await g.page.click('#rescue-review')
+      await g.page.waitForSelector('#rescue-panel:not([hidden])')
+    }
     t.refusing(true)
     await g.page.click('#rescue-sign')
     await errorIs(g.page, 'the witness refused the membership: test')
@@ -3192,7 +3234,7 @@ test('recovery at the page: a new passkey asks, the party signs what it is shown
     t.refusing(false)
     await g.page.click('#rescue-sign')
     await statusIs(g.page, 'Signed. The recovery is under notice once enough parties and the new passkey have signed.')
-    assert.equal(await signCount(g), gSigns + 3)
+    assert.equal(await signCount(g), gSigns + 5)
     assert.equal((await current()).recovering, null, 'the new passkey has yet to sign')
 
     // The new passkey's kept signature is sent again, with its root record, which nobody else gave the witness.
