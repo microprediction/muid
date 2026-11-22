@@ -2654,6 +2654,26 @@ async function cardOf (g) {
   return g.page.inputValue('#card')
 }
 
+// R2 scenario 109: a card for the previous stored root is not offered as this root's card.
+test('a recovery card is hidden and cleared when another tab replaces its root', { timeout: 120_000 }, async () => {
+  const t = await open()
+  try {
+    const a = await createIdentity(t.page)
+    const oldCard = await cardOf(t)
+    assert.equal(pageRecords.fromCard(oldCard, 'localhost').root, rootModule.checkRoot(a.text, { rpId: 'localhost' }).id)
+
+    const d = await t.device()
+    const b = await createIdentity(d.page)
+    const storedB = await held(d.page, 'root')
+    await change(t.page, 'root', storedB)
+    await t.page.waitForFunction((identity) => document.getElementById('identity-id').textContent === identity, b.identity)
+    assert.equal(await t.page.isHidden('#party'), false, 'the replacement root can make its own cards')
+    assert.equal(await t.page.isHidden('#card'), true, 'the previous root\'s card is no longer shown')
+    assert.equal(await t.page.inputValue('#card'), '', 'the previous root\'s card is not retained in the field')
+    assert.deepEqual(t.problems, [])
+  } finally { await t.close() }
+})
+
 test('recovery parties: a party gives a card and shows that its passkey is held; the owner designates it, checks it again, and ends the designation; the party the page made recovers', { timeout: 180_000 }, async () => {
   const t = await open()
   try {
