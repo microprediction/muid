@@ -184,11 +184,11 @@ function show () {
   if (request?.sealTo !== undefined) $('secret-host').textContent = new URL(request.from).host
   // R11: the recovery under notice, as the witness's records last gave it for the root now held (only a root of its
   // own identity is asked about: not none, and not one that is joining).
-  const under = noticed !== null && noticed.root === root?.id ? noticed.state : null
+  const under = isFor(noticed) ? noticed.state : null
   $('recovery-notice').hidden = under === null
-  $('notice-unchecked').hidden = unchecked !== root?.id || joining
+  $('notice-unchecked').hidden = !isFor(unchecked) || joining
   // The designation in force and the membership a party's check is made over, as the witness last gave them.
-  const now = known !== null && known.root === root?.id ? known.state : null
+  const now = isFor(known) ? known.state : null
   $('recovery-now').textContent = now === null ? 'not known' : designation(now.recovery)
   $('recheck-code').textContent = now === null ? '' : now.membership
   if (under !== null) {
@@ -260,12 +260,15 @@ async function membership () {
 }
 
 // R11: whether a recovery of this identity is under notice, asked of the witness on load and after anything that
-// may change it. `noticed` is the state it was read from, for the root it was read for; `unchecked`, the root the
-// witness gave no answer for, which is said: a notice not shown is then not known to be absent.
+// may change it. `noticed` is the state it was read from, for the root and identity it was read for; `unchecked`,
+// the root and identity the witness gave no answer for, which is said: a notice not shown is then not known to be absent.
 let noticed = null
 let known = null
 let unchecked = null
 let asking = null // the latest question: only its answer is kept
+// Whether what was read is of the root held now, in the identity it is held for: the witness is asked by identity, and
+// storage (untrusted) may hold the same root for another (scenario 109).
+const isFor = (x) => x !== null && x.root === root?.id && x.identity === root.identity
 async function notice () {
   const r = root
   // A root whose registration this browser has not seen answered is asked about too: the answer may have been lost
@@ -287,9 +290,9 @@ async function notice () {
   // for, each part shown only while that root is held, so it says nothing of the root now held; nor does it replace
   // the answer to a later question, about that root or another, which may already be shown.
   if (asked !== asking) return
-  noticed = s !== null && s.recovering !== null ? { root: r.id, state: s } : null
-  known = { root: r.id, state: s } // no answer is a state of null: nothing is known of this root
-  unchecked = failed ? r.id : null
+  noticed = s !== null && s.recovering !== null ? { root: r.id, identity: r.identity, state: s } : null
+  known = { root: r.id, identity: r.identity, state: s } // no answer is a state of null: nothing is known of this root
+  unchecked = failed ? { root: r.id, identity: r.identity } : null
   show()
 }
 
@@ -685,7 +688,7 @@ $('notice-cancel').addEventListener('click', async () => {
   const n = noticed
   // The incoming root sees the notice but has no cancel authority; even a scripted click on its hidden button
   // must not ask that passkey to sign. Use the same current-root test that decides which panel is shown.
-  if (n === null || n.root !== root?.id || !n.state.roots.includes(n.root)) return
+  if (!isFor(n) || !n.state.roots.includes(n.root)) return
   $('error').textContent = ''
   $('status').textContent = '' // what is said next is said of this signing
   // The root it is for: another tab may store another while the passkey is asked or the witness answers, and this
