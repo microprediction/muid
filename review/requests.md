@@ -30,10 +30,13 @@ A request is closed here, with the issue that answered it, by whoever asked.
   party's card and proof, the request to recover, the rescue, the notice and its cancel. Is there any path on which
   a passkey signs something other than what its panel showed, or on which the owner is not told of a recovery under
   way? This is the newest code in the page. Answered so far: #153 (an older notice answer hid a newer one), fixed; #191, no
-  finding; #192 (a late answer to a signed record sent for a withdrawn review was shown), fixed.
+  finding; #192 (a late answer to a signed record sent for a withdrawn review was shown), fixed; #196 (a cancel
+  signed for one root sent with another's identity), fixed, its silent variant no finding (#203); #200 (a recovery
+  card kept for a root no longer held), fixed.
 - **R3. Tests that wait for nothing.** `tests/id/P2-page.test.mjs` had checks that something did not happen which
   ran before it could have (now waiting on `idle`). Are there any left, there or in `tests/id/P4-recovery.test.mjs`
-  and `tests/witness/`, including fixed waits (`waitForTimeout`) that a slow machine would outrun?
+  and `tests/witness/`, including fixed waits (`waitForTimeout`) that a slow machine would outrun? Answered so far:
+  #194 (fixed waits in P2 and the store tests), fixed and guarded.
 - **R4. The mutation split.** `tests/mutation-plan.mjs`, `tests/guards/mutation-coverage.test.mjs` and the
   `stryker.id-page-*.config.json` files divide `id/page.js` by line range. Can a line be left in no part, or the
   guard pass while one is?
