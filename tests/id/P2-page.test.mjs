@@ -2524,6 +2524,23 @@ test('a recovery under notice is shown on load with when it takes effect; one pr
     assert.equal(await t.page.textContent('#notice-record'), R.id)
     await t.page.unroute('**/v1/records')
     await hold(t.page, 'root', acknowledged)
+    // Workers stored as what JSON cannot write (a list holding itself, which IndexedDB keeps; anything on the origin
+    // may have written it, SPEC §1) are no workers: the page still has its storage, and the notice is still shown.
+    await t.page.evaluate(() => new Promise((resolve, reject) => {
+      const opening = indexedDB.open('muid', 1)
+      opening.onsuccess = () => {
+        const cycle = []
+        cycle.push(cycle)
+        const tx = opening.result.transaction('values', 'readwrite')
+        tx.objectStore('values').put({ value: { rev: 1, workers: cycle } }, 'workers')
+        tx.oncomplete = () => { opening.result.close(); resolve() }
+        tx.onabort = () => reject(tx.error)
+      }
+    }))
+    await t.page.reload()
+    await t.page.waitForSelector('#recovery-notice:not([hidden])')
+    assert.deepEqual([await t.page.isHidden('#notice-cancel'), await t.page.textContent('#error')], [false, ''])
+    await drop(t.page, 'workers')
     // The same root stored for another identity (what storage holds is untrusted, SPEC §1) is shown nothing the
     // witness said of it in this one, even before it has answered for that one (scenario 109).
     await t.page.reload()
