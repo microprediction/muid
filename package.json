@@ -46,5 +46,12 @@
   "overrides": {
     "minimatch": "11.0.3",
     "qs": "6.16.2"
-  }
+  },
+  "files": [
+    "src",
+    "adapter",
+    "worker",
+    "witness",
+    "testing"
+  ]
 }

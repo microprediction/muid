@@ -2,14 +2,42 @@
 // the CI mutation jobs (tests/mutation-plan.mjs), alone or in a group, every member run. A new module cannot skip the gate unnoticed.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync, readdirSync } from 'node:fs'
+import { readFileSync, readdirSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { JOBS, mutated as fileOf } from '../mutation-plan.mjs'
 
 const ROOT = new URL('../../', import.meta.url)
-const modules = ['src', 'adapter', 'worker', 'witness', 'id', 'demo'].flatMap((d) => readdirSync(new URL(`${d}/`, ROOT)).filter((f) => f.endsWith('.js')).map((f) => `${d}/${f}`)).sort()
+// Include files in subdirectories too: otherwise a new module can evade every mutation config and this guard.
+function modulesIn (dir, root = ROOT) {
+  function walk (relative) {
+    return readdirSync(new URL(`${relative}/`, root), { withFileTypes: true }).flatMap((entry) => {
+      const path = `${relative}/${entry.name}`
+      return entry.isDirectory() ? walk(path) : (entry.name.endsWith('.js') ? [path] : [])
+    })
+  }
+  return walk(dir)
+}
+const modules = ['src', 'adapter', 'worker', 'witness', 'id', 'demo'].flatMap((d) => modulesIn(d)).sort()
 const configs = readdirSync(ROOT).filter((f) => /^stryker(\.[a-z0-9-]+)?\.config\.json$/.test(f))
 const read = (c) => JSON.parse(readFileSync(new URL(c, ROOT), 'utf8'))
 const workflow = readFileSync(new URL('.github/workflows/test.yml', ROOT), 'utf8')
+
+test('the module inventory includes nested files that would otherwise evade mutation coverage', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'muid-mutation-inventory-'))
+  try {
+    mkdirSync(join(dir, 'src', 'nested'), { recursive: true })
+    writeFileSync(join(dir, 'src', 'flat.js'), 'export const flat = true\n')
+    writeFileSync(join(dir, 'src', 'nested', 'deep.js'), 'export const deep = true\n')
+    writeFileSync(join(dir, 'src', 'nested', 'ignored.txt'), '')
+    const found = modulesIn('src', pathToFileURL(`${dir}/`)).sort()
+    assert.deepEqual(found, ['src/flat.js', 'src/nested/deep.js'])
+    assert.notDeepEqual(found, ['src/flat.js'], 'a nested module with no Stryker config must not disappear')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
 
 // A module is mutated whole by one config, or in parts by several, each a range of its lines (`file:first-last`):
 // the ranges start at line 1, each begins where the last ended, and the last runs past any length the file could have.

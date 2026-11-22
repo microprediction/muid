@@ -184,18 +184,18 @@ filed about it.
 
 ## Tests, models and the build — `tests/`, `model/`, `.github/workflows/`, `package.json`
 
-146. Every `.test.mjs` file under `tests/` is run by CI.
-147. No test is skipped, marked todo, or exits early on a condition CI always meets.
-148. Every source module is mutated by exactly one mutation configuration, or by contiguous parts covering all of it.
-149. Every mutant excluded by a `Stryker disable` comment is truly equivalent, for the reason the comment gives.
+146. Every `.test.mjs` file anywhere under `tests/` is run by CI. The CI guard inventories files recursively, so a new suite at any depth that the runner does not execute makes the guard fail.
+147. No test is silently skipped, marked todo, or exits early on a condition CI always meets. The guard rejects conditional skip/todo/only options and test-context skip/todo calls, apart from the single pinned Chrome-DevTools-only test in `tests/store/ST1-store.test.mjs` that is intentionally skipped on Firefox/WebKit and run on Chrome.
+148. Every source module under `src/`, `adapter/`, `worker/`, `witness/`, `id/` and `demo/`, including modules in subdirectories, is mutated by exactly one mutation configuration, or by contiguous parts covering all of it.
+149. Every mutant excluded by a `Stryker disable` comment is truly equivalent, for the reason the comment gives. An inclusive array-copy loop that appends an observable `undefined` element must not be excluded.
 150. Every "twin" (a deliberately broken copy of the code) still applies to the current source and is caught by a test for the reason it names.
 151. Every check that something did not happen waits long enough for it to have happened.
-152. Every action the code can take on witness state is an action in the TLA+ model, with the same guard.
-153. Every invariant claimed in `model/STATE.md` is checked by a model run in CI, and that run would fail if the invariant were deleted from the model.
-154. The Tamarin model's adversary can do at least what `SPEC.md` section 1 says an attacker can.
-155. Each fuzz target in `fuzz/` reaches the code it names, and its seeds include at least one valid input.
-156. Every GitHub Action is pinned to a commit, and no workflow gives a pull request from a fork a token that can write.
+152. The witness service's staged outbox and settled holding follow the transitions and guards of `model/tla/WitnessOutbox.tla`; the witness's `admit`, `log`, `revoke` and `advance` decisions are checked separately against the JavaScript models in `model/`, not that TLA+ model.
+153. Every invariant claimed in `model/STATE.md` remains defined in the model and selected by a TLC configuration that CI runs. An independent test pins the promised invariant names, so deleting an invariant from both the model and its checked configuration is detected.
+154. The Tamarin authentication-chain model permits a Dolev–Yao network adversary to intercept, forge, replay and reorder messages and to learn root and delegate signing keys; its claims do not model corrupted browser storage, provider responses or witness state from `SPEC.md` section 1.
+155. Each fuzz target in `fuzz/` reaches the code it names, and its seeds include at least one input its checker actually accepts; the `verify` seed test requires positive verdicts on the unchanged target fixture so an all-refusing verifier setup cannot silently satisfy it.
+156. Every GitHub Action is pinned to a commit, and no workflow requests a write-scoped token for an untrusted pull request. The CI guard catches write permissions in YAML whether bare or quoted (including job-level overrides).
 157. Every dependency is pinned to an exact version with an integrity hash, and none runs an install script. The `.npmrc` settings requiring scripts to be ignored and versions to be saved exactly each have one unambiguous declaration.
-158. The published package contains only the files it means to, and nothing from `tests/`, `model/` or `research/`.
+158. The packable npm artifact includes every public export target but excludes `tests/`, `model/` and `research/`, checked by `tests/guards/package-pack.test.mjs`. Publication itself is disabled by `package.json`'s `private: true`.
 159. The code in `src/` uses no clock, no randomness, no network and no global state of its own.
 160. Each number in `SPEC.md` (a window, a limit, a maximum) is the same number in the code and in the model.

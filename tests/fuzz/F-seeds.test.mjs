@@ -26,10 +26,15 @@ test('the seeds reach acceptance and refusal in each target', async () => {
   assert.ok(decoded.includes(true) && decoded.includes(false), 'decode')
   const checked = seeds('client-data').map((s) => assertion.checkRootAssertion(make({ covers: [RECORD], cdjBytes: s }), CTX).ok)
   assert.ok(checked.includes(true) && checked.includes(false), 'client-data')
-  const { splice, RECORDS } = await import('../../fuzz/targets/verify.mjs')
+  const { splice, RECORDS, unchangedVerdicts } = await import('../../fuzz/targets/verify.mjs')
   const spliced = seeds('verify').map(splice)
   assert.deepEqual([...new Set(spliced.map((s) => s.name))].sort(), Object.keys(RECORDS).sort(), 'verify: every record')
   assert.ok(spliced.some((s) => s.text === RECORDS[s.name]) && spliced.some((s) => s.text !== RECORDS[s.name]), 'verify: changed and unchanged')
+  // A seed that changes nothing must exercise the actual accept path of each checker.
+  // Deliberately moving the target's CALL.now outside its validity window must fail here.
+  const verdicts = unchangedVerdicts()
+  assert.equal(verdicts.delegation.ok, true, `verify: unchanged delegation refused: ${JSON.stringify(verdicts.delegation)}`)
+  assert.equal(verdicts.claim.ok, true, `verify: unchanged claim refused: ${JSON.stringify(verdicts.claim)}`)
 })
 
 test('the nightly job fuzzes exactly the targets there are', () => {
