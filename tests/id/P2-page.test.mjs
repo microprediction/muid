@@ -3014,6 +3014,25 @@ test('recovery parties, two passkeys: one designates and hands the change over; 
     await statusIs(b.page, 'Co-signed. The change settles once its contest window has passed.')
     assert.equal(await b.page.textContent('#error'), '')
     assert.equal(await signCount(b), signs + 3)
+    // A witness can answer a submitted co-signature only after its review has been withdrawn.
+    // Both success and refusal must leave the now-hidden review's feedback alone (scenario 99).
+    for (const response of [
+      { status: 200, contentType: 'application/json', body: '{"ok":true}' },
+      { status: 422, contentType: 'application/json', body: '{"ok":false,"reason":"test"}' },
+    ]) {
+      const asked = await holdNext(b.page, '**/v1/records')
+      await b.page.click('#recovery-cosign-sign')
+      const reply = await asked()
+      await b.page.fill('#recovery-cosign-payload', payload + ' ')
+      assert.equal(await b.page.isHidden('#recovery-cosign-panel'), true)
+      await reply(response)
+      await idle(b.page)
+      assert.deepEqual([await b.page.textContent('#status'), await b.page.textContent('#error')], ['', ''],
+        'a late co-signature answer must not restore feedback after withdrawal')
+      await b.page.fill('#recovery-cosign-payload', payload)
+      await b.page.click('#recovery-cosign-review')
+      await b.page.waitForSelector('#recovery-cosign-panel:not([hidden])')
+    }
     t.advance(61)
     await t.svc.tick()
     t.advance(61)
@@ -3193,6 +3212,25 @@ test('recovery at the page: a new passkey asks, the party signs what it is shown
     await g.page.click('#rescue-sign')
     await statusIs(g.page, 'Signed. The recovery is under notice once enough parties and the new passkey have signed.')
     assert.equal(await signCount(g), gSigns + 3)
+    // After the party submits a signed recovery, it can edit the card while awaiting the
+    // witness. Neither a successful nor a refused late reply may speak for the old review.
+    for (const response of [
+      { status: 200, contentType: 'application/json', body: '{"ok":true}' },
+      { status: 422, contentType: 'application/json', body: '{"ok":false,"reason":"test"}' },
+    ]) {
+      const asked = await holdNext(g.page, '**/v1/records')
+      await g.page.click('#rescue-sign')
+      const reply = await asked()
+      await g.page.fill('#rescue-card', '')
+      assert.equal(await g.page.isHidden('#rescue-panel'), true)
+      await reply(response)
+      await idle(g.page)
+      assert.deepEqual([await g.page.textContent('#status'), await g.page.textContent('#error')], ['', ''],
+        'a late party-signature answer must not restore feedback after withdrawal')
+      await g.page.fill('#rescue-card', ' ')
+      await g.page.click('#rescue-review')
+      await g.page.waitForSelector('#rescue-panel:not([hidden])')
+    }
     assert.equal((await current()).recovering, null, 'the new passkey has yet to sign')
 
     // The new passkey's kept signature is sent again, with its root record, which nobody else gave the witness.
