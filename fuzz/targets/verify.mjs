@@ -35,6 +35,12 @@ export const RECORDS = Object.freeze({ claim, delegation, root, head, logged })
 const NAMES = Object.keys(RECORDS)
 const CALL = Object.freeze({ now: NOW, scope: 'post', method: 'POST', url: URL_, revoked: [] })
 
+// A seed that leaves its selected record unchanged must reach acceptance rather than
+// merely a well-formed refusal. Pin the same verifier and records used by fuzz().
+export function unchangedVerdicts () {
+  return { delegation: v.verifyDelegation(RECORDS, CALL), claim: v.verifyClaim(RECORDS, CALL) }
+}
+
 // The splice the input describes: byte 0 the record (and, in its top bit, whether the insert is read as UTF-8 or as
 // Latin-1), bytes 1–2 the position, byte 3 the number of characters deleted (0–15), the rest the insert.
 export function splice (data) {
