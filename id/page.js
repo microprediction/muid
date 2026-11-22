@@ -268,9 +268,9 @@ let unchecked = null
 let asking = null // the latest question: only its answer is kept
 async function notice () {
   const r = root
-  // A root not yet registered is unknown to the witness: it is asked once the registration is kept, which this
-  // tab's own registering, or the tab that registered it, brings about.
-  if (r === null || r.joining === true || r.registered !== true) return
+  // A locally unacknowledged registration may already be held by the witness (the POST answer was lost).
+  // Check for recovery independently: an unknown identity's 404 is silent, but an active notice must be seen.
+  if (r === null || r.joining === true) return
   const asked = {}
   asking = asked
   let s = null
