@@ -132,7 +132,7 @@ filed about it.
 106. A registration or co-signature whose answer was lost is retried with the same record, never a new passkey or signature.
 107. A recovery notice is shown on load, in every tab, to a current root with a cancel button and to the incoming root without one.
 108. When the witness cannot be asked about a recovery, the page says so rather than showing nothing.
-109. The page never shows a notice, designation or code that was read for a root it no longer holds.
+109. The page never shows a notice, designation, code or recovery card that was read or made for a root it no longer holds.
 110. The fingerprint shown on the joining device and on the adding device is derived the same way from the same root, and is long enough that a second root matching it is infeasible to find.
 111. Worker keys are accepted only when their bytes form a canonical, prime-order Ed25519 public point; malformed key encodings are refused before storage or submission. A raw 32-byte private seed can accidentally encode such a point, so its bytes alone cannot reliably distinguish it from a public key.
 112. Nothing the page stores is a secret: taking a copy of its IndexedDB gives no signing power.
