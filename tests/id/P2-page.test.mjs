@@ -2605,8 +2605,9 @@ test('a recovery under notice is shown on load with when it takes effect; one pr
       }
     })
     const errors = () => t.problems.filter((p) => !/status of/.test(p))
-    // Another root, or none at all (the identity forgotten there).
-    for (const away of [toOther, () => change(t.page, 'root', null).then(() => t.page.waitForSelector('#create:not([hidden])'))]) {
+    // Another root, even when IndexedDB changes silently without a BroadcastChannel notice, or none at all.
+    // The passkey reply must trigger its own storage re-read before any cancel is submitted (scenario 101).
+    for (const away of [toOther, () => hold(t.page, 'root', elsewhere), () => change(t.page, 'root', null).then(() => t.page.waitForSelector('#create:not([hidden])'))]) {
       await holdPasskey()
       await t.page.click('#notice-cancel')
       await t.page.waitForFunction(() => globalThis.answerPasskey !== undefined)
