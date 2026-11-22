@@ -2531,6 +2531,53 @@ test('a recovery under notice is shown on load with when it takes effect; one pr
     assert.equal(await t.page.isHidden('#recovery-notice'), false, 'an older answer for the same root does not take the notice down')
     assert.equal(await t.page.isHidden('#notice-unchecked'), true, 'nor says that the witness could not be asked')
 
+    // Another tab stores another root, and this page is told, while the passkey is asked: what it signed is sent
+    // for neither root, and nothing is said (scenario 101).
+    const elsewhere = { credential: mine.credential, identity: rootModule.identityOf(yId), text: y, registered: true }
+    const toOther = async () => {
+      await change(t.page, 'root', elsewhere)
+      await t.page.waitForFunction((id) => document.getElementById('identity-id').textContent === id, elsewhere.identity)
+    }
+    const back = async () => {
+      await change(t.page, 'root', mine)
+      await t.page.waitForSelector('#recovery-notice:not([hidden])')
+    }
+    const posts = []
+    t.page.on('request', (q) => { if (q.method() === 'POST') posts.push(q.postData()) })
+    const holdPasskey = () => t.page.evaluate(() => {
+      const get = navigator.credentials.get.bind(navigator.credentials)
+      globalThis.answerPasskey = undefined
+      navigator.credentials.get = async (o) => {
+        navigator.credentials.get = get
+        await new Promise((resolve) => { globalThis.answerPasskey = resolve })
+        return get(o)
+      }
+    })
+    const errors = () => t.problems.filter((p) => !/status of/.test(p))
+    // Another root, or none at all (the identity forgotten there).
+    for (const away of [toOther, () => change(t.page, 'root', null).then(() => t.page.waitForSelector('#create:not([hidden])'))]) {
+      await holdPasskey()
+      await t.page.click('#notice-cancel')
+      await t.page.waitForFunction(() => globalThis.answerPasskey !== undefined)
+      await away()
+      await t.page.evaluate(() => globalThis.answerPasskey())
+      await idle(t.page)
+      assert.deepEqual([posts, await t.page.textContent('#status'), await t.page.textContent('#error'), errors()], [[], '', '', []])
+      await back()
+    }
+    // The same while the witness answers the cancel sent: its answer, whichever, is said of no root.
+    for (const answer of [REFUSED, TAKEN]) {
+      const sent = await holdNext(t.page, '**/v1/records')
+      await t.page.click('#notice-cancel')
+      const go = await sent()
+      await toOther()
+      await go(answer)
+      await idle(t.page)
+      assert.deepEqual([await t.page.textContent('#status'), await t.page.textContent('#error')], ['', ''], 'a late answer to the cancel')
+      await back()
+    }
+    assert.deepEqual(posts.map((p) => JSON.parse(p).identity), [a.identity, a.identity], 'only for the identity it was signed for')
+
     // A witness that refuses the cancel: said, and the notice stays.
     t.refusing(true)
     await t.page.click('#notice-cancel')
