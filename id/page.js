@@ -912,6 +912,12 @@ $('proof-sign').addEventListener('click', async () => {
   } catch (e) { fail(e) }
 })
 
+// A control the page does not show does nothing (I4: what is signed is what was shown), even pressed by a script:
+// a click inside a hidden part is stopped before any handler hears it, and a checkbox there is not changed.
+document.addEventListener('click', (e) => {
+  if (e.target.closest('[hidden]') !== null) { e.preventDefault(); e.stopPropagation() }
+}, true)
+
 // SPEC §7: without its storage the page offers nothing. What another tab of this origin stores is followed here, so
 // a page open since before cannot act on a stale root or a stale list.
 if (REFUSAL === undefined) {
