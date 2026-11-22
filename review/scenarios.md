@@ -122,7 +122,7 @@ filed about it.
 96. Every input that feeds a review withdraws that review when edited.
 97. A signing button that requires a pending review does nothing without that review, even when clicked by script while hidden. The one-click application-request sign-in path creates its own review and may sign only while its sign-in view is visible; its Create fallback is available only after that prompt is offered. Recovery cancellation is instead authorised by an active notice for a current root.
 98. A review that expires before signing is not signed; one that expires during signing is not handed over.
-99. An answer from the witness arriving after its review was withdrawn changes nothing on screen.
+99. An answer from the witness arriving after its review was withdrawn changes nothing on screen, including a late success or refusal when submitting a recovery co-signature or party signature.
 100. A signature completed after its review was withdrawn is not sent, stored or shown.
 101. The root held changing in another tab mid-request never causes this tab to act for the wrong root.
 102. Framed, or at an origin other than its configured one, the page offers nothing to act on.
