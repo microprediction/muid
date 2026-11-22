@@ -25,21 +25,27 @@ A request is closed here, with the issue that answered it, by whoever asked.
   answered in #166, with inaccurate claims 121, 126 and 132 corrected and the witness defect behind 127 fixed; *Receipts and attestations* (143–145),
   answered in #168 with no discrepancy or missing regression test found; *Tests, models and the build* (146–160),
   answered in #171, #173, #175, #177, #179, #180, #182, #184, #186 and #188, corrected, with the model and
-  Tamarin scope narrowed, the npm pack contents and the core bans guarded, and the guards strengthened.
+  Tamarin scope narrowed, the npm pack contents and the core bans guarded, and the guards strengthened;
+  *Recovery-party recheck* (161), answered in #225 with no discrepancy found.
 - **R2. Recovery at the id page.** `id/page.js` from "R11" onwards, with `id/records.js`: designating parties, a
   party's card and proof, the request to recover, the rescue, the notice and its cancel. Is there any path on which
   a passkey signs something other than what its panel showed, or on which the owner is not told of a recovery under
   way? This is the newest code in the page. Answered so far: #153 (an older notice answer hid a newer one), fixed; #191, no
   finding; #192 (a late answer to a signed record sent for a withdrawn review was shown), fixed; #196 (a cancel
   signed for one root sent with another's identity), fixed, its silent variant no finding (#203); #200 (a recovery
-  card kept for a root no longer held), fixed.
+  card kept for a root no longer held), fixed; #210 (a late co-sign answer for a withdrawn review was shown), fixed;
+  #213 (a joining passkey signed through hidden party controls), fixed; #215 (a pending registration hid a recovery
+  notice), fixed; #218 (a notice kept by root alone was shown for the same root in another identity), fixed; #221 (one
+  card pasted twice counted as two parties in the recheck), fixed; #223 (workers stored as what JSON cannot write
+  hid the notice on load), fixed.
 - **R3. Tests that wait for nothing.** `tests/id/P2-page.test.mjs` had checks that something did not happen which
   ran before it could have (now waiting on `idle`). Are there any left, there or in `tests/id/P4-recovery.test.mjs`
   and `tests/witness/`, including fixed waits (`waitForTimeout`) that a slow machine would outrun? Answered so far:
   #194 (fixed waits in P2 and the store tests), fixed and guarded.
 - **R4. The mutation split.** `tests/mutation-plan.mjs`, `tests/guards/mutation-coverage.test.mjs` and the
   `stryker.id-page-*.config.json` files divide `id/page.js` by line range. Can a line be left in no part, or the
-  guard pass while one is?
+  guard pass while one is? Answered so far: yes, a mutant crossing a boundary was in no part, fixed and guarded
+  (#205); #207 (the waiver for such mutants too wide), narrowed to the one named and reviewed (#209).
 
 ## Closed
 
