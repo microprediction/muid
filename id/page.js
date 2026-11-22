@@ -143,10 +143,18 @@ const FRAMED = window.top !== window.self
 let REFUSAL = FRAMED ? 'This page acts only in its own window: open it directly.'
   : location.origin !== ORIGIN ? `This page acts only at ${ORIGIN}: open it there.` : undefined
 
+// A recovery card is for the exact root that made it. It must not survive another tab's root change.
+let shownRoot = null
 function show () {
   if (REFUSAL !== undefined) {
     $('error').textContent = REFUSAL
     return
+  }
+  const now = root?.id ?? null
+  if (shownRoot !== now) {
+    $('card').hidden = true
+    $('card').value = ''
+    shownRoot = now
   }
   const joining = root?.joining === true
   $('create').hidden = root !== null
