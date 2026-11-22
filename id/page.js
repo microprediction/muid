@@ -611,6 +611,7 @@ $('add-sign').addEventListener('click', async () => {
   const c = pending.change
   if (c === null) return
   $('error').textContent = ''
+  $('status').textContent = '' // what is said next is said of this signing
   try {
     const a = await sign([c.id])
     if (pending.change !== c) return
@@ -621,7 +622,7 @@ $('add-sign').addEventListener('click', async () => {
     $('add-handoff').value = c.payload
     $('add-handoff').hidden = false
     $('status').textContent = 'Signed. The other device co-signs this change.'
-  } catch (e) { fail(e) }
+  } catch (e) { if (pending.change === c) fail(e) } // nor is a late refusal of it
 })
 
 $('cosign-review').addEventListener('click', () => {
@@ -734,7 +735,7 @@ $('designate-sign').addEventListener('click', async () => {
     $('designate-handoff').value = c.payload
     $('designate-handoff').hidden = c.alone
     $('status').textContent = c.alone ? 'Signed. The change settles once its contest window has passed.' : 'Signed. Co-sign this change with your other passkeys.'
-  } catch (e) { fail(e) }
+  } catch (e) { if (pending.designation === c) fail(e) } // a late answer to what was withdrawn is not shown
 })
 
 // The same check later, over the current membership: a passkey shown once may be gone since.
@@ -780,8 +781,9 @@ $('recovery-cosign-sign').addEventListener('click', async () => {
     const a = await sign([c.id])
     if (pending.recoveryCosign !== c) return
     await submit(root.identity, 'membership', rootSigned(c.payload, root.id, a))
+    if (pending.recoveryCosign !== c) return // sent, but a late answer to what was withdrawn is not shown
     $('status').textContent = 'Co-signed. The change settles once its contest window has passed.'
-  } catch (e) { fail(e) }
+  } catch (e) { if (pending.recoveryCosign === c) fail(e) }
 })
 
 // R11, for one who has lost every passkey: a passkey made to join asks the identity's recovery parties to make it
@@ -853,8 +855,9 @@ $('rescue-sign').addEventListener('click', async () => {
     const a = await sign([c.id])
     if (pending.rescue !== c) return
     await submit(c.body.identity, 'membership', partySigned(c.payload, { root: root.id, salt: c.salt }, a), root.text)
+    if (pending.rescue !== c) return // sent, but a late answer to what was withdrawn is not shown
     $('status').textContent = 'Signed. The recovery is under notice once enough parties and the new passkey have signed.'
-  } catch (e) { fail(e) }
+  } catch (e) { if (pending.rescue === c) fail(e) }
 })
 
 // R11, as a party: a recovery card is this passkey's root record and a new salt. The salt is kept before the card
