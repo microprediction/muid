@@ -77,10 +77,11 @@ const TWINS = [
   ['incoming-offered-cancel', "the passkey a recovery would install is offered a cancel it cannot make", [["    $('notice-own').hidden = !own\n", "    $('notice-own').hidden = false\n"]], 'page.js'],
   ['broken-answer-silent', 'an answer about recoveries that cannot be read is taken for no recovery', [["    failed = e.unknown !== true && e.message !== 'this identity has ended'\n", "    failed = e.message === 'the witness did not answer' || e instanceof TypeError\n"]], 'page.js'],
   ['unverified-answer-silent', 'records served that do not verify are taken for an identity the witness does not know', [["    failed = e.unknown !== true && e.message !== 'this identity has ended'\n", "    failed = e.message !== 'the witness holds no record of this identity' && e.message !== 'this identity has ended'\n"]], 'page.js'],
-  ['unchecked-of-another-root', "that the witness gave no answer about one root is said of another held after it", [["  $('notice-unchecked').hidden = unchecked !== root?.id || joining\n", "  $('notice-unchecked').hidden = unchecked === null || joining\n"]], 'page.js'],
+  ['unchecked-of-another-root', "that the witness gave no answer about one root is said of another held after it", [["  $('notice-unchecked').hidden = !isFor(unchecked) || joining\n", "  $('notice-unchecked').hidden = unchecked === null || joining\n"]], 'page.js'],
+  ['notice-of-another-identity', "what the witness said of a root in one identity is shown for the same root stored in another", [["x.root === root?.id && x.identity === root.identity", "x.root === root?.id"]], 'page.js'],
   ['unacknowledged-not-asked', "a root whose registration answer was lost is not asked about, so a recovery of it is not shown", [["  if (r === null || r.joining === true) return\n", "  if (r === null || r.joining === true || r.registered !== true) return\n"]], 'page.js'],
   ['load-registers-only', "on load, a root whose registration is sent again is not asked about meanwhile", [["if (unregistered()) register()\nnotice()\n", "if (unregistered()) register()\nelse notice()\n"]], 'page.js'],
-  ['no-answer-silent', 'a witness that gives no answer about recoveries is not said', [['  unchecked = failed ? r.id : null\n', '  unchecked = null\n']], 'page.js'],
+  ['no-answer-silent', 'a witness that gives no answer about recoveries is not said', [['  unchecked = failed ? { root: r.id, identity: r.identity } : null\n', '  unchecked = null\n']], 'page.js'],
   ['add-designation-not-shown', 'an added passkey is reviewed without the designation the change states (I4)', [["    $('add-recovery').textContent = designation(c.body.recovery)\n", '']], 'page.js'],
   ['cancel-record-not-shown', 'the record a cancel signs is not shown (I4)', [["    $('notice-record').textContent = under.recovering.record\n", '']], 'page.js'],
   ['root-unregistered', 'a new identity is not registered with the witness', [["    await submit(r.identity, 'root', r.text)\n", '']], 'page.js'],
@@ -224,7 +225,7 @@ test('id page broken twins', { timeout: 7_200_000 }, async (t) => {
     // MUID_TWIN_TARGETS_ONLY=1 makes every twin, each checking that its targets occur once, and runs none: every
     // pull request does this (tests/guards/twin-targets.test.mjs), the twins themselves running nightly.
     if (process.env.MUID_TWIN_TARGETS_ONLY === '1') {
-      assert.equal(TWINS.map(([name, , edits, file]) => generate(name, edits, file)).length, 158, 'twin count')
+      assert.equal(TWINS.map(([name, , edits, file]) => generate(name, edits, file)).length, 159, 'twin count')
       return
     }
     await t.test('control: an unmodified copy, run from outside the repository, passes', async () => {
@@ -233,7 +234,7 @@ test('id page broken twins', { timeout: 7_200_000 }, async (t) => {
       assert.ok(r.pass >= 14, `control: only ${r.pass} tests ran`)
     })
     const jobs = TWINS.map(([name, why, edits, file]) => [name, why, generate(name, edits, file)])
-    assert.equal(jobs.length, 158, 'twin count')
+    assert.equal(jobs.length, 159, 'twin count')
     const results = []
     const queue = part(jobs)
     assert.ok(queue.length > 0, 'this part has twins')

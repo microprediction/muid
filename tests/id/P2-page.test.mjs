@@ -2524,6 +2524,30 @@ test('a recovery under notice is shown on load with when it takes effect; one pr
     assert.equal(await t.page.textContent('#notice-record'), R.id)
     await t.page.unroute('**/v1/records')
     await hold(t.page, 'root', acknowledged)
+    // The same root stored for another identity (what storage holds is untrusted, SPEC §1) is shown nothing the
+    // witness said of it in this one, even before it has answered for that one (scenario 109).
+    await t.page.reload()
+    await t.page.waitForSelector('#recovery-notice:not([hidden])')
+    const otherIdentity = rootModule.identityOf(rootModule.checkRoot(rootOf('w'), { rpId }).id)
+    const answerElsewhere = t.gate()
+    await change(t.page, 'root', { ...acknowledged, identity: otherIdentity })
+    await t.page.waitForFunction((id) => document.getElementById('identity-id').textContent === id, otherIdentity)
+    assert.deepEqual([await t.page.isHidden('#recovery-notice'), await t.page.textContent('#recovery-now'), await t.page.textContent('#recheck-code')], [true, 'not known', ''])
+    answerElsewhere()
+    await idle(t.page)
+    assert.equal(await t.page.isHidden('#recovery-notice'), true)
+    // Nor is another root stored for this identity shown it before the witness has answered for that root: what
+    // the notice offers (its Cancel) depends on the root it was read for.
+    await change(t.page, 'root', acknowledged)
+    await t.page.waitForSelector('#recovery-notice:not([hidden])')
+    const answerOther = t.gate()
+    await change(t.page, 'root', { ...acknowledged, text: rootOf('v') })
+    await t.page.waitForSelector('#recovery-notice', { state: 'hidden' })
+    assert.deepEqual([await t.page.isHidden('#identity'), await t.page.textContent('#identity-id')], [false, acknowledged.identity], 'the other root is held, in this identity')
+    answerOther()
+    await idle(t.page)
+    await change(t.page, 'root', acknowledged)
+    await t.page.waitForSelector('#recovery-notice:not([hidden])')
     // On load, too; and in another tab of the browser.
     await t.page.reload()
     await t.page.waitForSelector('#recovery-notice:not([hidden])')
