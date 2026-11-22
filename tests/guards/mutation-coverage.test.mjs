@@ -6,6 +6,7 @@ import { readFileSync, readdirSync, mkdtempSync, mkdirSync, writeFileSync, rmSyn
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { Instrumenter } from '@stryker-mutator/instrumenter'
 import { JOBS, mutated as fileOf } from '../mutation-plan.mjs'
 
 const ROOT = new URL('../../', import.meta.url)
@@ -57,6 +58,33 @@ test('every module under src/, adapter/, worker/, witness/, id/ and demo/ is mut
     assert.equal(ranges.at(-1)[1], OPEN_END, `${f}: to the end`)
     assert.ok(readFileSync(new URL(f, ROOT), 'utf8').split('\n').length < OPEN_END, f)
   }
+})
+
+// Stryker mutates a node only if one range holds all of it, so a node across a boundary is mutated by no part.
+// Every mutant Stryker makes of a module in parts, by Stryker's own instrumenter, is held by one part; but one
+// holding a whole part (the body of a function a part lies inside) can be held by none, and is left.
+const holds = ([first, last], { start, end }) => first <= start.line + 1 && end.line + 1 <= last
+const quiet = { isDebugEnabled: () => false, isTraceEnabled: () => false, debug () {}, trace () {}, info () {}, warn () {}, error () {} }
+async function unheld (file, ranges) {
+  const content = readFileSync(new URL(file, ROOT), 'utf8')
+  const { mutants } = await new Instrumenter(quiet).instrument([{ name: file, content, mutate: true }], { plugins: null, excludedMutations: [], ignorers: [], noHeader: true })
+  return mutants.filter((m) => !ranges.some((r) => holds(r, m.location)) &&
+    !ranges.some(([first, last]) => m.location.start.line + 1 < first && last < m.location.end.line + 1))
+}
+test('every mutant of a module in parts is mutated by one part, but one holding a whole part', async () => {
+  const parts = configs.flatMap((c) => read(c).mutate).filter((e) => fileOf(e) !== e)
+  const files = [...new Set(parts.map(fileOf))]
+  assert.ok(files.length >= 2)
+  for (const f of files) {
+    const ranges = parts.filter((e) => fileOf(e) === f).map((e) => e.slice(f.length + 1).split('-').map(Number))
+    const left = (await unheld(f, ranges)).map((m) => `${m.mutatorName} at lines ${m.location.start.line + 1}-${m.location.end.line + 1}`)
+    assert.deepEqual(left, [], `${f}: in no part`)
+  }
+  // The negative control: a boundary inside a block leaves that block's mutant in no part.
+  const lines = readFileSync(new URL('id/page.js', ROOT), 'utf8').split('\n')
+  const inside = 1 + lines.findIndex((l) => /^async function stillHeld /.test(l))
+  assert.ok(inside > 1)
+  assert.notDeepEqual(await unheld('id/page.js', [[1, inside + 1], [inside + 2, OPEN_END]]), [])
 })
 
 test('every Stryker config is in exactly one CI mutation job, with the break threshold', () => {
