@@ -39,7 +39,7 @@ function run (implPath) {
     child.stderr.on('data', (d) => { out += d })
     child.on('close', (code) => {
       const count = (k) => Number((out.match(new RegExp(`^# ${k} (\\d+)`, 'm')) ?? [])[1] ?? NaN)
-      resolve({ code, pass: count('pass'), fail: count('fail') })
+      resolve({ code, pass: count('pass'), fail: count('fail'), failed: (out.match(/^\s*not ok \d+ - .+$/gm) ?? []).map((l) => l.trim()) })
     })
   })
 }
@@ -63,7 +63,7 @@ test('bytes broken twins', { timeout: 600_000 }, async (t) => {
   try {
     await t.test('control: an unmodified copy, run from outside the repository, passes', async () => {
       const r = await run(generate('control', []))
-      assert.equal(r.code, 0, `control: exit ${r.code}, ${r.fail} failing`)
+      assert.equal(r.code, 0, `control: exit ${r.code}, ${r.fail} failing${r.failed?.length ? ': ' + r.failed.join('; ') : ''}`)
       assert.ok(r.pass >= 4, `control: only ${r.pass} tests ran`)
     })
 
