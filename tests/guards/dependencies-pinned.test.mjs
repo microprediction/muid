@@ -35,8 +35,12 @@ function faults (pkg, lock, npmrc, runtime = RUNTIME) {
   }
   for (const hook of INSTALL_HOOKS) if (pkg.scripts?.[hook] !== undefined) out.push(`hook ${hook}`)
   if (!same(Object.keys(pkg.dependencies ?? {}).sort(), runtime)) out.push('runtime dependencies')
-  const lines = npmrc.split('\n').map((l) => l.trim())
-  for (const line of ['ignore-scripts=true', 'save-exact=true']) if (!lines.includes(line)) out.push(`npmrc ${line}`)
+  // npm takes the last assignment for a setting, so merely finding one true line is insufficient.
+  const lines = npmrc.split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('#') && !l.startsWith(';'))
+  for (const key of ['ignore-scripts', 'save-exact']) {
+    const assignments = lines.filter((line) => line.split('=')[0].trim().toLowerCase() === key)
+    if (assignments.length !== 1 || assignments[0] !== `${key}=true`) out.push(`npmrc ${key}=true`)
+  }
 
   if (lock.lockfileVersion !== 3) out.push('lockfile version')
   const packages = lock.packages ?? {}
@@ -135,4 +139,15 @@ for (const [name, edit, fault] of TWINS) {
 test('the guard catches an .npmrc without ignore-scripts or save-exact', () => {
   assert.ok(faults(PKG, LOCK, NPMRC.replace('ignore-scripts=true', '')).includes('npmrc ignore-scripts=true'))
   assert.ok(faults(PKG, LOCK, NPMRC.replace('save-exact=true', 'save-exact=false')).includes('npmrc save-exact=true'))
+})
+
+
+test('the guard catches conflicting or duplicate .npmrc settings', () => {
+  for (const key of ['ignore-scripts', 'save-exact']) {
+    for (const extra of [`${key}=false`, `${key} = false`, `${key}=true`]) {
+      const changed = `${NPMRC}${extra}\n`
+      assert.ok(faults(PKG, LOCK, changed).includes(`npmrc ${key}=true`), extra)
+    }
+  }
+  assert.deepEqual(faults(PKG, LOCK, `${NPMRC}# ignore-scripts=false\n; save-exact=false\n`), [])
 })
