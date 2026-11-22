@@ -191,7 +191,7 @@ filed about it.
 150. Every "twin" (a deliberately broken copy of the code) still applies to the current source and is caught by a test for the reason it names.
 151. Every check that something did not happen waits long enough for it to have happened.
 152. Every action the code can take on witness state is an action in the TLA+ model, with the same guard.
-153. Every invariant claimed in `model/STATE.md` is checked by a model run in CI, and that run would fail if the invariant were deleted from the model.
+153. Every invariant claimed in `model/STATE.md` remains defined in the model and selected by a TLC configuration that CI runs. An independent test pins the promised invariant names, so deleting an invariant from both the model and its checked configuration is detected.
 154. The Tamarin model's adversary can do at least what `SPEC.md` section 1 says an attacker can.
 155. Each fuzz target in `fuzz/` reaches the code it names, and its seeds include at least one valid input.
 156. Every GitHub Action is pinned to a commit, and no workflow gives a pull request from a fork a token that can write.
