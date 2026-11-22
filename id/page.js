@@ -268,9 +268,9 @@ let unchecked = null
 let asking = null // the latest question: only its answer is kept
 async function notice () {
   const r = root
-  // A root not yet registered is unknown to the witness: it is asked once the registration is kept, which this
-  // tab's own registering, or the tab that registered it, brings about.
-  if (r === null || r.joining === true || r.registered !== true) return
+  // A root whose registration this browser has not seen answered is asked about too: the answer may have been lost
+  // with the witness holding it, and a recovery of it (scenarios 107-108). A witness that does not know it says so.
+  if (r === null || r.joining === true) return
   const asked = {}
   asking = asked
   let s = null
@@ -930,5 +930,5 @@ if (REFUSAL === undefined) {
 show()
 // What is kept to be sent (an outbox) is sent again on load. Where the page refuses to act it has read no root.
 if (unregistered()) register()
-else notice()
+notice()
 if (root?.cosigned !== undefined) cosign()

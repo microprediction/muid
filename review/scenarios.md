@@ -130,7 +130,7 @@ filed about it.
 104. No text from the witness, the store, or an input reaches the document as HTML.
 105. A joining passkey can authorise no worker, designate no party and be nobody's party.
 106. A registration or co-signature whose answer was lost is retried with the same record, never a new passkey or signature.
-107. A recovery notice is shown on load, in every tab, to a current root with a cancel button and to the incoming root without one.
+107. A recovery notice is shown on load, in every tab, to a current root with a cancel button and to the incoming root without one; also while this browser has yet to see its root's registration answered.
 108. When the witness cannot be asked about a recovery, the page says so rather than showing nothing.
 109. The page never shows a notice, designation, code or recovery card that was read or made for a root it no longer holds, nor says the witness gave no answer about a root it did not ask about.
 110. The fingerprint shown on the joining device and on the adding device is derived the same way from the same root, and is long enough that a second root matching it is infeasible to find.
