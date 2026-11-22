@@ -199,3 +199,7 @@ filed about it.
 158. The packable npm artifact includes every public export target but excludes `tests/`, `model/` and `research/`, checked by `tests/guards/package-pack.test.mjs`. Publication itself is disabled by `package.json`'s `private: true`.
 159. The code in `src/` uses no clock, no randomness, no network and no global state of its own.
 160. Each number in `SPEC.md` (a window, a limit, a maximum) is the same number in the code and in the model.
+
+## Recovery-party recheck — `id/page.js`, `tests/id/P2-page.test.mjs`
+
+161. A recovery-party possession recheck never counts one party more than once: duplicate cards of the same root are rejected rather than presented as proof from distinct recovery parties.

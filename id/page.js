@@ -766,6 +766,7 @@ $('recheck').addEventListener('click', async () => {
     if (asked !== withdrawals) return // withdrawn while the witness was asked
     if (parties.length === 0) throw new Error('paste the recovery cards of the parties to check')
     if (!parties.every((p) => designated(current.recovery, p))) throw new Error("a card here is not one of this identity's recovery parties")
+    if (new Set(parties.map((p) => p.root)).size !== parties.length) throw new Error('a recovery party is named twice')
     const held = parties.filter((p) => proofs.some((t) => shows(p, t, { record: current.membership, rpId, origin: ORIGIN }))).length
     $('status').textContent = `${held} of ${parties.length} of these parties showed that they hold their passkey.`
   } catch (e) { if (asked === withdrawals) fail(e) }
