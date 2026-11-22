@@ -930,5 +930,6 @@ if (REFUSAL === undefined) {
 show()
 // What is kept to be sent (an outbox) is sent again on load. Where the page refuses to act it has read no root.
 if (unregistered()) register()
-else notice()
+// Checking recovery must not wait for a registration POST: its answer may be lost or never arrive.
+notice()
 if (root?.cosigned !== undefined) cosign()
