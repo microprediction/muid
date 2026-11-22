@@ -658,6 +658,9 @@ $('cosign-sign').addEventListener('click', async () => {
 // identity's.
 async function cosign () {
   const r = root // the root whose co-signature is sent: only it becomes the identity's
+  // What the witness says of it is said while that root is held. It is said of the kept co-signature, not of a review:
+  // it is sent again on load and by the button, with no review on screen, and a refusal is what the button is for.
+  const mine = () => root?.id === r.id
   try {
     const identity = cosignedIdentity(r.cosigned, r.id)
     try {
@@ -671,7 +674,7 @@ async function cosign () {
     if (await keepRoot(r.id, ({ cosigned, ...rest }) => ({ ...rest, identity, joining: false, registered: true }))) {
       $('status').textContent = 'Co-signed. The change settles once its contest window has passed.'
     }
-  } catch (e) { fail(e); return }
+  } catch (e) { if (mine()) fail(e); return }
   notice()
 }
 $('cosign-retry').addEventListener('click', () => { $('error').textContent = ''; cosign() })
