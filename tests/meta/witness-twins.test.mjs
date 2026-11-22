@@ -31,7 +31,7 @@ const TWINS = [
   ['freeze-any-membership', 'a freeze of a membership outside the state is held', [["      if (b.membership !== s.settled && b.membership !== s.membership) return refuse('membership')\n", '']]],
   ['signature-unchecked', "a root's signature is not verified on admission", [["return refuse('root-missing')\n    if (!checkRootAssertion(r.sig.assertion, { record: r.id, rpId, origin, key: k }).ok) return refuse('signature')\n", "return refuse('root-missing')\n"]]],
   ['revocation-signature-unchecked', "a root's revocation is not verified", [["const k = rootKeys(held).get(r.sig.root)\n      if (!checkRootAssertion(r.sig.assertion, { record: r.id, rpId, origin, key: k }).ok) return refuse('signature')\n", 'const k = rootKeys(held).get(r.sig.root)\n']]],
-  ['kept-before-logged', 'a holding is kept without its outbox, before the log has taken what it signed', [['return { entry: { ...e, outbox: { entry: s.entry, texts: s.texts } }, value: { staged: s.value } }', 'return { entry: s.entry, value: { staged: s.value } }']], 'service.js'],
+  ['kept-before-logged', 'a holding is kept without its outbox, before the log has taken what it signed', [['return { entry: { ...e, outbox: { entry: { ...s.entry, at: now }, texts: s.texts } }, value: { staged: s.value } }', 'return { entry: { ...s.entry, at: now }, value: { staged: s.value } }']], 'service.js'],
   ['unserialised', 'changes to one identity interleave, so one is lost', [['(queues.get(identity) ?? Promise.resolve())', 'Promise.resolve()']], 'service.js'],
   ['head-kept-after-change', 'a head signed before a change is served after it', [['return texts.length === 0 ? { entry: { held: a.held }, value } : { entry: { held: a.held }, texts, value }', 'return texts.length === 0 ? { entry: { held: a.held, head: entry?.head }, value } : { entry: { held: a.held, head: entry?.head }, texts, value }']], 'service.js'],
   ['noop-drops-head', 'a resubmission that changes nothing drops the cached head', [['      if (entry !== undefined && a.held === entry.held) return { value }\n', '']], 'service.js'],
@@ -56,9 +56,9 @@ const TWINS = [
   ['revocation-by-retired-root', "a delegation from a root without authority serves a self-revocation", [['return has(s.authority, d.root) && d.identity', 'return d.identity']]],
   ['outbox-skipped', 'records signed before a lost log answer are not appended again first', [['    if (entry?.outbox === undefined) return entry\n    await append(entry.outbox.texts)\n', '    if (entry?.outbox === undefined) return entry\n']], 'service.js'],
   ['outbox-ignored', 'a decision is made against the records held, whatever waits in the outbox', [['      const e = await settle(entry)\n', '      const e = entry === undefined ? undefined : { held: entry.held, head: entry.head }\n']], 'service.js'],
-  ['logged-then-kept', 'what is signed is appended to the log and only then kept, with no outbox', [['      return { entry: { ...e, outbox: { entry: s.entry, texts: s.texts } }, value: { staged: s.value } }', '      await append(s.texts)\n      return { entry: s.entry, value: { done: s.value } }']], 'service.js'],
+  ['logged-then-kept', 'what is signed is appended to the log and only then kept, with no outbox', [['      return { entry: { ...e, outbox: { entry: { ...s.entry, at: now }, texts: s.texts } }, value: { staged: s.value } }', '      await append(s.texts)\n      return { entry: { ...s.entry, at: now }, value: { done: s.value } }']], 'service.js'],
   ['answered-before-logged', 'a request is answered with what it signed before the log has taken it', [['    await holdings.update(identity, async (entry) => ({ entry: await settle(entry) }))\n    return r.staged', '    return r.staged']], 'service.js'],
-  ['outbox-served', 'while an outbox waits, the records it would make are the ones served', [['      return { entry: { ...e, outbox: { entry: s.entry, texts: s.texts } }, value: { staged: s.value } }', '      return { entry: { ...s.entry, outbox: { entry: s.entry, texts: s.texts } }, value: { staged: s.value } }']], 'service.js'],
+  ['outbox-served', 'while an outbox waits, the records it would make are the ones served', [['      return { entry: { ...e, outbox: { entry: { ...s.entry, at: now }, texts: s.texts } }, value: { staged: s.value } }', '      return { entry: { ...s.entry, at: now, outbox: { entry: { ...s.entry, at: now }, texts: s.texts } }, value: { staged: s.value } }']], 'service.js'],
   ['body-read-in-full', 'the body is read in full before its size is checked', [['    n += r.value.length\n    if (n > max) {', '    n += r.value.length\n    if (false) {']], 'service.js'],
   ['self-revocation-unsigned', "a delegate's revocation of itself is not verified", [["      if (!checkEd25519(r.sig.signature, signedBytes(r.payload), b.target).ok) return refuse('signature')\n", '']]],
   ['no-cap', 'a list grows past MAX_RECORDS', [["    if (held[list].length >= MAX_RECORDS) return refuse('full')\n", '']]],
@@ -120,8 +120,8 @@ const TWINS = [
   ['cancel-any-record', 'a cancel of a record that is not under notice is admitted', [["      if (s.recovering === null || b.record !== s.recovering.record) return refuse('record')", "      if (s.recovering === null) return refuse('record')"]]],
   ['cancel-by-anyone', 'anyone with a held root record cancels a recovery', [["return accept({ held })\n      roots = rootsOf(held, s.settled)", 'return accept({ held })\n      roots = [signer]']]],
   ['cancel-twice', 'a second cancel of one recovery is held too', [["      if (held.cancels.some((t) => open(t, 'cancel').body.record === b.record)) return accept({ held })\n", '']]],
-  ['cancel-ignored', 'a held cancel does not end the recovery', [["          if (held.cancels.some((t) => open(t, 'cancel').body.record === under.record)) state1('cancelled', under.record)\n          else if (now", '          if (now']]],
-  ['matures-before-cancel', 'a recovery whose window has passed matures though a cancel is held', [["          if (held.cancels.some((t) => open(t, 'cancel').body.record === under.record)) state1('cancelled', under.record)\n          else if (now >= under.at + s.recovery.window) state1('matured', under.record)", "          if (now >= under.at + s.recovery.window) state1('matured', under.record)\n          else if (held.cancels.some((t) => open(t, 'cancel').body.record === under.record)) state1('cancelled', under.record)"]]],
+  ['cancel-ignored', 'a held cancel does not end the recovery', [["        held.cancels.some((t) => open(t, 'cancel').body.record === under.record)) {\n        state1('cancelled', under.record)", "        false) {\n        state1('cancelled', under.record)"]]],
+  ['matures-before-cancel', 'a recovery whose window has passed matures though a cancel is held', [["      if (under !== null && !said(held, 'matured', 'matured', under.record) &&\n", "      if (under !== null && !said(held, 'matured', 'matured', under.record) && now < under.at + s.recovery.window &&\n"]]],
   ['matures-at-once', 'a recovery matures the moment it is noticed', [['now >= under.at + s.recovery.window', 'now >= under.at']]],
   ['matures-a-second-late', 'a recovery matures a second after its window', [['now >= under.at + s.recovery.window', 'now > under.at + s.recovery.window']]],
   ['notice-unchecked', 'any held successor signed by a party is put under notice', [["        const fresh = ids.find((x) => !said(held, 'notices', 'notice', x) &&\n          trialState(own, { identity: held.identity, record: x, at: now }, true).membership === x)", "        const fresh = ids.find((x) => !said(held, 'notices', 'notice', x) && partiesOf(held, x) > 0)"]]],
@@ -198,6 +198,12 @@ function generate (name, edits, file = 'witness.js') {
 // none reported. The suite starts no browser, so twins run on half the cores.
 test('witness broken twins', { timeout: 5_400_000 }, async (t) => {
   try {
+    // MUID_TWIN_TARGETS_ONLY=1 makes every twin, each checking that its targets occur once, and runs none: every
+    // pull request does this (tests/guards/twin-targets.test.mjs), the twins themselves running nightly.
+    if (process.env.MUID_TWIN_TARGETS_ONLY === '1') {
+      assert.equal(TWINS.map(([name, , edits, file]) => generate(name, edits, file)).length, 128, 'twin count')
+      return
+    }
     await t.test('control: an unmodified copy, run from outside the repository, passes', async () => {
       const r = await run(generate('control', []))
       assert.equal(r.code, 0, `control: exit ${r.code}, ${r.fail} failing${r.hung ? ', hung' : ''}`)
