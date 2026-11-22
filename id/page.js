@@ -311,6 +311,8 @@ async function signed (covers, extensions) {
     allowCredentials: [{ type: 'public-key', id: fromB64u(root.credential) }],
     extensions, // undefined is none
   } })
+  // A storage change notice is not guaranteed to arrive during the passkey prompt. Re-read before handing the signed bytes to any caller.
+  await stillHeld()
   return { assertion: assertion(covers, a.response), extensions: a.getClientExtensionResults() }
 }
 const sign = async (covers) => (await signed(covers)).assertion
