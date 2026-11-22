@@ -2806,6 +2806,27 @@ async function holdNext (page, url) {
 const NO_ANSWER = { status: 503, contentType: 'application/json', body: '{}' }
 const REFUSED = { status: 422, contentType: 'application/json', body: '{"ok":false,"reason":"test"}' }
 const TAKEN = { status: 200, contentType: 'application/json', body: '{"ok":true}' }
+// A late authenticator refusal must not belong to a review that an edit withdrew.
+async function latePasskeyRefusal (page, sign, edit) {
+  await page.evaluate(() => {
+    const original = navigator.credentials.get
+    navigator.credentials.get = () => {
+      navigator.credentials.get = original
+      return new Promise((_resolve, reject) => {
+        globalThis.rejectLatePasskey = () => {
+          delete globalThis.rejectLatePasskey
+          reject(new Error('late passkey refusal'))
+        }
+      })
+    }
+  })
+  await page.click(sign)
+  await page.waitForFunction(() => typeof globalThis.rejectLatePasskey === 'function')
+  await edit()
+  await page.evaluate(() => globalThis.rejectLatePasskey())
+  await idle(page)
+  assert.equal(await page.textContent('#error'), '', `${sign}: withdrawn review ignores late passkey refusal`)
+}
 // A signed record is sent, its review withdrawn by `edit` while the witness's answer is held, then `answer` given
 // (undefined: the witness's own): nothing is said of it (scenario 99).
 async function lateAnswer (page, sign, edit, answer) {
@@ -2980,6 +3001,8 @@ test('recovery parties: a party gives a card and shows that its passkey is held;
     await g.page.click('#proof-sign')
     await errorIs(g.page, 'the passkey failed')
     assert.equal(await g.page.isHidden('#proof'), true)
+    await latePasskeyRefusal(g.page, '#proof-sign', () => g.page.fill('#proof-code', code + ' '))
+    assert.equal(await g.page.isHidden('#proof-panel'), true)
     const proof = await proofOf(g, code)
     assert.equal(await signCount(g), gSigns + 2, 'nothing was signed before the review')
     await g.page.click('#card-make')
@@ -3420,6 +3443,9 @@ test('recovery at the page: a new passkey asks, the party signs what it is shown
     })
     await n.page.click('#recover-sign')
     await errorIs(n.page, 'the passkey failed')
+    await latePasskeyRefusal(n.page, '#recover-sign', () => n.page.fill('#recover-identity', a.identity + ' '))
+    assert.equal(await n.page.isHidden('#recover-panel'), true)
+    await review()
     await slowPasskey(n.page)
     const nAnswers = await answers(n.page)
     await n.page.click('#recover-sign')

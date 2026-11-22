@@ -203,3 +203,7 @@ filed about it.
 ## Recovery-party recheck — `id/page.js`, `tests/id/P2-page.test.mjs`
 
 161. A recovery-party possession recheck never counts one party more than once: duplicate cards of the same root are rejected rather than presented as proof from distinct recovery parties.
+
+## Withdrawn recovery signatures — `id/page.js`, `tests/id/P2-page.test.mjs`
+
+162. A rejection from a recovery-joining or recovery-party possession-proof passkey prompt after its review was withdrawn cannot show an error belonging to the withdrawn review.

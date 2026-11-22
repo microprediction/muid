@@ -834,7 +834,7 @@ $('recover-sign').addEventListener('click', async () => {
     const a = await sign([c.id])
     if (pending.recover !== c) return
     if (!await keepRoot(added, (now) => ({ ...now, cosigned: rootSigned(c.payload, added, a) }))) return
-  } catch (e) { fail(e); return }
+  } catch (e) { if (pending.recover === c) fail(e); return }
   await cosign()
 })
 
@@ -910,7 +910,7 @@ $('proof-sign').addEventListener('click', async () => {
     if (pending.proof !== p) return
     $('proof').value = JSON.stringify(a)
     $('proof').hidden = false
-  } catch (e) { fail(e) }
+  } catch (e) { if (pending.proof === p) fail(e) }
 })
 
 // A control the page does not show does nothing (I4: what is signed is what was shown), even pressed by a script:
