@@ -124,7 +124,7 @@ filed about it.
 98. A review that expires before signing is not signed; one that expires during signing is not handed over.
 99. An answer from the witness arriving after its review was withdrawn changes nothing on screen, including its answer to a signed record already sent.
 100. A signature completed after its review was withdrawn is not sent, stored or shown.
-101. The root held changing in another tab mid-request never causes this tab to act for the wrong root.
+101. The root held changing in another tab mid-request never causes this tab to act for the wrong root, including when a passkey prompt is pending and the change reaches IndexedDB without a BroadcastChannel notice; the root is re-read after the prompt.
 102. Framed, or at an origin other than its configured one, the page offers nothing to act on.
 103. The page's Content-Security-Policy admits no inline script but the one whose hash it names, and that hash matches.
 104. No text from the witness, the store, or an input reaches the document as HTML.
