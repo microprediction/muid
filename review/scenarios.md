@@ -191,7 +191,7 @@ filed about it.
 150. Every "twin" (a deliberately broken copy of the code) still applies to the current source and is caught by a test for the reason it names.
 151. Every check that something did not happen waits long enough for it to have happened.
 152. The witness service's staged outbox and settled holding follow the transitions and guards of `model/tla/WitnessOutbox.tla`; the witness's `admit`, `log`, `revoke` and `advance` decisions are checked separately against the JavaScript models in `model/`, not that TLA+ model.
-153. Every invariant claimed in `model/STATE.md` is checked by a model run in CI, and that run would fail if the invariant were deleted from the model.
+153. Every invariant claimed in `model/STATE.md` remains defined in the model and selected by a TLC configuration that CI runs. An independent test pins the promised invariant names, so deleting an invariant from both the model and its checked configuration is detected.
 154. The Tamarin authentication-chain model permits a Dolev–Yao network adversary to intercept, forge, replay and reorder messages and to learn root and delegate signing keys; its claims do not model corrupted browser storage, provider responses or witness state from `SPEC.md` section 1.
 155. Each fuzz target in `fuzz/` reaches the code it names, and its seeds include at least one input its checker actually accepts; the `verify` seed test requires positive verdicts on the unchanged target fixture so an all-refusing verifier setup cannot silently satisfy it.
 156. Every GitHub Action is pinned to a commit, and no workflow requests a write-scoped token for an untrusted pull request. The CI guard catches write permissions in YAML whether bare or quoted (including job-level overrides).
