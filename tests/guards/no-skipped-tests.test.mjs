@@ -19,7 +19,7 @@ function files (dir) {
 // Allow only an explicit false option; an expression beginning with false may still be truthy.
 const BANNED = [
   /\b(?:test|it|describe|suite)\s*\.\s*(?:skip|todo|only)\b/,
-  /\b(?:skip|todo|only)\s*:\s*(?!false(?=\s*[,}]))\S/,
+  /[{,]\s*(?:skip|todo|only)\s*:\s*(?!false(?=\s*[,}]))\S/, // an option key, not the word in a test's name
   /\b(?:t|ctx)\s*\.\s*(?:skip|todo)\s*\(/,
 ]
 const banned = (source) => BANNED.some((re) => re.test(source))
@@ -55,7 +55,8 @@ test('the pattern catches what it is meant to catch', () => {
   ]) {
     assert.ok(banned(s), s)
   }
-  for (const s of ['skipped', 'const only = 1', 'todoList', '{ skip: false }', '{ todo: false }', '{ only: false }']) {
+  for (const s of ['skipped', 'const only = 1', 'todoList', '{ skip: false }', '{ todo: false }', '{ only: false }',
+    "test('a salt belongs to a membership record only: a contest is no record', () => {})"]) {
     assert.ok(!banned(s), s)
   }
 })
