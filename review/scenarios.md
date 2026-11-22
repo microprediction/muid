@@ -195,7 +195,7 @@ filed about it.
 154. The Tamarin model's adversary can do at least what `SPEC.md` section 1 says an attacker can.
 155. Each fuzz target in `fuzz/` reaches the code it names, and its seeds include at least one valid input.
 156. Every GitHub Action is pinned to a commit, and no workflow gives a pull request from a fork a token that can write.
-157. Every dependency is pinned to an exact version with an integrity hash, and none runs an install script.
+157. Every dependency is pinned to an exact version with an integrity hash, and none runs an install script. The `.npmrc` settings requiring scripts to be ignored and versions to be saved exactly each have one unambiguous declaration.
 158. The published package contains only the files it means to, and nothing from `tests/`, `model/` or `research/`.
 159. The code in `src/` uses no clock, no randomness, no network and no global state of its own.
 160. Each number in `SPEC.md` (a window, a limit, a maximum) is the same number in the code and in the model.
