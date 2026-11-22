@@ -113,7 +113,8 @@ test('update is one transaction: tabs changing one key at once lose nothing, and
       }
     }), db)
     await other.evaluate((db) => { globalThis.late = globalThis.s(db).then((s) => s.update('count', (now) => ({ value: [now.value, 'after'] }))); globalThis.late.then(() => { globalThis.done = true }) }, db)
-    await other.waitForTimeout(500)
+    // However long it waits, it waits: the order of what is written below shows it was made after the held
+    // transaction, not before (no time is waited here for it to have had the chance).
     assert.equal(await other.evaluate(() => globalThis.done === true), false, 'not made while the other transaction is open')
     await t.page.evaluate(() => { globalThis.holding = false; return globalThis.finished })
     assert.deepEqual(await other.evaluate(() => globalThis.late), { value: ['held', 'after'] })
@@ -231,18 +232,24 @@ test('writes are asked to be durable before they are reported; another tab is to
     await update(t.page, db, 'b', 'throw new Error("no")')
     await update(t.page, db, 'b', 'return { value: 2 }')
     await update(t.page, db, 'a', 'return { absent: true }')
-    await other.waitForFunction(() => globalThis.told.length >= 3)
-    await other.waitForTimeout(200)
-    assert.deepEqual(await other.evaluate(() => globalThis.told), ['a', 'b', 'a'])
+    // A last change, heard: every notice of the changes before it has been given by then, here and in the other tab.
+    await nextHeard(other, db)
+    await nextHeard(t.page, db)
+    await update(t.page, db, 'end', 'return { value: 0 }')
+    await heard(other)
+    await heard(t.page)
+    assert.deepEqual(await other.evaluate(() => globalThis.told), ['a', 'b', 'a', 'end'])
     assert.deepEqual(await t.page.evaluate(() => globalThis.own), [], 'the tab that made the change is not told of it')
     // A store of another name hears nothing of this one; a watcher that was stopped hears no more.
     const elsewhere = fresh()
     await other.evaluate(async (name) => { globalThis.far = []; (await globalThis.s(name)).watch((key) => globalThis.far.push(key)) }, elsewhere)
     await other.evaluate(() => globalThis.stop())
+    await nextHeard(other, db)
     await update(t.page, db, 'c', 'return { value: 3 }')
+    await heard(other)
     await update(t.page, elsewhere, 'z', 'return { value: 26 }')
     await other.waitForFunction(() => globalThis.far.length >= 1)
-    assert.deepEqual(await other.evaluate(() => [globalThis.told, globalThis.far]), [['a', 'b', 'a'], ['z']])
+    assert.deepEqual(await other.evaluate(() => [globalThis.told, globalThis.far]), [['a', 'b', 'a', 'end'], ['z']])
     assert.deepEqual(t.problems, [])
   } finally {
     await t.close()
@@ -269,6 +276,15 @@ const use = (page) => page.evaluate(async () => {
   return out
 })
 
+// The next message on the store's channel, once heard in `page` by a channel opened now. A BroadcastChannel message
+// goes to a page's channels in the order they were opened, so every channel of the store opened before has heard it
+// by then: for a check that a watcher was not told, rather than a time it would have been told by.
+const nextHeard = (page, db) => page.evaluate((db) => {
+  const c = new BroadcastChannel(`muid-store:${db}`)
+  globalThis.nextHeard = new Promise((resolve) => { c.onmessage = (e) => { c.close(); resolve(e.data) } })
+}, db)
+const heard = (page) => page.evaluate(() => globalThis.nextHeard)
+
 test('a store is given up when a newer page raises the database version: said once, and nothing more is changed', { timeout: 120_000 }, async () => {
   const t = await open()
   try {
@@ -289,8 +305,9 @@ test('a store is given up when a newer page raises the database version: said on
     await t.page.waitForFunction(() => globalThis.lost > 0)
     assert.deepEqual(await use(t.page), ['InvalidStateError', 'InvalidStateError'])
     // It hears no more of the store either, and is told it was lost once only.
+    await nextHeard(t.page, db)
     await newer.evaluate((db) => new BroadcastChannel(`muid-store:${db}`).postMessage('k'), db)
-    await t.page.waitForTimeout(200)
+    await heard(t.page)
     assert.deepEqual(await t.page.evaluate(() => [globalThis.lost, globalThis.heard]), [1, []])
     // Older code opening the raised database is refused by the browser.
     assert.equal(await t.page.evaluate(async (db) => { try { await globalThis.openStore(db); return 'opened' } catch (e) { return e.name } }, db), 'VersionError')
