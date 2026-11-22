@@ -102,6 +102,7 @@ async function open ({ init } = {}) {
     contexts.push(context)
     if (FAIL_FAST) context.setDefaultTimeout(WAIT)
     await activate(context)
+    await context.addInitScript(COUNT_ANSWERS)
     if (init !== undefined) await context.addInitScript(init)
     const page = watched(await context.newPage())
     const cdp = await context.newCDPSession(page)
@@ -166,8 +167,37 @@ async function idle (page) {
     await direct(page, 'wait', 'root')
     await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 0)))
     quiet = flying.get(page) === 0 ? quiet + 1 : 0
-    if (quiet === 0) await page.waitForTimeout(20)
+    if (quiet === 0) await new Promise((resolve) => setTimeout(resolve, 20)) // polled again: a condition, not a time
   }
+}
+// As idle, for a page whose requests may be held: its tasks, and every write its store had queued, run since.
+async function calm (page) {
+  for (let i = 0; i < 2; i++) {
+    await direct(page, 'wait', 'root')
+    await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 0)))
+  }
+}
+// As idle, for a page whose store is held or gone, so that it cannot be read: the page's tasks run since.
+const tasks = (page) => page.evaluate(() => new Promise((resolve) => setTimeout(() => setTimeout(resolve, 0), 0)))
+// Each page counts its passkey's answers (refusals too) from when it is loaded, beneath whatever a test puts in front
+// of the passkey: a test waits until the page has had an answer, not for a time it may have had it by.
+const COUNT_ANSWERS = () => {
+  globalThis.passkeyAnswers = 0
+  if (navigator.credentials === undefined) return // a page with no passkeys (about:blank, an application's page)
+  const get = navigator.credentials.get.bind(navigator.credentials)
+  navigator.credentials.get = (o) => get(o).finally(() => { globalThis.passkeyAnswers++ })
+}
+const answers = (page) => page.evaluate(() => globalThis.passkeyAnswers)
+// The page has had an answer from its passkey since it had `n`, and has done all that follows it: for a check that it
+// did not use what it was given. (Where the store is held or gone, `then` is `tasks`.)
+async function answered (page, n, then = idle) {
+  await page.waitForFunction((n) => globalThis.passkeyAnswers > n, n)
+  await then(page)
+}
+// Polls `holds` (of something outside the page: what the witness holds) until it is true. The test's own timeout is
+// the only limit.
+async function until (holds) {
+  while (!await holds()) await new Promise((resolve) => setTimeout(resolve, 20))
 }
 const hold = (page, key, value) => direct(page, 'put', key, value)
 const drop = (page, key) => direct(page, 'delete', key)
@@ -178,6 +208,18 @@ const change = (page, key, value) => page.evaluate(async ([key, value]) => {
   await s.update(key, () => value === null ? { absent: true } : { value })
   s.close()
 }, [key, value])
+// A change made so, once the page has heard it and done what it does on hearing it. A channel opened after the page's
+// own hears each message after it (a BroadcastChannel message goes to its listeners in the order they were opened),
+// so the page has heard the change once this one has.
+async function changeHeard (page, key, value) {
+  await page.evaluate(() => {
+    const c = new BroadcastChannel('muid-store:muid')
+    globalThis.heard = new Promise((resolve) => { c.onmessage = () => { c.close(); resolve() } })
+  })
+  await change(page, key, value)
+  await page.evaluate(() => globalThis.heard)
+  await idle(page)
+}
 // A tab holds a read-write transaction open on the store, so every other operation on it waits, until freed.
 const holdStoreIn = (page) => page.evaluate(() => new Promise((resolve, reject) => {
   const opening = indexedDB.open('muid', 1)
@@ -357,9 +399,10 @@ test('an edit while the passkey is signing withdraws the delegation: the late si
     await createIdentity(t.page)
     await authorise(t.page)
     await t.page.waitForSelector('#review-panel:not([hidden])')
+    const k = await answers(t.page)
     await t.page.click('#sign')
     await t.page.fill('#scopes', 'admin')
-    await t.page.waitForTimeout(1500)
+    await answered(t.page, k)
     assert.equal(await t.page.isHidden('#handoff'), true)
     assert.equal(await t.page.inputValue('#handoff'), '')
     assert.equal(await kept(t.page), null, 'nor is the worker remembered (a surviving mutant)')
@@ -473,7 +516,7 @@ test('a page whose storage a newer version of the page has taken withdraws what 
     const offered = async () => { for (const id of ['create', 'identity', 'authorise', 'renew', 'add-root', 'joining', 'pending', 'review-panel', 'handoff']) assert.equal(await t.page.isHidden('#' + id), true, id) }
     await offered()
     await t.page.evaluate(() => globalThis.answer())
-    await t.page.waitForTimeout(500)
+    await tasks(t.page) // the passkey answered before it was held: what follows the answer runs within the page's tasks
     assert.equal(await t.page.textContent('#error'), 'A newer version of this page has taken its storage, or the browser has cleared it: reload this page.')
     await offered()
     await t.collect()
@@ -594,12 +637,12 @@ test('another tab that creates an identity is followed here, and one is never cr
     await t.page.fill('#name', 'test')
     await t.page.click('#create-button')
     await other.waitForSelector('#identity:not([hidden])')
-    await other.waitForTimeout(500)
+    await idle(other) // a question asked would never be answered while the witness is held, and this would not return
     assert.deepEqual(asks, [])
     release()
     await t.page.waitForFunction(() => document.getElementById('status').textContent === 'Registered with the witness.')
     const a = { text: await t.page.inputValue('#root-text'), identity: await t.page.textContent('#identity-id') }
-    for (let i = 0; asks.length === 0 && i < 50; i++) await other.waitForTimeout(100)
+    await until(() => asks.length > 0)
     assert.deepEqual(asks, [`${t.site.origin}/witness/v1/identities/${a.identity}/records`])
     await idle(other)
     // The other tab, open since before, now shows the identity and offers no create.
@@ -946,7 +989,7 @@ test('a sign-in view open when the store is lost is hidden, and its button then 
       navigator.credentials.get = () => { globalThis.__lostSigninPrompts++; return Promise.reject(new Error('a lost store asked for a passkey')) }
     })
     await t.page.evaluate(() => document.getElementById('signin-button').click())
-    await t.page.waitForTimeout(500) // the store is gone, so idle() cannot read it
+    await tasks(t.page) // the store is gone, so idle() cannot read it
     assert.equal(await t.page.evaluate(() => globalThis.__lostSigninPrompts), 0)
     await t.collect()
     assert.deepEqual(t.problems, [])
@@ -1149,9 +1192,10 @@ test('a change edited while the passkey is signing is not submitted, on either d
     await t.page.fill('#new-root', bRoot)
     await t.page.click('#add-review')
     await t.page.waitForSelector('#add-panel:not([hidden])')
+    const k = await answers(t.page)
     await t.page.click('#add-sign')
     await t.page.fill('#new-root', bRoot + ' ')
-    await t.page.waitForTimeout(1500)
+    await answered(t.page, k)
     assert.equal((await t.witnessGet(`/v1/identities/${a.identity}/records`)).memberships.length, 0)
     // Signed properly, then the co-signer edits while its passkey is asked.
     await t.page.click('#add-review')
@@ -1161,9 +1205,10 @@ test('a change edited while the passkey is signing is not submitted, on either d
     await b.page.fill('#cosign-payload', await t.page.inputValue('#add-handoff'))
     await b.page.click('#cosign-review')
     await b.page.waitForSelector('#cosign-panel:not([hidden])')
+    const j = await answers(b.page)
     await b.page.click('#cosign-sign')
     await b.page.fill('#cosign-payload', 'x')
-    await b.page.waitForTimeout(1500)
+    await answered(b.page, j)
     assert.equal((await t.witnessGet(`/v1/identities/${a.identity}/records`)).memberships.length, 1, "only the first device's signature")
     assert.equal(await b.page.isHidden('#identity'), true)
   } finally {
@@ -1573,9 +1618,10 @@ test('renewal: a change of selection while the passkey is signing withdraws it: 
     await createIdentity(t.page)
     await t.page.click('#renew-review')
     await t.page.waitForSelector('#renew-panel:not([hidden])')
+    const k = await answers(t.page)
     await t.page.click('#renew-sign')
     await t.page.locator('#workers input').nth(1).uncheck()
-    await t.page.waitForTimeout(1500)
+    await answered(t.page, k)
     assert.equal(await t.page.isHidden('#renew-handoffs'), true)
     assert.equal(await t.page.locator('#renew-handoffs textarea').count(), 0)
     // A passkey that refuses is reported, and nothing is handed over; signing again clears it.
@@ -1619,7 +1665,7 @@ test('a change made while a review waits for the witness withdraws it: of one wo
       if (held !== null) { asked(); await held.gate }
       await route.continue()
     })
-    const settled = async () => { release(); held = null; await idle(t.page); await t.page.waitForTimeout(300) }
+    const settled = async () => { release(); held = null; await idle(t.page) }
     const before = await signCount(t)
 
     // One worker: a field edited while the witness is asked.
@@ -1656,7 +1702,7 @@ test('a change made while a review waits for the witness withdraws it: of one wo
     await settled()
     assert.equal(await t.page.isHidden('#renew-panel'), true, 'the forgotten worker is not shown for renewal')
     await t.page.evaluate(() => document.getElementById('renew-sign').click())
-    await t.page.waitForTimeout(500)
+    await idle(t.page)
     assert.equal(await t.page.isHidden('#renew-handoffs'), true)
     assert.equal(await t.page.isHidden('#handoff'), true)
     assert.equal(await signCount(t), before, 'nothing was signed')
@@ -1789,12 +1835,13 @@ test('renewal: a tab not yet told of another tab\'s change does not undo it, and
     await t.page.click('#renew-review')
     await t.page.waitForSelector('#renew-panel:not([hidden])')
     await t.page.evaluate(() => { globalThis.asked = new Promise((resolve) => { globalThis.asking = resolve }) })
+    const k = await answers(t.page)
     await t.page.click('#renew-sign')
     await t.page.evaluate(() => globalThis.asked)
     await t.page.locator('#workers input[type=checkbox]').first().click()
     await seed(t.page, [stored(1), stored(3)])
     await t.page.evaluate(() => globalThis.answer())
-    await t.page.waitForTimeout(500)
+    await answered(t.page, k)
     assert.equal(await t.page.textContent('#error'), '')
     assert.equal(await t.page.isHidden('#renew-handoffs'), true)
     assert.deepEqual(t.problems, [])
@@ -1925,11 +1972,12 @@ test('a review that has expired is not signed, and one that expires while the pa
     const base = Math.min(...exps)
     const signedWhileHeld = async (button) => {
       await slowPasskey()
+      const k = await answers(t.page)
       await t.page.click(button)
       await t.page.evaluate(() => globalThis.asked)
       await holdStore()
       await t.page.evaluate(() => globalThis.answer())
-      await t.page.waitForTimeout(400) // the passkey has answered, and the page waits for the store
+      await answered(t.page, k, tasks) // the passkey has answered, and the page waits for the store
     }
     // A worker saved a moment before it expires, the answer coming after: remembered, since it was saved in time,
     // but not handed over.
@@ -1971,7 +2019,7 @@ test('a review that has expired is not signed, and one that expires while the pa
     await signedWhileHeld('#renew-sign')
     await t.page.locator('#workers input').nth(0).uncheck()
     await freeStore()
-    await t.page.waitForTimeout(400)
+    await idle(t.page)
     assert.equal(await t.page.isHidden('#renew-handoffs'), true)
     assert.equal(await t.page.textContent('#error'), '')
     // Unhurried, the same renewal is handed over.
@@ -2021,11 +2069,12 @@ test('renewal: a review opened while this tab\'s own Forget or saving is still o
       globalThis.asked = new Promise((resolve) => { globalThis.asking = resolve })
       navigator.credentials.get = async (o) => { globalThis.asking(); await new Promise((resolve) => { globalThis.answer = resolve }); navigator.credentials.get = get; return get(o) }
     })
+    const k = await answers(t.page)
     await t.page.click('#sign')
     await t.page.evaluate(() => globalThis.asked)
     await holdStoreIn(other)
     await t.page.evaluate(() => globalThis.answer())
-    await t.page.waitForTimeout(400) // the passkey has answered, and the page waits for the store
+    await answered(t.page, k, tasks) // the passkey has answered, and the page waits for the store
     await authorise(t.page, { agent: 'forecaster', subject: workerPub(1), scopes: 'post' })
     await t.page.waitForSelector('#review-panel:not([hidden])')
     assert.equal(await t.page.textContent('#show-retires'), '')
@@ -2125,10 +2174,9 @@ test('an added passkey\'s hand-off is not shown if it was withdrawn while the ch
     assert.equal(await t.page.isHidden('#add-panel'), true)
     release()
     await idle(t.page)
-    await t.page.waitForFunction(async () => true)
-    for (let i = 0; i < 50 && (await t.witnessGet(`/v1/identities/${a.identity}/records`)).roots.length < 2; i++) await t.page.waitForTimeout(100)
+    await until(async () => (await t.witnessGet(`/v1/identities/${a.identity}/records`)).roots.length === 2)
     assert.equal((await t.witnessGet(`/v1/identities/${a.identity}/records`)).memberships.length, 1, 'signed, so submitted')
-    await t.page.waitForTimeout(300)
+    await idle(t.page)
     assert.equal(await t.page.isHidden('#add-handoff'), true)
     assert.equal(await t.page.textContent('#status'), '', 'what was said before the signing is not left standing')
     assert.deepEqual(t.problems, [])
@@ -2160,7 +2208,7 @@ test('a new passkey\'s review edited while it waits for the witness is withdrawn
     })
     const unavailable = /^Failed to load resource: the server responded with a status of 503/
     const hold = () => { const seen = new Promise((resolve) => { asked = resolve }); held = new Promise((resolve) => { release = resolve }); return seen }
-    const settled = async () => { release(); held = null; await idle(t.page); await t.page.waitForTimeout(300) }
+    const settled = async () => { release(); held = null; await idle(t.page) }
     // Reviewed for one root, the field then names another while the witness is asked: nothing is shown or signable.
     let seen = hold()
     await t.page.fill('#new-root', roots[0])
@@ -2170,7 +2218,7 @@ test('a new passkey\'s review edited while it waits for the witness is withdrawn
     await settled()
     assert.equal(await t.page.isHidden('#add-panel'), true)
     await t.page.evaluate(() => document.getElementById('add-sign').click())
-    await t.page.waitForTimeout(500)
+    await idle(t.page)
     assert.equal((await t.witnessGet(`/v1/identities/${a.identity}/records`)).memberships.length, 0)
     // A review that would be refused, edited while it waits: its refusal is of what is no longer there, and not shown.
     seen = hold()
@@ -2295,7 +2343,7 @@ test('renewal: a worker another tab remembers or forgets is followed here; a joi
     assert.equal(await t.page.isHidden('#renew'), false)
     assert.equal(await t.page.isHidden('#renew-panel'), true)
     await t.page.evaluate(() => document.getElementById('renew-sign').click())
-    await t.page.waitForTimeout(500)
+    await idle(t.page)
     assert.equal(await t.page.isHidden('#renew-handoffs'), true)
     assert.equal(await signCount(t), before, 'nothing signed')
     await forget(other, 0)
@@ -2359,7 +2407,7 @@ test('a recovery under notice is shown on load with when it takes effect; one pr
     assert.equal(await t.page.isHidden('#notice-unchecked'), true, 'nothing was asked, and nothing is said of it')
     // With no notice shown, the cancel button (hidden) does nothing.
     await t.page.evaluate(() => document.getElementById('notice-cancel').click())
-    await t.page.waitForTimeout(300)
+    await idle(t.page)
     assert.equal(await t.page.textContent('#error'), '')
     const { credentials } = await t.cdp.send('WebAuthn.getCredentials', { authenticatorId: t.authenticatorId })
     const aSecret = Buffer.from(createPrivateKey({ key: Buffer.from(credentials[0].privateKey, 'base64'), format: 'der', type: 'pkcs8' }).export({ format: 'jwk' }).d, 'base64url')
@@ -2450,9 +2498,10 @@ test('a recovery under notice is shown on load with when it takes effect; one pr
     await t.page.waitForSelector('#recovery-notice', { state: 'hidden' })
     assert.equal(await t.page.textContent('#recovery-now'), 'not known', 'nor the designation of the root held before')
     assert.equal(await t.page.textContent('#recheck-code'), '')
+    const k = await answers(t.page)
     await t.page.evaluate(() => document.getElementById('notice-cancel').click())
-    await t.page.waitForTimeout(500)
-    assert.equal(await t.page.textContent('#error'), '')
+    await calm(t.page) // the question about the root now held waits on the witness
+    assert.deepEqual([await t.page.textContent('#error'), await answers(t.page)], ['', k], 'nothing asked of the passkey')
     open1()
     // The witness knows no such identity: that is an answer, and there is nothing to say.
     await idle(t.page)
@@ -2514,7 +2563,7 @@ test('a recovery under notice is shown on load with when it takes effect; one pr
     await change(t.page, 'root', mine)
     await t.page.waitForSelector('#recovery-notice:not([hidden])')
     await waiting.fulfill({ status: 503, contentType: 'application/json', body: '{}' })
-    await t.page.waitForTimeout(500)
+    await idle(t.page)
     assert.equal(await t.page.isHidden('#recovery-notice'), false, 'the late answer does not take the notice down')
     assert.equal(await t.page.isHidden('#notice-unchecked'), true, 'nor is it said of this root that the witness could not be asked')
     await t.page.unroute(`**/v1/identities/${rootModule.identityOf(yId)}/records`)
@@ -2523,11 +2572,13 @@ test('a recovery under notice is shown on load with when it takes effect; one pr
     const first = await holdNext(t.page, `**${path}`)
     await change(t.page, 'root', mine)
     const answerFirst = await first()
+    const second = t.page.waitForEvent('requestfinished', (q) => q.url().endsWith(path))
     await change(t.page, 'root', mine)
-    await t.page.waitForTimeout(500) // the first question is still held, so idle() would wait on it
+    await second
+    await calm(t.page) // the first question is still held, so idle() would wait on it
     assert.equal(await t.page.isHidden('#recovery-notice'), false)
     await answerFirst(NO_ANSWER)
-    await t.page.waitForTimeout(500)
+    await idle(t.page)
     assert.equal(await t.page.isHidden('#recovery-notice'), false, 'an older answer for the same root does not take the notice down')
     assert.equal(await t.page.isHidden('#notice-unchecked'), true, 'nor says that the witness could not be asked')
 
@@ -2756,8 +2807,7 @@ test('recovery parties: a party gives a card and shows that its passkey is held;
     assert.deepEqual((await held(g.page, 'root')).salts, [salt, JSON.parse(spare).salt])
     // A passkey that has given out as many cards as it keeps gives no more, and says so.
     const kept32 = await held(g.page, 'root')
-    await change(g.page, 'root', { ...kept32, salts: [...kept32.salts, ...Array.from({ length: 30 }, (_, i) => hex(createHash('sha256').update('salt ' + i).digest()))] })
-    await g.page.waitForTimeout(300)
+    await changeHeard(g.page, 'root', { ...kept32, salts: [...kept32.salts, ...Array.from({ length: 30 }, (_, i) => hex(createHash('sha256').update('salt ' + i).digest()))] })
     await g.page.click('#card-make')
     await errorIs(g.page, 'this passkey has given out 32 recovery cards, the most it keeps')
     assert.equal((await held(g.page, 'root')).salts.length, 32)
@@ -2830,9 +2880,10 @@ test('recovery parties: a party gives a card and shows that its passkey is held;
     assert.equal(await g.page.textContent('#proof-shown'), code)
     // An edit while the passkey is signing: what it signed is not shown.
     await slowPasskey(g.page)
+    const gAnswers = await answers(g.page)
     await g.page.click('#proof-sign')
     await g.page.fill('#proof-code', code)
-    await g.page.waitForTimeout(1500)
+    await answered(g.page, gAnswers)
     assert.equal(await signCount(g), gSigns + 1, 'the passkey did sign')
     assert.equal(await g.page.isHidden('#proof'), true)
     await promptPasskey(g.page)
@@ -2866,10 +2917,10 @@ test('recovery parties: a party gives a card and shows that its passkey is held;
     await t.page.fill('#designate-proofs', `${other}\n ${proof} \n`)
     // An edit while the passkey is signing withdraws the change: the late signature is sent nowhere.
     await slowPasskey(t.page)
+    const tAnswers = await answers(t.page)
     await t.page.click('#designate-sign')
     await t.page.fill('#recovery-days', '15')
-    await t.page.waitForTimeout(1500)
-    await idle(t.page)
+    await answered(t.page, tAnswers)
     assert.equal(await signCount(t), signs + 1, 'the passkey did sign')
     assert.equal((await t.witnessGet(path)).memberships.length, 0, 'and what it signed was not sent')
     assert.equal(await t.page.textContent('#status'), '')
@@ -3101,10 +3152,10 @@ test('recovery parties, two passkeys: one designates and hands the change over; 
     // An edit while the passkey is signing withdraws it: the late signature is sent nowhere.
     const sent = (await t.witnessGet(path)).memberships.length
     await slowPasskey(b.page)
+    const bAnswers = await answers(b.page)
     await b.page.click('#recovery-cosign-sign')
     await b.page.fill('#recovery-cosign-payload', payload)
-    await b.page.waitForTimeout(1500)
-    await idle(b.page)
+    await answered(b.page, bAnswers)
     assert.equal(await signCount(b), signs + 1, 'the passkey did sign')
     assert.deepEqual([(await t.witnessGet(path)).memberships.length, await b.page.textContent('#status')], [sent, ''])
     await promptPasskey(b.page)
@@ -3221,10 +3272,10 @@ test('recovery at the page: a new passkey asks, the party signs what it is shown
     await n.page.click('#recover-sign')
     await errorIs(n.page, 'the passkey failed')
     await slowPasskey(n.page)
+    const nAnswers = await answers(n.page)
     await n.page.click('#recover-sign')
     await n.page.fill('#recover-identity', a.identity)
-    await n.page.waitForTimeout(1500)
-    await idle(n.page)
+    await answered(n.page, nAnswers)
     assert.equal(await signCount(n), before + 1, 'the passkey did sign')
     assert.deepEqual([await n.page.isHidden('#cosign-pending'), (await held(n.page, 'root')).cosigned], [true, undefined])
     await promptPasskey(n.page)
@@ -3245,8 +3296,7 @@ test('recovery at the page: a new passkey asks, the party signs what it is shown
     await errorIs(g.page, 'that is not a membership change')
     const kept = await held(g.page, 'root')
     const { salts, ...bare } = kept
-    await change(g.page, 'root', bare)
-    await g.page.waitForTimeout(300)
+    await changeHeard(g.page, 'root', bare)
     await g.page.fill('#rescue-request', request)
     await g.page.click('#rescue-review')
     await errorIs(g.page, "this passkey is not one of that identity's recovery parties")
@@ -3259,8 +3309,7 @@ test('recovery at the page: a new passkey asks, the party signs what it is shown
     await g.page.fill('#rescue-card', '')
     assert.equal(await g.page.isHidden('#rescue-panel'), true, 'an edit withdraws it')
     // With the salt it kept: what will be signed is shown, with the fingerprint the new device shows.
-    await change(g.page, 'root', kept)
-    await g.page.waitForTimeout(300)
+    await changeHeard(g.page, 'root', kept)
     await g.page.fill('#rescue-request', ` ${request} `)
     await g.page.fill('#rescue-card', ' ')
     // A review of the request withdraws whatever else was under review; one withdrawn while the witness is asked
@@ -3288,10 +3337,10 @@ test('recovery at the page: a new passkey asks, the party signs what it is shown
     // An edit while the passkey is signing withdraws it: the late signature is sent nowhere.
     const sent = (await t.witnessGet(path)).memberships.length
     await slowPasskey(g.page)
+    const gAnswers = await answers(g.page)
     await g.page.click('#rescue-sign')
     await g.page.fill('#rescue-card', '')
-    await g.page.waitForTimeout(1500)
-    await idle(g.page)
+    await answered(g.page, gAnswers)
     assert.equal(await signCount(g), gSigns + 1, 'the passkey did sign')
     assert.deepEqual([(await t.witnessGet(path)).memberships.length, await g.page.textContent('#status')], [sent, ''])
     await promptPasskey(g.page)
