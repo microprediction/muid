@@ -15,7 +15,7 @@ export function problems (yaml) {
     const uses = line.match(/^\s*-?\s*uses:\s*(\S+)/)
     if (uses && !/^[\w.-]+\/[\w.-]+(?:\/[\w./-]+)?@[0-9a-f]{40}$/.test(uses[1])) out.push(`line ${n + 1}: action not pinned by commit SHA: ${uses[1]}`)
     if (/\bpull_request_target\b/.test(line)) out.push(`line ${n + 1}: pull_request_target`)
-    if (/:\s*write\b/.test(line)) out.push(`line ${n + 1}: write permission`)
+    if (/:\s*['"]?write\b/.test(line)) out.push(`line ${n + 1}: write permission`)
     if (/\bnpm\s+(?:install|i)\b/.test(line)) out.push(`line ${n + 1}: npm install (use npm ci --ignore-scripts)`)
     if (/\bnpm\s+ci\b/.test(line) && !/--ignore-scripts\b/.test(line)) out.push(`line ${n + 1}: npm ci without --ignore-scripts`)
     if (/uses:\s*actions\/checkout@/.test(line)) {
@@ -42,6 +42,9 @@ test('the checks fire on each violation', () => {
     'short sha': ok.replace('a'.repeat(40), 'a'.repeat(7)),
     'pull_request_target': 'on: pull_request_target\n' + ok,
     'write permission': ok.replace('contents: read', 'contents: read\n  issues: write'),
+    'double-quoted write permission': ok.replace('contents: read', 'contents: read\n  issues: "write"'),
+    'single-quoted job write permission': ok.replace('    steps:', "    permissions:\n      issues: 'write'\n    steps:"),
+    'quoted job write-all': ok.replace('    steps:', '    permissions: "write-all"\n    steps:'),
     'npm install': ok + '      - run: npm install\n',
     'npm ci with scripts': ok.replace('npm ci --ignore-scripts', 'npm ci'),
     'persisted credentials': ok.replace('persist-credentials: false', 'fetch-depth: 1'),

@@ -43,9 +43,13 @@ const BANS = [
   ['async function or arrow', /\basync\b/],
   ['await', /\bawait\b/],
   ['promise chaining', /\.then\s*\(|\bPromise\b/],
-  // Reading the clock is banned; a reference such as Date.prototype.getTime (a brand check) is not a read.
-  ['wall clock', /\bDate\s*\.\s*now\b|\bnew\s+Date\b|(?<![.\w])Date\s*\(|\bperformance\s*\.\s*now\b/],
-  ['non-cryptographic randomness', /\bMath\s*\.\s*random\b/],
+  // The clock and randomness are banned by naming what holds them, so no way of reaching them (Date.now, Date['now'],
+  // new Date, Date()) is left to list; their global object, and names reached by string, are banned below.
+  ['wall clock', /(?<![.\w$])(?:Date|performance)\b/],
+  ['randomness', /\bMath\s*(?:\.\s*random\b|\[)|\b(?:crypto|getRandomValues|randomUUID|randomBytes)\b/],
+  ['the global object', /\b(?:globalThis|self|global|frames)\b/],
+  ['a member named by a string', /[\w$)\]]\s*\[\s*['"`]/],
+  ['constructor access', /\.\s*constructor\b/],
   ['browser storage', /\b(?:indexedDB|localStorage|sessionStorage)\b/],
   ['network', /\b(?:fetch|XMLHttpRequest|WebSocket)\b/],
   ['dynamic code', /\beval\s*\(|\bnew\s+Function\b|\bFunction\s*\(/],
@@ -55,6 +59,9 @@ const BANS = [
 ]
 // JSON.parse is allowed in exactly one file: the decoder.
 const JSON_PARSE_ALLOWED = new Set(['encode.js'])
+// The one use of the global object: note.js takes the platform's base64 functions from it, and nothing else.
+const GLOBAL_ALLOWED = { 'note.js': 'const { atob, btoa } = globalThis' }
+const allowed = (name, code) => GLOBAL_ALLOWED[name] === undefined ? code : code.split(GLOBAL_ALLOWED[name]).join('')
 // The only imports the core may have: noble, node built-ins none, and the core's own relative modules.
 const IMPORT = /^\s*import\b[^'"]*['"]([^'"]+)['"]/gm
 const ALLOWED_IMPORT = /^(?:\.\/[a-z0-9-]+\.js|@noble\/(?:curves|hashes)\/[a-z0-9./-]+\.js)$/
@@ -64,8 +71,8 @@ test('the core contains no banned construct', () => {
   const all = files(SRC)
   assert.ok(all.length >= 1, 'found the core')
   for (const p of all) {
-    const code = codeOnly(readFileSync(p, 'utf8'))
     const name = relative(SRC, p)
+    const code = allowed(name, codeOnly(readFileSync(p, 'utf8')))
     for (const [label, re] of BANS) if (re.test(code)) findings.push(`${name}: ${label}`)
     if (/\bJSON\s*\.\s*parse\b/.test(code) && !JSON_PARSE_ALLOWED.has(name)) findings.push(`${name}: JSON.parse outside the decoder`)
   }
@@ -94,7 +101,10 @@ test('every ban fires on an example and ignores comments and strings', () => {
     await: 'x = await y',
     'promise chaining': 'p.then(f)',
     'wall clock': 'const t = Date.now()',
-    'non-cryptographic randomness': 'Math.random()',
+    randomness: 'Math.random()',
+    'the global object': 'globalThis.x',
+    'a member named by a string': "o['k']",
+    'constructor access': 'x.constructor',
     'browser storage': 'localStorage.getItem(k)',
     network: 'fetch(u)',
     'dynamic code': 'eval(s)',
@@ -107,9 +117,16 @@ test('every ban fires on an example and ignores comments and strings', () => {
     assert.ok(re.test(codeOnly(EXAMPLES[label])), `${label} fires`)
     assert.ok(!re.test(codeOnly(`// ${EXAMPLES[label]}\n/* ${EXAMPLES[label]} */\nconst s = '${EXAMPLES[label].replace(/'/g, '')}'`)), `${label} ignores comments and strings`)
   }
-  const clock = BANS.find(([label]) => label === 'wall clock')[1]
-  for (const read of ['new Date()', 'Date(0)', 'performance.now()']) assert.ok(clock.test(read), read)
-  for (const reference of ['Date.prototype.getTime', 'x.Date(1)', 'const isDate = 1']) assert.ok(!clock.test(reference), reference)
+  // Issue #179: the clock, randomness and dynamic code reached by computed or global access, each caught.
+  const caught = (sample) => BANS.filter(([, re]) => re.test(codeOnly(sample))).map(([label]) => label)
+  for (const read of ['new Date()', 'Date(0)', 'performance.now()', "const started = Date['now']()", 'const started = globalThis.Date()',
+    "const started = globalThis['Date']['now']()", "Math['random']()", 'crypto.getRandomValues(b)', "self['fetch'](u)",
+    "[].constructor.constructor('return 1')()", 'const { now } = Date']) assert.notDeepEqual(caught(read), [], read)
+  for (const ok of ['x.Date(1)', 'const isDate = 1', 'const window = 3', 'a[i]', 'o[k]', 'class E { constructor () {} }']) {
+    assert.deepEqual(caught(ok), [], ok)
+  }
+  assert.equal(allowed('note.js', GLOBAL_ALLOWED['note.js']), '')
+  assert.equal(allowed('root.js', GLOBAL_ALLOWED['note.js']), GLOBAL_ALLOWED['note.js'], 'allowed in note.js only')
   assert.ok(ALLOWED_IMPORT.test('./encode.js') && ALLOWED_IMPORT.test('@noble/curves/ed25519.js'))
   for (const bad of ['node:fs', 'canonicalize', '../tests/x.js', '@noble/curves', 'https://x.example/a.js', './Encode.js']) {
     assert.ok(!ALLOWED_IMPORT.test(bad), bad)
