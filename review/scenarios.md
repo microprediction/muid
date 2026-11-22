@@ -186,7 +186,7 @@ filed about it.
 
 146. Every `.test.mjs` file anywhere under `tests/` is run by CI. The CI guard inventories files recursively, so a new suite at any depth that the runner does not execute makes the guard fail.
 147. No test is silently skipped, marked todo, or exits early on a condition CI always meets. The guard rejects conditional skip/todo/only options and test-context skip/todo calls, apart from the single pinned Chrome-DevTools-only test in `tests/store/ST1-store.test.mjs` that is intentionally skipped on Firefox/WebKit and run on Chrome.
-148. Every source module is mutated by exactly one mutation configuration, or by contiguous parts covering all of it.
+148. Every source module under `src/`, `adapter/`, `worker/`, `witness/`, `id/` and `demo/`, including modules in subdirectories, is mutated by exactly one mutation configuration, or by contiguous parts covering all of it.
 149. Every mutant excluded by a `Stryker disable` comment is truly equivalent, for the reason the comment gives. An inclusive array-copy loop that appends an observable `undefined` element must not be excluded.
 150. Every "twin" (a deliberately broken copy of the code) still applies to the current source and is caught by a test for the reason it names.
 151. Every check that something did not happen waits long enough for it to have happened.
