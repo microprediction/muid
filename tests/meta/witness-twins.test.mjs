@@ -137,7 +137,8 @@ const TWINS = [
   ['party-root-dropped', "a party's root record is dropped while its signature is held", [[" || (hasOwn(m.sig, 'salt') && m.sig.root === id) })", ' })']]],
   ['key-window-unchecked', 'the witness signs at a time outside its key\'s window', [["    if (!keys.some((k) => k.key === key && k.nbf <= body.at && body.at < k.exp)) throw new Error('the witness key is outside its window at the time it would sign')\n", '']]],
   ['key-window-a-second-long', "the witness signs at the second its key's window ends", [['k.nbf <= body.at && body.at < k.exp', 'k.nbf <= body.at && body.at <= k.exp']]],
-  ['dead-advanced', 'a dead identity is looked at for recoveries', [['        if (!s.ok || s.dead) break\n', '']]],
+  // No twin drops the dead-or-unknown guard before a recovery: equivalent, as witness/witness.js says where it is
+  // (such a state has no settled membership, so no record after it is of its prev), and no suite can tell.
   ['service-cancel-refused', 'the service takes no cancel', [["const SUBMITTED = ['root', 'membership', 'contest', 'freeze', 'cancel']", "const SUBMITTED = ['root', 'membership', 'contest', 'freeze']"]], 'service.js'],
   ['service-root-dropped', "the service does not pass on a party's root record", [['witness.admit(held, b.type, b.text, b.root)', 'witness.admit(held, b.type, b.text)']], 'service.js'],
   ['service-root-any-value', "a party's root record that is no text is passed on", [[" || (b.root !== undefined && typeof b.root !== 'string')) return refusal(400, 'request')", ") return refusal(400, 'request')"]], 'service.js'],
@@ -201,7 +202,7 @@ test('witness broken twins', { timeout: 5_400_000 }, async (t) => {
     // MUID_TWIN_TARGETS_ONLY=1 makes every twin, each checking that its targets occur once, and runs none: every
     // pull request does this (tests/guards/twin-targets.test.mjs), the twins themselves running nightly.
     if (process.env.MUID_TWIN_TARGETS_ONLY === '1') {
-      assert.equal(TWINS.map(([name, , edits, file]) => generate(name, edits, file)).length, 128, 'twin count')
+      assert.equal(TWINS.map(([name, , edits, file]) => generate(name, edits, file)).length, 127, 'twin count')
       return
     }
     await t.test('control: an unmodified copy, run from outside the repository, passes', async () => {
@@ -210,7 +211,7 @@ test('witness broken twins', { timeout: 5_400_000 }, async (t) => {
       assert.ok(r.pass >= 25, `control: only ${r.pass} tests ran`)
     })
     const jobs = TWINS.map(([name, why, edits, file]) => [name, why, generate(name, edits, file)])
-    assert.equal(jobs.length, 128, 'twin count')
+    assert.equal(jobs.length, 127, 'twin count')
     const results = []
     const queue = part(jobs)
     assert.ok(queue.length > 0, 'this part has twins')
