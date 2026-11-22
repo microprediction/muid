@@ -46,14 +46,14 @@ test('selection: a core module is read by every suite but the storage adapter\'s
 })
 
 test('selection: a change to the id page selects the configs whose tests load it, and only those', () => {
-  const page = [1, 2, 3, 4, 5, 6].map((i) => `stryker.id-page-${i}.config.json`)
+  const page = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((i) => `stryker.id-page-${i}.config.json`)
   const ids = [...page, 'stryker.id-records.config.json']
   const store = 'stryker.id-store.config.json'
   // The demo's tests and the worker's load id/ too (tests/id/impl.mjs), but not the page tests or their server. The storage adapter's
   // tests are served id/ by the page tests' server, and read none of the page's tests.
   for (const f of ['id/page.js', 'id/store.js', 'id/index.html', 'id/page.css', 'id/new.js']) assert.deepEqual(configs(select([f])), only(...ids, store, 'stryker.demo.config.json', 'stryker.worker.config.json'), f)
   // The records config leaves the page in Chrome to the page's config (mutation-coverage guard).
-  assert.deepEqual(configs(select(['tests/id/P2-page.test.mjs'])), page)
+  assert.deepEqual(configs(select(['tests/id/P2-page.test.mjs'])), only(...page))
   assert.deepEqual(configs(select(['tests/id/serve.mjs'])), only(...page, store))
   assert.deepEqual(configs(select(['tests/store/ST1-store.test.mjs'])), [store])
   assert.deepEqual(configs(select(['stryker.id-page-3.config.json'])), ['stryker.id-page-3.config.json'], 'a part alone')
