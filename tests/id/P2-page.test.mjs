@@ -629,21 +629,20 @@ test('another tab that creates an identity is followed here, and one is never cr
     const other = await t.tab(t.context)
     await other.waitForSelector('#create:not([hidden])')
     await t.page.bringToFront() // WebAuthn asks only a focused document
-    // While the registration is on its way the other tab, told of the root, asks the witness nothing about an
-    // identity it does not yet hold; once it is registered, it asks (R11: a recovery under notice).
+    // The other tab, told of the root, asks the witness about it at once, though its registration is still on its
+    // way (the witness may hold it: scenarios 107-108); and again once it is registered (R11: a recovery under notice).
     const asks = []
     other.on('request', (r) => { if (r.method() === 'GET' && /\/records$/.test(r.url())) asks.push(r.url()) })
     const release = t.gate()
     await t.page.fill('#name', 'test')
     await t.page.click('#create-button')
     await other.waitForSelector('#identity:not([hidden])')
-    await idle(other) // a question asked would never be answered while the witness is held, and this would not return
-    assert.deepEqual(asks, [])
+    await until(() => asks.length > 0) // asked while the witness is held
     release()
     await t.page.waitForFunction(() => document.getElementById('status').textContent === 'Registered with the witness.')
     const a = { text: await t.page.inputValue('#root-text'), identity: await t.page.textContent('#identity-id') }
-    await until(() => asks.length > 0)
-    assert.deepEqual(asks, [`${t.site.origin}/witness/v1/identities/${a.identity}/records`])
+    await until(() => asks.length > 1)
+    assert.deepEqual([...new Set(asks)], [`${t.site.origin}/witness/v1/identities/${a.identity}/records`])
     await idle(other)
     // The other tab, open since before, now shows the identity and offers no create.
     await other.waitForSelector('#identity:not([hidden])')
@@ -671,7 +670,8 @@ test('another tab that creates an identity is followed here, and one is never cr
     await change(t.page, 'root', null)
     await other.waitForSelector('#create:not([hidden])')
     assert.equal(await other.isHidden('#identity'), true)
-    assert.deepEqual(t.problems, [])
+    // The witness's 404 for the root asked about before it was registered, which the browser logs, is no problem.
+    assert.deepEqual(t.problems.filter((p) => !/status of 404/.test(p)), [])
   } finally {
     await t.close()
   }
@@ -2473,14 +2473,20 @@ test('a recovery under notice is shown on load with when it takes effect; one pr
     await t.page.reload()
     await t.page.waitForSelector('#notice-unchecked:not([hidden])')
     assert.equal(await t.page.isHidden('#recovery-notice'), true)
-    // That is said of the root it was asked about: not of another that another tab stores here, one not yet
-    // registered and so not asked about at all.
+    // That is said of the root it was asked about: not of another that another tab stores here, while the witness
+    // has yet to answer for that one; and the witness not knowing that one is no failure to answer.
     const unasked = await held(t.page, 'root')
     const stray = rootOf('u')
     const strayIdentity = rootModule.identityOf(rootModule.checkRoot(stray, { rpId }).id)
-    await change(t.page, 'root', { credential: unasked.credential, identity: strayIdentity, text: stray, registered: false })
+    t.outage()
+    const answerStray = t.gate()
+    await change(t.page, 'root', { credential: unasked.credential, identity: strayIdentity, text: stray, registered: true })
     await t.page.waitForFunction((id) => document.getElementById('identity-id').textContent === id, strayIdentity)
-    assert.equal(await t.page.isHidden('#notice-unchecked'), true, 'the witness was not asked about this root')
+    assert.equal(await t.page.isHidden('#notice-unchecked'), true, 'the witness has not answered about this root')
+    answerStray()
+    await idle(t.page)
+    assert.equal(await t.page.isHidden('#notice-unchecked'), true, 'a witness that does not know it has answered')
+    t.outage('down')
     await change(t.page, 'root', unasked)
     await t.page.waitForSelector('#notice-unchecked:not([hidden])')
     t.outage()
@@ -2507,6 +2513,17 @@ test('a recovery under notice is shown on load with when it takes effect; one pr
     assert.equal(await t.page.textContent('#notice-record'), R.id)
     assert.equal(await t.page.textContent('#notice-at'), iso(noticed.recovering.at))
     assert.equal(await t.page.textContent('#notice-matures'), iso(noticed.recovering.at + WAIT_S))
+    // A root whose registration this browser has not seen answered (the answer lost; the witness holds it) is asked
+    // about all the same, while its registration is sent again and fails (scenarios 107-108).
+    const acknowledged = await held(t.page, 'root')
+    await hold(t.page, 'root', { ...acknowledged, registered: false })
+    await t.page.route('**/v1/records', (route) => route.fulfill(NO_ANSWER))
+    await t.page.reload()
+    await t.page.waitForSelector('#pending:not([hidden])')
+    await t.page.waitForSelector('#recovery-notice:not([hidden])')
+    assert.equal(await t.page.textContent('#notice-record'), R.id)
+    await t.page.unroute('**/v1/records')
+    await hold(t.page, 'root', acknowledged)
     // On load, too; and in another tab of the browser.
     await t.page.reload()
     await t.page.waitForSelector('#recovery-notice:not([hidden])')
