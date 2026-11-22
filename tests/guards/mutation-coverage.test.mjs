@@ -65,26 +65,35 @@ test('every module under src/, adapter/, worker/, witness/, id/ and demo/ is mut
 // holding a whole part (the body of a function a part lies inside) can be held by none, and is left.
 const holds = ([first, last], { start, end }) => first <= start.line + 1 && end.line + 1 <= last
 const quiet = { isDebugEnabled: () => false, isTraceEnabled: () => false, debug () {}, trace () {}, info () {}, warn () {}, error () {} }
-async function unheld (file, ranges) {
+async function mutantsOf (file) {
   const content = readFileSync(new URL(file, ROOT), 'utf8')
   const { mutants } = await new Instrumenter(quiet).instrument([{ name: file, content, mutate: true }], { plugins: null, excludedMutations: [], ignorers: [], noHeader: true })
-  return mutants.filter((m) => !ranges.some((r) => holds(r, m.location)) &&
-    !ranges.some(([first, last]) => m.location.start.line + 1 < first && last < m.location.end.line + 1))
+  return mutants
 }
-test('every mutant of a module in parts is mutated by one part, but one holding a whole part', async () => {
+const unheld = (mutants, ranges) => mutants.filter((m) => !ranges.some((r) => holds(r, m.location)) &&
+  !ranges.some(([first, last]) => m.location.start.line + 1 < first && last < m.location.end.line + 1))
+// A part is a CI job, which must end within its 150 minutes. Measured in the nightly run, a mutant of the page took
+// up to 40 seconds and one of the witness about 9: so at most 210 and 500 a part.
+const MOST = { 'id/page.js': 210, 'witness/witness.js': 500 }
+test('every mutant of a module in parts is mutated by one part, but one holding a whole part; and no part is too long to run', async () => {
   const parts = configs.flatMap((c) => read(c).mutate).filter((e) => fileOf(e) !== e)
   const files = [...new Set(parts.map(fileOf))]
-  assert.ok(files.length >= 2)
+  assert.deepEqual(files.sort(), Object.keys(MOST).sort())
   for (const f of files) {
+    const mutants = await mutantsOf(f)
     const ranges = parts.filter((e) => fileOf(e) === f).map((e) => e.slice(f.length + 1).split('-').map(Number))
-    const left = (await unheld(f, ranges)).map((m) => `${m.mutatorName} at lines ${m.location.start.line + 1}-${m.location.end.line + 1}`)
+    const left = unheld(mutants, ranges).map((m) => `${m.mutatorName} at lines ${m.location.start.line + 1}-${m.location.end.line + 1}`)
     assert.deepEqual(left, [], `${f}: in no part`)
+    for (const r of ranges) {
+      const n = mutants.filter((m) => !m.ignoreReason && holds(r, m.location)).length
+      assert.ok(n <= MOST[f], `${f}:${r.join('-')}: ${n} mutants, more than ${MOST[f]}: divide it`)
+    }
   }
   // The negative control: a boundary inside a block leaves that block's mutant in no part.
   const lines = readFileSync(new URL('id/page.js', ROOT), 'utf8').split('\n')
   const inside = 1 + lines.findIndex((l) => /^async function stillHeld /.test(l))
   assert.ok(inside > 1)
-  assert.notDeepEqual(await unheld('id/page.js', [[1, inside + 1], [inside + 2, OPEN_END]]), [])
+  assert.notDeepEqual(unheld(await mutantsOf('id/page.js'), [[1, inside + 1], [inside + 2, OPEN_END]]), [])
 })
 
 test('every Stryker config is in exactly one CI mutation job, with the break threshold', () => {
