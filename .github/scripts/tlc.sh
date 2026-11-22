@@ -19,6 +19,8 @@ status=0
 MODE="${1:-each}"
 TMP="${RUNNER_TEMP:-/tmp}"
 # model config expectation (pass, or the property a negative control must violate)
+# A match is looked for in a here-string, not a pipe: grep -q stops at its first match, and under pipefail the
+# writer it leaves (printf, on more than a pipe's worth of output) would fail the test that had just succeeded.
 each () {
   while read -r model config expect; do
     [ -z "$model" ] && continue
@@ -26,7 +28,7 @@ each () {
     summary=$(printf '%s\n' "$out" | grep -E 'violated|No error has been found|states generated|Finished in' | tail -4)
     if [ "$expect" = pass ]; then
       if [ "$code" -ne 0 ]; then echo "::error::$config: expected no error"; printf '%s\n' "$out" | tail -60; status=1; fi
-    elif ! printf '%s\n' "$out" | grep -q "$expect is violated"; then
+    elif ! grep -q "$expect is violated" <<< "$out"; then
       echo "::error::$config: expected $expect to be violated (a negative control)"; printf '%s\n' "$out" | tail -40; status=1
     fi
     echo "$config ($expect): $summary"
@@ -39,10 +41,10 @@ sample () {
     [ -z "$model" ] && continue
     out=$(java -XX:+UseParallelGC -Dtlc2.TLC.stopAfter="$1" -cp "$JAR" tlc2.TLC -simulate -depth 80 -workers "${TLC_WORKERS:-auto}" -nowarning -metadir "$TMP/tlc-$config" -config "$config.cfg" "$model.tla" 2>&1) && code=0 || code=$?
     if [ "$expect" != sample ]; then
-      if ! printf '%s\n' "$out" | grep -q "$expect is violated"; then
+      if ! grep -q "$expect is violated" <<< "$out"; then
         echo "::error::$config: no walk broke $expect (a negative control: the walks may no longer check anything)"; printf '%s\n' "$out" | tail -20; status=1
       fi
-    elif [ "$code" -ne 0 ] || printf '%s\n' "$out" | grep -qE 'is violated|^Error:'; then
+    elif [ "$code" -ne 0 ] || grep -qE 'is violated|^Error:' <<< "$out"; then
       echo "::error::$config: a random walk found an error (the trace follows)"; printf '%s\n' "$out" | tail -200; status=1
     fi
     echo "$config ($expect, ${1}s): $(printf '%s\n' "$out" | grep -oE 'with seed -?[0-9]+|[0-9]+ states checked|Invariant \w+ is violated' | tr '\n' ' ')"
