@@ -63,7 +63,8 @@ let full = false
 const pending = { delegation: null, change: null, cosign: null, renewal: null, designation: null, recoveryCosign: null, proof: null, recover: null, rescue: null }
 
 // A change to the stored root, made only while storage holds the root it was decided for (`mine`, its id: null
-// when one is being created): another's root is adopted, never overwritten. Whether the change was made.
+// when one is being created): another's root is adopted, never overwritten, and what was shown for the one before
+// is withdrawn, as a notice of it would have it withdrawn. Whether the change was made.
 async function keepRoot (mine, change) {
   // Stryker disable next-line BooleanLiteral: equivalent; set by every update that returns
   let made = false
@@ -73,6 +74,7 @@ async function keepRoot (mine, change) {
     return made ? { value: change(r) } : undefined
   })
   root = rootOf(held)
+  if (!made) withdraw()
   show()
   return made
 }
@@ -349,7 +351,7 @@ function withdraw () {
   pending.proof = null
   pending.recover = null
   pending.rescue = null
-  for (const id of ['review-panel', 'handoff', 'add-panel', 'add-handoff', 'cosign-panel', 'renew-panel', 'renew-handoffs', 'designate-panel', 'designate-handoff', 'recovery-cosign-panel', 'proof-panel', 'proof', 'recover-panel', 'rescue-panel']) $(id).hidden = true
+  for (const id of ['review-panel', 'handoff', 'add-panel', 'add-handoff', 'cosign-panel', 'renew-panel', 'renew-handoffs', 'designate-panel', 'designate-handoff', 'recovery-cosign-panel', 'proof-panel', 'proof', 'recover-panel', 'rescue-panel', 'card']) $(id).hidden = true
   $('error').textContent = ''
 }
 

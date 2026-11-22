@@ -2701,6 +2701,35 @@ async function cardOf (g) {
   return g.page.inputValue('#card')
 }
 
+// Scenario 109: a card is of the root that made it. Another root stored, whether this page is told of it or finds it
+// when it next goes to change the root, takes the card down; that root makes its own.
+test('a recovery card is withdrawn when another root is stored here, told or found', { timeout: 120_000 }, async () => {
+  const t = await open()
+  try {
+    await createIdentity(t.page)
+    const d = await t.device()
+    const b = await createIdentity(d.page)
+    const storedB = await held(d.page, 'root')
+    const shows = (identity) => t.page.waitForFunction((id) => document.getElementById('identity-id').textContent === id, identity)
+    const a = await held(t.page, 'root')
+    // Told: the change notice withdraws it.
+    await cardOf(t)
+    await change(t.page, 'root', storedB)
+    await shows(b.identity)
+    assert.deepEqual([await t.page.isHidden('#party'), await t.page.isHidden('#card')], [false, true])
+    // Found: stored without a notice, the root is found when a card is next made, and the card shown is withdrawn.
+    await change(t.page, 'root', a)
+    await shows(a.identity)
+    await cardOf(t)
+    await hold(t.page, 'root', storedB)
+    await t.page.click('#card-make')
+    await shows(b.identity)
+    assert.deepEqual([await t.page.isHidden('#card'), await t.page.textContent('#error')], [true, ''])
+    assert.deepEqual((await held(t.page, 'root')).salts, storedB.salts, "nothing was kept for the root found")
+    assert.deepEqual(t.problems, [])
+  } finally { await t.close() }
+})
+
 test('recovery parties: a party gives a card and shows that its passkey is held; the owner designates it, checks it again, and ends the designation; the party the page made recovers', { timeout: 180_000 }, async () => {
   const t = await open()
   try {
