@@ -23,7 +23,8 @@ A request is closed here, with the issue that answered it, by whoever asked.
   #147, #149 and #150, corrected, and witness defects fixed; *The id page* (95–112), answered in #154 and #158 and
   corrected; *The page's store* (113–116), answered in #161 and corrected; *The witness service* (117–132),
   answered in #166, with inaccurate claims 121, 126 and 132 corrected and the witness defect behind 127 fixed; *Receipts and attestations* (143–145),
-  answered in #168 with no discrepancy or missing regression test found.
+  answered in #168 with no discrepancy or missing regression test found; *Tests, models and the build* (146–160),
+  answered in #171, with model/Tamarin scope corrected and the npm pack contents guarded.
 - **R2. Recovery at the id page.** `id/page.js` from "R11" onwards, with `id/records.js`: designating parties, a
   party's card and proof, the request to recover, the rescue, the notice and its cancel. Is there any path on which
   a passkey signs something other than what its panel showed, or on which the owner is not told of a recovery under
