@@ -2468,6 +2468,21 @@ test('a recovery under notice is shown on load with when it takes effect; one pr
     assert.equal(noticed.recovering.record, R.id)
     const iso = (s) => new Date(s * 1000).toISOString()
 
+    // A lost registration answer leaves this root locally pending even if the witness already holds it
+    // (as the registration test above establishes). A failed retry POST must not hide an existing notice:
+    // the independent GET is available, so the owner must still be told of the recovery.
+    const acknowledgedRoot = await held(t.page, 'root')
+    await change(t.page, 'root', { ...acknowledgedRoot, registered: false })
+    await t.page.route('**/v1/records', (route) => route.fulfill({
+      status: 503, contentType: 'application/json', body: '{"ok":false,"reason":"unavailable"}',
+    }))
+    await t.page.reload()
+    await t.page.waitForSelector('#recovery-notice:not([hidden])')
+    assert.equal(await t.page.textContent('#notice-record'), R.id, 'the notice is shown despite the pending registration')
+    assert.equal(await t.page.isHidden('#notice-unchecked'), true)
+    await t.page.unroute('**/v1/records')
+    await change(t.page, 'root', acknowledgedRoot)
+
     // The witness gives no answer: the page says it could not ask, and shows no notice it does not have.
     t.outage('down')
     await t.page.reload()
