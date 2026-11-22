@@ -1271,7 +1271,7 @@ test('a registration that fails is pending: retried with the same root, by the b
 // reload, with the change gone from the page; the witness takes the same signature again.
 test('a co-signature whose answer is lost is pending: sent again on reload and by the button', { timeout: 180_000 }, async () => {
   const t = await open()
-  const unavailable = /^Failed to load resource: the server responded with a status of 503/
+  const unavailable = /^Failed to load resource: the server responded with a status of (503|422)/
   try {
     const a = await createIdentity(t.page)
     const b = await t.device()
@@ -1307,8 +1307,24 @@ test('a co-signature whose answer is lost is pending: sent again on reload and b
     await errorShown(b.page)
     assert.equal(await b.page.inputValue('#cosign-payload'), '')
     assert.equal(await b.page.isHidden('#cosign-pending'), false)
-    // Back up: the button sends it again; the witness already holds it, and this passkey is the identity's.
+    // What the witness says of the co-signature is said while its root is held: not once another tab has stored
+    // another root here, or forgotten it (scenario 101).
     t.outage(null)
+    const joiner = await held(b.page, 'root')
+    const other = await held(t.page, 'root')
+    for (const [away, shown] of [[other, '#identity'], [null, '#create']]) {
+      const answer = await holdNext(b.page, '**/v1/records')
+      await b.page.click('#cosign-retry')
+      const give = await answer()
+      await change(b.page, 'root', away)
+      await b.page.waitForSelector(`${shown}:not([hidden])`)
+      await give(REFUSED)
+      await idle(b.page)
+      assert.deepEqual([await b.page.textContent('#error'), await b.page.textContent('#status')], ['', ''], `root ${away === null ? 'forgotten' : 'replaced'}`)
+      await change(b.page, 'root', joiner)
+      await b.page.waitForSelector('#cosign-pending:not([hidden])')
+    }
+    // Back up: the button sends it again; the witness already holds it, and this passkey is the identity's.
     await b.page.click('#cosign-retry')
     await b.page.waitForSelector('#identity:not([hidden])')
     assert.equal(await b.page.textContent('#identity-id'), a.identity)
