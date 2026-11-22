@@ -186,7 +186,7 @@ function show () {
   // own identity is asked about: not none, and not one that is joining).
   const under = noticed !== null && noticed.root === root?.id ? noticed.state : null
   $('recovery-notice').hidden = under === null
-  $('notice-unchecked').hidden = !unchecked || root === null || joining
+  $('notice-unchecked').hidden = unchecked !== root?.id || joining
   // The designation in force and the membership a party's check is made over, as the witness last gave them.
   const now = known !== null && known.root === root?.id ? known.state : null
   $('recovery-now').textContent = now === null ? 'not known' : designation(now.recovery)
@@ -260,11 +260,11 @@ async function membership () {
 }
 
 // R11: whether a recovery of this identity is under notice, asked of the witness on load and after anything that
-// may change it. `noticed` is the state it was read from, for the root it was read for; `unchecked`, that the
-// witness gave no answer, which is said: a notice not shown is then not known to be absent.
+// may change it. `noticed` is the state it was read from, for the root it was read for; `unchecked`, the root the
+// witness gave no answer for, which is said: a notice not shown is then not known to be absent.
 let noticed = null
 let known = null
-let unchecked = false
+let unchecked = null
 let asking = null // the latest question: only its answer is kept
 async function notice () {
   const r = root
@@ -283,13 +283,13 @@ async function notice () {
     // hiding that would make a recovery notice look absent when the page could not check it.
     failed = e.unknown !== true && e.message !== 'this identity has ended'
   }
-  // The root can change in another tab while its request is in flight. Its reply says nothing about the root now
-  // held here, so it must not hide or replace that root's newer notice; nor does it replace the answer to a later
-  // question about the same root, which may already be shown.
-  if (root?.id !== r.id || asked !== asking) return
+  // The root can change in another tab while its request is in flight. Its reply is kept for the root it was asked
+  // for, each part shown only while that root is held, so it says nothing of the root now held; nor does it replace
+  // the answer to a later question, about that root or another, which may already be shown.
+  if (asked !== asking) return
   noticed = s !== null && s.recovering !== null ? { root: r.id, state: s } : null
   known = { root: r.id, state: s } // no answer is a state of null: nothing is known of this root
-  unchecked = failed
+  unchecked = failed ? r.id : null
   show()
 }
 

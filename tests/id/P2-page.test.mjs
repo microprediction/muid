@@ -2457,6 +2457,16 @@ test('a recovery under notice is shown on load with when it takes effect; one pr
     await t.page.reload()
     await t.page.waitForSelector('#notice-unchecked:not([hidden])')
     assert.equal(await t.page.isHidden('#recovery-notice'), true)
+    // That is said of the root it was asked about: not of another that another tab stores here, one not yet
+    // registered and so not asked about at all.
+    const unasked = await held(t.page, 'root')
+    const stray = rootOf('u')
+    const strayIdentity = rootModule.identityOf(rootModule.checkRoot(stray, { rpId }).id)
+    await change(t.page, 'root', { credential: unasked.credential, identity: strayIdentity, text: stray, registered: false })
+    await t.page.waitForFunction((id) => document.getElementById('identity-id').textContent === id, strayIdentity)
+    assert.equal(await t.page.isHidden('#notice-unchecked'), true, 'the witness was not asked about this root')
+    await change(t.page, 'root', unasked)
+    await t.page.waitForSelector('#notice-unchecked:not([hidden])')
     t.outage()
     await t.page.click('#notice-retry')
     await t.page.waitForSelector('#recovery-notice:not([hidden])')
