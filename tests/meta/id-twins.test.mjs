@@ -57,6 +57,7 @@ const TWINS = [
   ['proofs-unchecked', "a designation is signed though a party has not shown that its passkey is held", [["    if (unshown > 0) throw new Error(`${unshown} of the parties have not shown that they hold their passkey`)\n", ""]], "page.js"],
   ['designate-edit-keeps-review', "an edit of the cards leaves the reviewed designation signable", [["'cosign-payload', 'party-cards', 'recovery-days',", "'cosign-payload', 'recovery-days',"]], "page.js"],
   ['designation-review-hides-it', "a designation is reviewed without the designation it states (I4)", [["    $('designate-recovery').textContent = designation(c.body.recovery)\n", ""]], "page.js"],
+  ['workers-raw', "workers stored as what JSON cannot write are taken for a browser that gave the page no storage", [["const text = (held) => JSON.stringify({ rev: revOf(held), workers: workersOf(held) })", "const text = (held) => JSON.stringify(held)"]], "page.js"],
   ['recheck-twice-counted', "one recovery party's card pasted twice is counted as two parties that showed they hold their passkey", [["    if (new Set(parties.map((p) => p.root)).size !== parties.length) throw new Error('a recovery party is named twice')\n", ""]], "page.js"],
   ['recheck-undesignated', "a card that is not one of the parties designated is checked as if it were", [["    if (!parties.every((p) => designated(current.recovery, p))) throw new Error(\"a card here is not one of this identity's recovery parties\")\n", ""]], "page.js"],
   ['designate-handoff-withheld', "a designation that needs another passkey is not handed over to it", [["    $('designate-handoff').hidden = c.alone\n", "    $('designate-handoff').hidden = true\n"]], "page.js"],
@@ -147,7 +148,7 @@ const TWINS = [
   ['store-tells-nobody', 'other tabs are not told of a committed update', [['      if (r.changed) channel.postMessage(key)\n', '']], 'store.js'],
   ['root-overwritten', "a root is stored over another tab's", [['    made = (r === null ? null : r.id) === mine\n', '    made = true\n']], 'page.js'],
   ['no-storage-acts', 'without storage the page still offers to act', [["    REFUSAL = 'This browser gave the page no storage: it can do nothing here.'\n", '']], 'page.js'],
-  ['list-put-back-unseen', 'a stored list put back as it was is taken for unchanged', [["      return { value: { rev: revOf(now) + 1, workers: change(workersOf(now)) } }\n", "      return { value: { rev: revOf(now), workers: change(workersOf(now)) } }\n"], ["const text = (held) => JSON.stringify(held)\n", "const text = (held) => JSON.stringify(held.absent ? null : held.value?.workers)\n"]], 'page.js'],
+  ['list-put-back-unseen', 'a stored list put back as it was is taken for unchanged', [["      return { value: { rev: revOf(now) + 1, workers: change(workersOf(now)) } }\n", "      return { value: { rev: revOf(now), workers: change(workersOf(now)) } }\n"], ["const text = (held) => JSON.stringify({ rev: revOf(held), workers: workersOf(held) })\n", "const text = (held) => JSON.stringify(workersOf(held))\n"]], 'page.js'],
   ['forget-reaches-new-key', "a Forget in a stale tab forgets the row's new key", [["list.filter((x) => x.agent !== w.agent || x.aud !== w.aud || x.subject !== w.subject)", "list.filter((x) => x.agent !== w.agent || x.aud !== w.aud)"]], 'page.js'],
   ['saved-late-handed-over', 'a worker that expired while it was saved is handed over', [["    if (pending.delegation !== r || lapsed(r.delegations)) return // withdrawn, or expired, while it was saved\n", "    if (pending.delegation !== r) return // withdrawn, or expired, while it was saved\n"]], 'page.js'],
   ['saved-withdrawn-handed-over', 'a worker withdrawn while it was saved is handed over', [["    if (pending.delegation !== r || lapsed(r.delegations)) return // withdrawn, or expired, while it was saved\n", "    if (lapsed(r.delegations)) return // withdrawn, or expired, while it was saved\n"]], 'page.js'],
@@ -226,7 +227,7 @@ test('id page broken twins', { timeout: 7_200_000 }, async (t) => {
     // MUID_TWIN_TARGETS_ONLY=1 makes every twin, each checking that its targets occur once, and runs none: every
     // pull request does this (tests/guards/twin-targets.test.mjs), the twins themselves running nightly.
     if (process.env.MUID_TWIN_TARGETS_ONLY === '1') {
-      assert.equal(TWINS.map(([name, , edits, file]) => generate(name, edits, file)).length, 160, 'twin count')
+      assert.equal(TWINS.map(([name, , edits, file]) => generate(name, edits, file)).length, 161, 'twin count')
       return
     }
     await t.test('control: an unmodified copy, run from outside the repository, passes', async () => {
@@ -235,7 +236,7 @@ test('id page broken twins', { timeout: 7_200_000 }, async (t) => {
       assert.ok(r.pass >= 14, `control: only ${r.pass} tests ran`)
     })
     const jobs = TWINS.map(([name, why, edits, file]) => [name, why, generate(name, edits, file)])
-    assert.equal(jobs.length, 160, 'twin count')
+    assert.equal(jobs.length, 161, 'twin count')
     const results = []
     const queue = part(jobs)
     assert.ok(queue.length > 0, 'this part has twins')

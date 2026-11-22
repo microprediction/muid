@@ -26,13 +26,13 @@ let store
 let root = null
 // Stryker disable next-line ArrayDeclaration: equivalent; read from storage before anything is listed
 let workers = []
-const text = (held) => JSON.stringify(held)
+const text = (held) => JSON.stringify({ rev: revOf(held), workers: workersOf(held) })
 const rootOf = (held) => held.absent ? null : storedRoot(held.value, rpId)
 // The workers are stored as { rev, workers }: `rev` is one more with every change, so that the list a review was
 // made against is told apart from an equal list reached by later changes (a key replaced and then put back).
 const workersOf = (held) => storedWorkers(held.absent ? null : held.value?.workers)
 const revOf = (held) => Number.isSafeInteger(held.value?.rev) ? held.value.rev : 0
-// `seen` is what is stored for the workers as this tab last read it: storage that differs was changed since.
+// `seen` is the workers as this tab last read them, as read (what is stored may not be JSON at all): a change since.
 let seen
 // The tab's copy of the workers is brought to what storage holds. Whatever the tab has open was reviewed against
 // the copy as it was: if the copy changes, that is withdrawn, unless the open review's own saving made the change.
