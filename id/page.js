@@ -779,7 +779,15 @@ $('recovery-cosign-sign').addEventListener('click', async () => {
   try {
     const a = await sign([c.id])
     if (pending.recoveryCosign !== c) return
-    await submit(root.identity, 'membership', rootSigned(c.payload, root.id, a))
+    // The signature was already submitted, but a reply arriving after an edit must not restore
+    // feedback for the review the person withdrew.
+    try {
+      await submit(root.identity, 'membership', rootSigned(c.payload, root.id, a))
+    } catch (e) {
+      if (pending.recoveryCosign === c) throw e
+      return
+    }
+    if (pending.recoveryCosign !== c) return
     $('status').textContent = 'Co-signed. The change settles once its contest window has passed.'
   } catch (e) { fail(e) }
 })
@@ -852,7 +860,15 @@ $('rescue-sign').addEventListener('click', async () => {
   try {
     const a = await sign([c.id])
     if (pending.rescue !== c) return
-    await submit(c.body.identity, 'membership', partySigned(c.payload, { root: root.id, salt: c.salt }, a), root.text)
+    // The witness may answer after the party has withdrawn this review. The POST cannot be
+    // taken back, but neither success nor refusal should resurrect its on-screen feedback.
+    try {
+      await submit(c.body.identity, 'membership', partySigned(c.payload, { root: root.id, salt: c.salt }, a), root.text)
+    } catch (e) {
+      if (pending.rescue === c) throw e
+      return
+    }
+    if (pending.rescue !== c) return
     $('status').textContent = 'Signed. The recovery is under notice once enough parties and the new passkey have signed.'
   } catch (e) { fail(e) }
 })
