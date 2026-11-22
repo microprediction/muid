@@ -3069,6 +3069,22 @@ test('recovery parties, two passkeys: one designates and hands the change over; 
     await b.page.click('#join-button')
     await b.page.waitForSelector('#joining:not([hidden])')
     assert.deepEqual([await b.page.isHidden('#recovery'), await b.page.isHidden('#party')], [true, true], 'a joining passkey designates nothing and is nobody\'s party')
+    // Nor by a script pressing what is not shown (scenario 105): no control in a hidden part of the page does
+    // anything; no card is made, nothing is signed or kept, and nothing is said.
+    const joiningRoot = await held(b.page, 'root')
+    const { pressed, boxes } = await b.page.evaluate(() => {
+      const hidden = [...document.querySelectorAll('[hidden] button, [hidden] input[type=checkbox]')]
+      const ticks = () => hidden.filter((el) => el.type === 'checkbox').map((el) => el.checked)
+      const before = ticks()
+      for (const el of hidden) el.click()
+      return { pressed: hidden.map((el) => el.id).filter((id) => id !== ''), boxes: [before, ticks()] }
+    })
+    assert.ok(['card-make', 'proof-review', 'proof-sign', 'rescue-review', 'rescue-sign'].every((id) => pressed.includes(id)), 'the party controls were pressed')
+    assert.ok(boxes[0].length > 0)
+    assert.deepEqual(boxes[1], boxes[0], 'no hidden checkbox changed')
+    await idle(b.page)
+    assert.deepEqual(await held(b.page, 'root'), joiningRoot, 'nothing kept')
+    assert.deepEqual([await b.page.inputValue('#card'), await b.page.inputValue('#proof'), await b.page.textContent('#error'), await b.page.textContent('#status')], ['', '', '', ''])
     const bId = rootModule.checkRoot(await b.page.inputValue('#join-root'), { rpId }).id
     await t.page.bringToFront()
     await t.page.fill('#new-root', await b.page.inputValue('#join-root'))

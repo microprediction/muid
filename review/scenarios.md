@@ -128,7 +128,7 @@ filed about it.
 102. Framed, or at an origin other than its configured one, the page offers nothing to act on.
 103. The page's Content-Security-Policy admits no inline script but the one whose hash it names, and that hash matches.
 104. No text from the witness, the store, or an input reaches the document as HTML.
-105. A joining passkey can authorise no worker, designate no party and be nobody's party.
+105. A joining passkey can authorise no worker, designate no party and be nobody's party, even by a script pressing the controls it is not shown: no control in a hidden part of the page does anything.
 106. A registration or co-signature whose answer was lost is retried with the same record, never a new passkey or signature.
 107. A recovery notice is shown on load, in every tab, to a current root with a cancel button and to the incoming root without one.
 108. When the witness cannot be asked about a recovery, the page says so rather than showing nothing.
