@@ -3027,6 +3027,11 @@ test('recovery parties: a party gives a card and shows that its passkey is held;
     await t.page.click('#recheck')
     await statusIs(t.page, '1 of 1 of these parties showed that they hold their passkey.')
     assert.equal(await t.page.textContent('#error'), '')
+    // One party pasted twice must not be reported as two parties whose possession was shown.
+    await t.page.fill('#party-cards', `${card}\n${card}`)
+    await t.page.click('#recheck')
+    await errorIs(t.page, 'a recovery party is named twice')
+    assert.equal(await t.page.textContent('#status'), '', 'no inflated proof count remains')
     await t.page.fill('#party-cards', `${card}\n${spare}`)
     await t.page.click('#recheck')
     await errorIs(t.page, "a card here is not one of this identity's recovery parties")
