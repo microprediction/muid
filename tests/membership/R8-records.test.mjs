@@ -17,6 +17,20 @@ test('the first root alone is epoch 1, settled, with authority', () => {
   assert.ok(Object.isFrozen(r) && Object.isFrozen(r.roots) && Object.isFrozen(r.authority))
 })
 
+test('membership state copies exactly the member roots, with no trailing slot', () => {
+  for (const [historySteps, expected] of [
+    [[], [rootId('a')]],
+    [[['a', 'b']], [rootId('a'), rootId('b')].sort()],
+  ]) {
+    const { records } = translate('a', history('a', historySteps))
+    const r = membershipState(records, ctx())
+    assert.equal(r.ok, true)
+    assert.deepEqual(r.roots, expected, 'all and only the member roots')
+    assert.equal(r.roots.length, expected.length)
+    assert.equal(Object.hasOwn(r.roots, expected.length), false, 'no extra undefined index')
+  }
+})
+
 test('unknown-identity when no root given is the identity\'s first root', () => {
   const { records } = translate('a', [])
   assert.deepEqual({ ...membershipState({ ...records, roots: [] }, ctx()) }, { ok: false, reason: 'unknown-identity' })
