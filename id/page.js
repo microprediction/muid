@@ -682,13 +682,21 @@ $('notice-cancel').addEventListener('click', async () => {
   // must not ask that passkey to sign. Use the same current-root test that decides which panel is shown.
   if (n === null || n.root !== root?.id || !n.state.roots.includes(n.root)) return
   $('error').textContent = ''
+  $('status').textContent = '' // what is said next is said of this signing
+  // The root it is for: another tab may store another while the passkey is asked or the witness answers, and this
+  // page then shows that one. What was signed is sent only for the root it was signed for, and only while this page
+  // holds it; nothing is said of it after.
+  const r = root
+  const mine = () => root?.id === r.id
   try {
-    const c = cancel({ identity: root.identity, state: n.state })
+    const c = cancel({ identity: r.identity, state: n.state })
     const a = await sign([c.id])
-    await submit(root.identity, 'cancel', rootSigned(c.payload, n.root, a))
+    if (!mine()) return
+    await submit(r.identity, 'cancel', rootSigned(c.payload, r.id, a))
+    if (!mine()) return
     $('status').textContent = 'Cancel sent. The notice goes once the witness has said the recovery is cancelled.'
     await notice()
-  } catch (e) { fail(e) }
+  } catch (e) { if (mine()) fail(e) }
 })
 $('notice-retry').addEventListener('click', notice)
 
