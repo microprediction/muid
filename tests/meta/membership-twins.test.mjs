@@ -93,7 +93,7 @@ function run (implPath, untilCaught = false) {
     child.stderr.on('data', seen)
     child.on('close', (code) => {
       const count = (k) => Number((out.match(new RegExp(`^# ${k} (\\d+)`, 'm')) ?? [])[1] ?? NaN)
-      resolve(caught !== undefined ? { code: 1, ...caught } : { code, pass: count('pass'), fail: count('fail') })
+      resolve(caught !== undefined ? { code: 1, ...caught } : { code, pass: count('pass'), fail: count('fail'), failed: (out.match(/^\s*not ok \d+ - .+$/gm) ?? []).map((l) => l.trim()) })
     })
   })
 }
@@ -117,7 +117,7 @@ test('membership broken twins', { timeout: 1_800_000 }, async (t) => {
   try {
     await t.test('control: an unmodified copy, run from outside the repository, passes', async () => {
       const r = await run(generate('control', []))
-      assert.equal(r.code, 0, `control: exit ${r.code}, ${r.fail} failing`)
+      assert.equal(r.code, 0, `control: exit ${r.code}, ${r.fail} failing${r.failed?.length ? ': ' + r.failed.join('; ') : ''}`)
       assert.ok(r.pass > 10, `control: only ${r.pass} tests ran`)
     })
 

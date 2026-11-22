@@ -99,7 +99,7 @@ function run (implPath) {
     child.stderr.on('data', (d) => { out += d })
     child.on('close', (code) => {
       const count = (k) => Number((out.match(new RegExp(`^# ${k} (\\d+)`, 'm')) ?? [])[1] ?? NaN)
-      resolve({ code, pass: count('pass'), fail: count('fail') })
+      resolve({ code, pass: count('pass'), fail: count('fail'), failed: (out.match(/^\s*not ok \d+ - .+$/gm) ?? []).map((l) => l.trim()) })
     })
   })
 }
@@ -123,7 +123,7 @@ test('broken twins', { timeout: 600_000 }, async (t) => {
   try {
     await t.test('control: the real encoder passes through this harness', async () => {
       const r = await run(null)
-      assert.equal(r.code, 0, `real encoder: exit ${r.code}, ${r.fail} failing`)
+      assert.equal(r.code, 0, `real encoder: exit ${r.code}, ${r.fail} failing${r.failed?.length ? ': ' + r.failed.join('; ') : ''}`)
       assert.ok(r.pass > 200, `real encoder: only ${r.pass} tests ran`)
     })
 

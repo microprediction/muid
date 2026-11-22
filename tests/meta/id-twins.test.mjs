@@ -196,7 +196,7 @@ function run (dir) {
     child.on('close', (code) => {
       clearTimeout(stop)
       const count = (k) => Number((out.match(new RegExp(`^# ${k} (\\d+)`, 'm')) ?? [])[1] ?? NaN)
-      resolve({ code, pass: count('pass'), fail: count('fail') })
+      resolve({ code, pass: count('pass'), fail: count('fail'), failed: (out.match(/^\s*not ok \d+ - .+$/gm) ?? []).map((l) => l.trim()) })
     })
   })
 }
@@ -232,7 +232,7 @@ test('id page broken twins', { timeout: 7_200_000 }, async (t) => {
     }
     await t.test('control: an unmodified copy, run from outside the repository, passes', async () => {
       const r = await run(generate('control', [], null))
-      assert.equal(r.code, 0, `control: exit ${r.code}, ${r.fail} failing`)
+      assert.equal(r.code, 0, `control: exit ${r.code}, ${r.fail} failing${r.failed?.length ? ': ' + r.failed.join('; ') : ''}`)
       assert.ok(r.pass >= 14, `control: only ${r.pass} tests ran`)
     })
     const jobs = TWINS.map(([name, why, edits, file]) => [name, why, generate(name, edits, file)])

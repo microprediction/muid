@@ -70,7 +70,7 @@ function run (dir) {
       clearTimeout(timer)
       if (signal === 'SIGKILL') return resolve({ code: null, hung: true })
       const count = (k) => Number((out.match(new RegExp(`^# ${k} (\\d+)`, 'm')) ?? [])[1] ?? NaN)
-      resolve({ code, pass: count('pass'), fail: count('fail') })
+      resolve({ code, pass: count('pass'), fail: count('fail'), failed: (out.match(/^\s*not ok \d+ - .+$/gm) ?? []).map((l) => l.trim()) })
     })
   })
 }
@@ -98,7 +98,7 @@ test('demo broken twins', { timeout: 1_800_000 }, async (t) => {
   try {
     await t.test('control: an unmodified copy, run from outside the repository, passes', async () => {
       const r = await run(generate('control', []))
-      assert.equal(r.code, 0, `control: exit ${r.code}, ${r.fail} failing${r.hung ? ', hung' : ''}`)
+      assert.equal(r.code, 0, `control: exit ${r.code}, ${r.fail} failing${r.hung ? ', hung' : ''}${r.failed?.length ? ': ' + r.failed.join('; ') : ''}`)
       assert.ok(r.pass >= 8, `control: only ${r.pass} tests ran`)
     })
     const jobs = TWINS.map(([name, why, edits, file]) => [name, why, generate(name, edits, file)])
