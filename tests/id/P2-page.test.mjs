@@ -2544,21 +2544,27 @@ test('a recovery under notice is shown on load with when it takes effect; one pr
     }
     const posts = []
     t.page.on('request', (q) => { if (q.method() === 'POST') posts.push(q.postData()) })
-    await t.page.evaluate(() => {
+    const holdPasskey = () => t.page.evaluate(() => {
       const get = navigator.credentials.get.bind(navigator.credentials)
+      globalThis.answerPasskey = undefined
       navigator.credentials.get = async (o) => {
         navigator.credentials.get = get
         await new Promise((resolve) => { globalThis.answerPasskey = resolve })
         return get(o)
       }
     })
-    await t.page.click('#notice-cancel')
-    await t.page.waitForFunction(() => globalThis.answerPasskey !== undefined)
-    await toOther()
-    await t.page.evaluate(() => globalThis.answerPasskey())
-    await idle(t.page)
-    assert.deepEqual([posts, await t.page.textContent('#status'), await t.page.textContent('#error')], [[], '', ''])
-    await back()
+    const errors = () => t.problems.filter((p) => !/status of/.test(p))
+    // Another root, or none at all (the identity forgotten there).
+    for (const away of [toOther, () => change(t.page, 'root', null).then(() => t.page.waitForSelector('#create:not([hidden])'))]) {
+      await holdPasskey()
+      await t.page.click('#notice-cancel')
+      await t.page.waitForFunction(() => globalThis.answerPasskey !== undefined)
+      await away()
+      await t.page.evaluate(() => globalThis.answerPasskey())
+      await idle(t.page)
+      assert.deepEqual([posts, await t.page.textContent('#status'), await t.page.textContent('#error'), errors()], [[], '', '', []])
+      await back()
+    }
     // The same while the witness answers the cancel sent: its answer, whichever, is said of no root.
     for (const answer of [REFUSED, TAKEN]) {
       const sent = await holdNext(t.page, '**/v1/records')
