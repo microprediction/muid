@@ -2662,6 +2662,27 @@ test('a recovery under notice is shown on load with when it takes effect; one pr
     await idle(t.page)
     await change(t.page, 'root', acknowledged)
     await t.page.waitForSelector('#recovery-notice:not([hidden])')
+    // A 404 for an identity whose records this tab has read for this root is no answer, and is said: it does not
+    // take the notice down as if it had been checked away (the witness is not trusted, SPEC §1). So whether or not
+    // the root is stored as registered (its registration's answer may have been lost).
+    let unknown = false // the witness says it does not know the identity, and takes no registration
+    const NOT_FOUND = { status: 404, contentType: 'application/json', body: '{"ok":false,"reason":"unknown-identity"}' }
+    await t.page.route(`**${path}`, (route) => unknown ? route.fulfill(NOT_FOUND) : route.fallback())
+    await t.page.route('**/v1/records', (route) => unknown ? route.fulfill(NO_ANSWER) : route.fallback())
+    for (const stored of [acknowledged, { ...acknowledged, registered: false }]) {
+      unknown = true
+      await change(t.page, 'root', stored)
+      await t.page.waitForSelector('#notice-unchecked:not([hidden])')
+      assert.equal(await t.page.isHidden('#recovery-notice'), true, 'a notice not checked is not shown as checked')
+      await idle(t.page)
+      unknown = false
+      await change(t.page, 'root', acknowledged)
+      await t.page.waitForSelector('#recovery-notice:not([hidden])')
+      await idle(t.page)
+      assert.equal(await t.page.isHidden('#notice-unchecked'), true)
+    }
+    await t.page.unroute(`**${path}`)
+    await t.page.unroute('**/v1/records')
     // On load, too; and in another tab of the browser.
     await t.page.reload()
     await t.page.waitForSelector('#recovery-notice:not([hidden])')
@@ -3608,7 +3629,22 @@ test('recovery at the page: a new passkey asks, the party signs what it is shown
     assert.equal(await g.page.textContent('#rescue-roots'), nId)
     assert.equal(await g.page.textContent('#rescue-fingerprints'), print)
     assert.match(await g.page.textContent('#rescue-recovery'), designated('1 of 1, after 3 days'))
-    assert.equal(await g.page.textContent('#rescue-wait'), '3 days after enough parties and the new passkey have signed, unless a passkey the identity has now cancels it')
+    const owned = (await current()).roots
+    assert.equal(await g.page.textContent('#rescue-removed'), owned.join(' '))
+    assert.equal(await g.page.textContent('#rescue-added'), nId)
+    assert.equal(await g.page.textContent('#rescue-wait'), '3 days after enough parties and every passkey it adds have signed, unless a passkey the identity has now cancels it')
+    // A change the parties may make that keeps every passkey and adds none (it ends the designation, scenario 82)
+    // is not said to replace any: what it removes and adds is shown, as for any membership change (I4).
+    const { recovery, ...partyOnly } = pageRecords.changeToSign(request).body
+    await g.page.fill('#rescue-request', envelope.seal('membership', { ...partyOnly, roots: owned }).payload)
+    await g.page.click('#rescue-review')
+    await g.page.waitForSelector('#rescue-panel:not([hidden])')
+    assert.deepEqual([await g.page.textContent('#rescue-removed'), await g.page.textContent('#rescue-added'), await g.page.textContent('#rescue-roots'), await g.page.textContent('#rescue-recovery')], ['none', 'none', owned.join(' '), 'none'])
+    assert.equal(await g.page.textContent('#rescue-wait'), '3 days after enough parties have signed, unless a passkey the identity has now cancels it')
+    assert.doesNotMatch(await g.page.textContent('#rescue-panel'), /replaced/)
+    await g.page.fill('#rescue-request', request)
+    await g.page.click('#rescue-review')
+    await g.page.waitForSelector('#rescue-panel:not([hidden])')
     const gSigns = await signCount(g)
     // An edit while the passkey is signing withdraws it: the late signature is sent nowhere.
     const sent = (await t.witnessGet(path)).memberships.length
@@ -3634,7 +3670,7 @@ test('recovery at the page: a new passkey asks, the party signs what it is shown
     assert.equal(await g.page.textContent('#status'), '', 'nothing said before is left standing')
     t.refusing(false)
     await g.page.click('#rescue-sign')
-    await statusIs(g.page, 'Signed. The recovery is under notice once enough parties and the new passkey have signed.')
+    await statusIs(g.page, 'Signed. The recovery is under notice once enough parties, and any passkey it adds, have signed.')
     assert.equal(await signCount(g), gSigns + 5)
     assert.equal((await current()).recovering, null, 'the new passkey has yet to sign')
 

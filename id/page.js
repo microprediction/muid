@@ -286,8 +286,10 @@ async function notice () {
   } catch (e) {
     // Only the two ordinary states in which there can be no recovery are silent: an identity the witness says it
     // does not know (404), and one that has ended. A malformed answer, or records that do not verify, is no answer:
-    // hiding that would make a recovery notice look absent when the page could not check it.
-    failed = e.unknown !== true && e.message !== 'this identity has ended'
+    // hiding that would make a recovery notice look absent when the page could not check it. So is a 404 for an
+    // identity whose records this tab has read for this root: what it read (a notice among them) is not checked away.
+    const read = known?.root === r.id && known.identity === r.identity && known.state !== null
+    failed = (e.unknown !== true || read) && e.message !== 'this identity has ended'
   }
   // The root can change in another tab while its request is in flight. Its reply is kept for the root it was asked
   // for, each part shown only while that root is held, so it says nothing of the root now held; nor does it replace
@@ -864,11 +866,17 @@ $('rescue-review').addEventListener('click', async () => {
     if (asked !== withdrawals) return // withdrawn while the witness was asked
     const c = rescue(payload, { state: current, root: mine.id, salts: [...(mine.salts ?? []), ...back.map((p) => p.salt)] })
     pending.rescue = c
+    // I4: what the change removes and adds, against the membership it follows (which the change names as its prev).
+    // A recovery need not replace every passkey, nor add one: it may change only the designation (scenario 82).
+    const removed = current.roots.filter((x) => !c.body.roots.includes(x))
+    const added = c.body.roots.filter((x) => !current.roots.includes(x))
     $('rescue-identity').textContent = c.body.identity
+    $('rescue-removed').textContent = removed.length === 0 ? 'none' : removed.join(' ')
+    $('rescue-added').textContent = added.length === 0 ? 'none' : added.join(' ')
     $('rescue-roots').textContent = c.body.roots.join(' ')
     $('rescue-fingerprints').textContent = c.body.roots.map(fingerprint).join(', ')
     $('rescue-recovery').textContent = designation(c.body.recovery)
-    $('rescue-wait').textContent = `${wait(c.window)} after enough parties and the new passkey have signed, unless a passkey the identity has now cancels it`
+    $('rescue-wait').textContent = `${wait(c.window)} after enough parties${added.length === 0 ? '' : ' and every passkey it adds'} have signed, unless a passkey the identity has now cancels it`
     $('rescue-panel').hidden = false
   } catch (e) { if (asked === withdrawals) fail(e) }
 })
@@ -882,7 +890,7 @@ $('rescue-sign').addEventListener('click', async () => {
     if (pending.rescue !== c) return
     await submit(c.body.identity, 'membership', partySigned(c.payload, { root: root.id, salt: c.salt }, a), root.text)
     if (pending.rescue !== c) return // sent, but a late answer to what was withdrawn is not shown
-    $('status').textContent = 'Signed. The recovery is under notice once enough parties and the new passkey have signed.'
+    $('status').textContent = 'Signed. The recovery is under notice once enough parties, and any passkey it adds, have signed.'
   } catch (e) { if (pending.rescue === c) fail(e) }
 })
 

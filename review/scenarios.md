@@ -110,7 +110,7 @@ filed about it.
 87. Two different recoveries for one identity cannot both be under notice.
 88. A recovery cannot be contested into ending the identity by anyone but those the spec allows.
 89. An ordinary change signed by the roots while a recovery is under notice has the effect the spec states, and cannot be used by the parties to shorten the wait.
-90. A recovery carries the designation forward or ends it exactly as its payload states, and that is what was shown to each signer.
+90. A recovery carries the designation forward or ends it exactly as its payload states, and that is what was shown to each signer, with the passkeys it removes and adds (none, when it changes only the designation): it is not said to replace passkeys it keeps.
 91. The witness's notice, cancelled and matured statements cannot be given for a record it does not hold.
 92. A verifier checks the signature, shape, freshness and usual consistency of a head carrying a notice, but `lastHead` alone cannot detect a backdated notice. Recovery timing trusts the witness; auditing such timing requires independent monitoring of logged heads.
 93. A party that has given out the maximum number of recovery cards gives no more and loses none.
@@ -131,7 +131,7 @@ filed about it.
 105. A joining passkey can authorise no worker, designate no party and be nobody's party, even by a script pressing the controls it is not shown: no control in a hidden part of the page does anything.
 106. A registration or co-signature whose answer was lost is retried with the same record, never a new passkey or signature.
 107. A recovery notice is shown on load, in every tab, to a current root with a cancel button and to the incoming root without one; also while this browser has yet to see its root's registration answered, and whatever else its storage holds (workers stored as what JSON cannot write are no workers, not a browser without storage).
-108. When the witness cannot be asked about a recovery, the page says so rather than showing nothing.
+108. When the witness cannot be asked about a recovery, the page says so rather than showing nothing; a 404 for an identity whose records the tab has read for that root is no answer either.
 109. The page never shows a notice, designation, code or recovery card that was read or made for a root it no longer holds, or for the same root held for another identity, nor says the witness gave no answer about a root it did not ask about; nor hands over or sends what a passkey signed while another tab replaced its root or held it for another identity.
 110. The fingerprint shown on the joining device and on the adding device is derived the same way from the same root, and is long enough that a second root matching it is infeasible to find.
 111. Worker keys are accepted only when their bytes form a canonical, prime-order Ed25519 public point; malformed key encodings are refused before storage or submission. A raw 32-byte private seed can accidentally encode such a point, so its bytes alone cannot reliably distinguish it from a public key.

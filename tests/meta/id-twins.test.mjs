@@ -86,8 +86,8 @@ const TWINS = [
   ['recover-edit-keeps-review', "an edit of the identity leaves the reviewed recovery signable", [["'proof-code', 'recover-identity',", "'proof-code',"]], 'page.js'],
   ['new-root-record-not-given', "the new passkey's root record is never given to the witness, so its signature is never taken", [["      if (e.message !== 'the witness refused the membership: root-missing') throw e\n", "      throw e\n"]], 'page.js'],
   ['incoming-offered-cancel', "the passkey a recovery would install is offered a cancel it cannot make", [["    $('notice-own').hidden = !own\n", "    $('notice-own').hidden = false\n"]], 'page.js'],
-  ['broken-answer-silent', 'an answer about recoveries that cannot be read is taken for no recovery', [["    failed = e.unknown !== true && e.message !== 'this identity has ended'\n", "    failed = e.message === 'the witness did not answer' || e instanceof TypeError\n"]], 'page.js'],
-  ['unverified-answer-silent', 'records served that do not verify are taken for an identity the witness does not know', [["    failed = e.unknown !== true && e.message !== 'this identity has ended'\n", "    failed = e.message !== 'the witness holds no record of this identity' && e.message !== 'this identity has ended'\n"]], 'page.js'],
+  ['broken-answer-silent', 'an answer about recoveries that cannot be read is taken for no recovery', [["    failed = (e.unknown !== true || read) && e.message !== 'this identity has ended'\n", "    failed = e.message === 'the witness did not answer' || e instanceof TypeError\n"]], 'page.js'],
+  ['unverified-answer-silent', 'records served that do not verify are taken for an identity the witness does not know', [["    failed = (e.unknown !== true || read) && e.message !== 'this identity has ended'\n", "    failed = e.message !== 'the witness holds no record of this identity' && e.message !== 'this identity has ended'\n"]], 'page.js'],
   ['unchecked-of-another-root', "that the witness gave no answer about one root is said of another held after it", [["  $('notice-unchecked').hidden = !isFor(unchecked) || joining\n", "  $('notice-unchecked').hidden = unchecked === null || joining\n"]], 'page.js'],
   ['notice-of-another-identity', "what the witness said of a root in one identity is shown for the same root stored in another", [["x.root === root?.id && x.identity === root.identity", "x.root === root?.id"]], 'page.js'],
   ['unacknowledged-not-asked', "a root whose registration answer was lost is not asked about, so a recovery of it is not shown", [["  if (r === null || r.joining === true) return\n", "  if (r === null || r.joining === true || r.registered !== true) return\n"]], 'page.js'],
@@ -157,6 +157,9 @@ const TWINS = [
   ['store-tells-nobody', 'other tabs are not told of a committed update', [['      if (r.changed) channel.postMessage(key)\n', '']], 'store.js'],
   ['root-overwritten', "a root is stored over another tab's", [['    made = same(r, mine)\n', '    made = true\n']], 'page.js'],
   ['keep-identity-blind', 'a root held now for another identity is changed as if it were the one decided for', [['    made = same(r, mine)\n', '    made = r?.id === mine?.id\n']], 'page.js'],
+  ['unknown-after-read', 'a 404 for an identity whose records were read here takes its notice down unsaid', [["    failed = (e.unknown !== true || read) && e.message", "    failed = e.unknown !== true && e.message"]], 'page.js'],
+  ['rescue-wait-adds', 'a recovery that adds no passkey says it waits for the passkeys it adds', [["${added.length === 0 ? '' : ' and every passkey it adds'}", " and every passkey it adds"]], 'page.js'],
+  ['rescue-removes-all', 'a recovery that keeps every passkey is shown removing them', [["$('rescue-removed').textContent = removed.length === 0 ? 'none' : ", "$('rescue-removed').textContent = "]], 'page.js'],
   ['no-storage-acts', 'without storage the page still offers to act', [["    REFUSAL = 'This browser gave the page no storage: it can do nothing here.'\n", '']], 'page.js'],
   ['list-put-back-unseen', 'a stored list put back as it was is taken for unchanged', [["      return { value: { rev: revOf(now) + 1, workers: change(workersOf(now)) } }\n", "      return { value: { rev: revOf(now), workers: change(workersOf(now)) } }\n"], ["const text = (held) => JSON.stringify({ rev: revOf(held), workers: workersOf(held) })\n", "const text = (held) => JSON.stringify(workersOf(held))\n"]], 'page.js'],
   ['forget-reaches-new-key', "a Forget in a stale tab forgets the row's new key", [["list.filter((x) => x.agent !== w.agent || x.aud !== w.aud || x.subject !== w.subject)", "list.filter((x) => x.agent !== w.agent || x.aud !== w.aud)"]], 'page.js'],
@@ -237,7 +240,7 @@ test('id page broken twins', { timeout: 7_200_000 }, async (t) => {
     // MUID_TWIN_TARGETS_ONLY=1 makes every twin, each checking that its targets occur once, and runs none: every
     // pull request does this (tests/guards/twin-targets.test.mjs), the twins themselves running nightly.
     if (process.env.MUID_TWIN_TARGETS_ONLY === '1') {
-      assert.equal(TWINS.map(([name, , edits, file]) => generate(name, edits, file)).length, 171, 'twin count')
+      assert.equal(TWINS.map(([name, , edits, file]) => generate(name, edits, file)).length, 174, 'twin count')
       return
     }
     await t.test('control: an unmodified copy, run from outside the repository, passes', async () => {
@@ -246,7 +249,7 @@ test('id page broken twins', { timeout: 7_200_000 }, async (t) => {
       assert.ok(r.pass >= 14, `control: only ${r.pass} tests ran`)
     })
     const jobs = TWINS.map(([name, why, edits, file]) => [name, why, generate(name, edits, file)])
-    assert.equal(jobs.length, 171, 'twin count')
+    assert.equal(jobs.length, 174, 'twin count')
     const results = []
     const queue = part(jobs)
     assert.ok(queue.length > 0, 'this part has twins')
