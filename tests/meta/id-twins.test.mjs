@@ -58,6 +58,12 @@ const TWINS = [
   ['designate-edit-keeps-review', "an edit of the cards leaves the reviewed designation signable", [["'cosign-payload', 'party-cards', 'recovery-days',", "'cosign-payload', 'recovery-days',"]], "page.js"],
   ['designation-review-hides-it', "a designation is reviewed without the designation it states (I4)", [["    $('designate-recovery').textContent = designation(c.body.recovery)\n", ""]], "page.js"],
   ['workers-raw', "workers stored as what JSON cannot write are taken for a browser that gave the page no storage", [["const text = (held) => JSON.stringify({ rev: revOf(held), workers: workersOf(held) })", "const text = (held) => JSON.stringify(held)"]], "page.js"],
+  ["late-refusal-delegation", "a passkey's refusal that comes after its worker's review was withdrawn is said", [["if (pending.delegation === r) fail(e) }", "fail(e) }"]], "page.js"],
+  ["late-refusal-renewal", "a passkey's refusal that comes after its renewal was withdrawn is said", [["if (pending.renewal === r) fail(e) }", "fail(e) }"]], "page.js"],
+  ["late-refusal-cosign", "a passkey's refusal that comes after its co-signing was withdrawn is said", [["if (pending.cosign === c) fail(e); return }", "fail(e); return }"]], "page.js"],
+  ["late-refusal-recover", "a passkey's refusal that comes after its recovery request was withdrawn is said", [["if (pending.recover === c) fail(e); return }", "fail(e); return }"]], "page.js"],
+  ["late-refusal-proof", "a passkey's refusal that comes after its possession check was withdrawn is said", [["if (pending.proof === p) fail(e) }", "fail(e) }"]], "page.js"],
+  ["root-changed-unsaid", "a review withdrawn because another tab replaced the root says nothing of why", [["  fail(e)\n  throw e\n", "  throw e\n"]], "page.js"],
   ['recheck-twice-counted', "one recovery party's card pasted twice is counted as two parties that showed they hold their passkey", [["    if (new Set(parties.map((p) => p.root)).size !== parties.length) throw new Error('a recovery party is named twice')\n", ""]], "page.js"],
   ['recheck-undesignated', "a card that is not one of the parties designated is checked as if it were", [["    if (!parties.every((p) => designated(current.recovery, p))) throw new Error(\"a card here is not one of this identity's recovery parties\")\n", ""]], "page.js"],
   ['designate-handoff-withheld', "a designation that needs another passkey is not handed over to it", [["    $('designate-handoff').hidden = c.alone\n", "    $('designate-handoff').hidden = true\n"]], "page.js"],
@@ -227,7 +233,7 @@ test('id page broken twins', { timeout: 7_200_000 }, async (t) => {
     // MUID_TWIN_TARGETS_ONLY=1 makes every twin, each checking that its targets occur once, and runs none: every
     // pull request does this (tests/guards/twin-targets.test.mjs), the twins themselves running nightly.
     if (process.env.MUID_TWIN_TARGETS_ONLY === '1') {
-      assert.equal(TWINS.map(([name, , edits, file]) => generate(name, edits, file)).length, 161, 'twin count')
+      assert.equal(TWINS.map(([name, , edits, file]) => generate(name, edits, file)).length, 167, 'twin count')
       return
     }
     await t.test('control: an unmodified copy, run from outside the repository, passes', async () => {
@@ -236,7 +242,7 @@ test('id page broken twins', { timeout: 7_200_000 }, async (t) => {
       assert.ok(r.pass >= 14, `control: only ${r.pass} tests ran`)
     })
     const jobs = TWINS.map(([name, why, edits, file]) => [name, why, generate(name, edits, file)])
-    assert.equal(jobs.length, 161, 'twin count')
+    assert.equal(jobs.length, 167, 'twin count')
     const results = []
     const queue = part(jobs)
     assert.ok(queue.length > 0, 'this part has twins')
