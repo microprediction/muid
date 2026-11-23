@@ -2610,6 +2610,21 @@ test('a recovery under notice is shown on load with when it takes effect; one pr
     assert.equal(await t.page.textContent('#notice-record'), R.id)
     assert.equal(await t.page.textContent('#notice-at'), iso(noticed.recovering.at))
     assert.equal(await t.page.textContent('#notice-matures'), iso(noticed.recovering.at + WAIT_S))
+    // A later unauthenticated 404 cannot silently erase a verified active notice: the owner keeps the
+    // Cancel action and sees that the witness could not recheck it. A successful retry clears the warning.
+    const previouslyNoticedRoot = await held(t.page, 'root')
+    await t.page.route('**/v1/identities/*/records', (route) => route.fulfill({
+      status: 404, contentType: 'application/json', body: '{}',
+    }))
+    await change(t.page, 'root', previouslyNoticedRoot)
+    await t.page.waitForSelector('#notice-unchecked:not([hidden])')
+    assert.equal(await t.page.isHidden('#recovery-notice'), false, 'last verified notice remains visible')
+    assert.equal(await t.page.textContent('#notice-record'), R.id)
+    assert.equal(await t.page.isHidden('#notice-cancel'), false, 'owner can still sign a cancel')
+    await t.page.unroute('**/v1/identities/*/records')
+    await t.page.click('#notice-retry')
+    await t.page.waitForSelector('#notice-unchecked', { state: 'hidden' })
+    assert.equal(await t.page.isHidden('#recovery-notice'), false)
     // A root whose registration this browser has not seen answered (the answer lost; the witness holds it) is asked
     // about all the same, while its registration is sent again and fails (scenarios 107-108).
     const acknowledged = await held(t.page, 'root')
