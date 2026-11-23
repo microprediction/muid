@@ -376,6 +376,9 @@ test('the assertion requires user verification: without it, nothing is handed ov
     await t.page.waitForFunction(() => document.getElementById('error').textContent !== '')
     assert.equal(await t.page.textContent('#error'), 'The passkey request was cancelled.')
     assert.equal(await t.page.isHidden('#handoff'), true)
+    await refusedLate(t.page, '#sign', () => t.page.dispatchEvent('#agent', 'input'))
+    await t.page.click('#review')
+    await t.page.waitForSelector('#review-panel:not([hidden])')
     // Back on an authenticator that verifies the user, signing again hands it over, and the error is gone.
     await t.cdp.send('WebAuthn.removeVirtualAuthenticator', { authenticatorId })
     const again = await t.cdp.send('WebAuthn.addVirtualAuthenticator', { options: { protocol: 'ctap2', transport: 'internal',
@@ -1294,6 +1297,9 @@ test('a co-signature whose answer is lost is pending: sent again on reload and b
     assert.equal(await b.page.isHidden('#cosign-pending'), true, 'nothing kept')
     assert.equal((await t.witnessGet(`/v1/identities/${a.identity}/records`)).memberships.length, 1, 'nothing sent')
     await b.cdp.send('WebAuthn.setUserVerified', { authenticatorId: b.authenticatorId, isUserVerified: true })
+    await refusedLate(b.page, '#cosign-sign', () => b.page.dispatchEvent('#cosign-payload', 'input'))
+    await b.page.click('#cosign-review')
+    await b.page.waitForSelector('#cosign-panel:not([hidden])')
     t.outage('lost')
     await b.page.click('#cosign-sign')
     await errorShown(b.page)
@@ -1648,6 +1654,10 @@ test('renewal: a change of selection while the passkey is signing withdraws it: 
     await errorShown(t.page)
     assert.equal(await t.page.textContent('#error'), 'The passkey request was cancelled.')
     assert.equal(await t.page.isHidden('#renew-handoffs'), true)
+    await refusedLate(t.page, '#renew-sign', async () => {
+      await t.page.click('#renew-review')
+      await t.page.waitForSelector('#renew-panel:not([hidden])')
+    })
     await t.page.evaluate(() => { globalThis.refusing = false })
     await t.page.click('#renew-sign')
     await t.page.waitForSelector('#renew-handoffs:not([hidden])')
@@ -2787,6 +2797,26 @@ const slowPasskey = (page) => page.evaluate(() => {
   navigator.credentials.get = async (o) => { await new Promise((resolve) => setTimeout(resolve, 500)); return get(o) }
 })
 const promptPasskey = (page) => page.evaluate(() => globalThis.prompt())
+// The passkey is asked when `sign` is pressed, and refuses only after `edit` has withdrawn what it was asked for:
+// nothing is said of it (scenario 99).
+async function refusedLate (page, sign, edit) {
+  await page.evaluate(() => {
+    const get = navigator.credentials.get.bind(navigator.credentials)
+    globalThis.asked = new Promise((resolve) => {
+      navigator.credentials.get = () => new Promise((_, reject) => {
+        navigator.credentials.get = get
+        globalThis.refuse = () => reject(new Error('a late refusal'))
+        resolve()
+      })
+    })
+  })
+  await page.click(sign)
+  await page.evaluate(() => globalThis.asked)
+  await edit()
+  await page.evaluate(() => globalThis.refuse())
+  await idle(page)
+  assert.equal(await page.textContent('#error'), '', `${sign}: a late refusal of what was withdrawn`)
+}
 // The page's next request matching `url` is held: `held()` resolves once it is made, with the function that lets it go.
 async function holdNext (page, url) {
   let made
@@ -2979,6 +3009,8 @@ test('recovery parties: a party gives a card and shows that its passkey is held;
     })
     await g.page.click('#proof-sign')
     await errorIs(g.page, 'the passkey failed')
+    assert.equal(await g.page.isHidden('#proof'), true)
+    await refusedLate(g.page, '#proof-sign', () => g.page.dispatchEvent('#proof-code', 'input'))
     assert.equal(await g.page.isHidden('#proof'), true)
     const proof = await proofOf(g, code)
     assert.equal(await signCount(g), gSigns + 2, 'nothing was signed before the review')
@@ -3420,6 +3452,9 @@ test('recovery at the page: a new passkey asks, the party signs what it is shown
     })
     await n.page.click('#recover-sign')
     await errorIs(n.page, 'the passkey failed')
+    await refusedLate(n.page, '#recover-sign', () => n.page.dispatchEvent('#recover-identity', 'input'))
+    assert.equal((await held(n.page, 'root')).cosigned, undefined)
+    await review()
     await slowPasskey(n.page)
     const nAnswers = await answers(n.page)
     await n.page.click('#recover-sign')

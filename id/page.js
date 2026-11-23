@@ -306,7 +306,10 @@ async function stillHeld () {
   withdraw()
   show()
   notice()
-  throw new Error('The passkey for this page was changed in another tab: review again.')
+  // Said here, where what was reviewed is withdrawn: the caller says nothing of what was withdrawn (as lapsed does).
+  const e = new Error('The passkey for this page was changed in another tab: review again.')
+  fail(e)
+  throw e
 }
 // One user-verified assertion by this identity's own passkey over the records in `covers` (W1).
 async function signed (covers, extensions) {
@@ -482,7 +485,7 @@ async function signDelegation () {
       const first = secret ? prfOutput(s.extensions.prf?.results?.first) : null
       location.assign(answer(request, lines, first === null ? null : await sealSecret(first, request)))
     }
-  } catch (e) { fail(e) }
+  } catch (e) { if (pending.delegation === r) fail(e) } // nor is a late refusal of what was withdrawn
 }
 $('sign').addEventListener('click', () => signDelegation())
 
@@ -595,7 +598,7 @@ $('renew-sign').addEventListener('click', async () => {
       return [t, b]
     }))
     $('renew-handoffs').hidden = false
-  } catch (e) { fail(e) }
+  } catch (e) { if (pending.renewal === r) fail(e) } // nor is a late refusal of what was withdrawn
 })
 
 $('add-review').addEventListener('click', async () => {
@@ -656,7 +659,7 @@ $('cosign-sign').addEventListener('click', async () => {
     if (pending.cosign !== c) return
     // Kept before the witness is asked, as a registration is, so that a lost answer is sent again, not lost.
     if (!await keepRoot(mine, (kept) => ({ ...kept, cosigned: rootSigned(c.payload, mine, a) }))) return
-  } catch (e) { fail(e); return }
+  } catch (e) { if (pending.cosign === c) fail(e); return } // nor is a late refusal of what was withdrawn
   await cosign()
 })
 
@@ -837,7 +840,7 @@ $('recover-sign').addEventListener('click', async () => {
     const a = await sign([c.id])
     if (pending.recover !== c) return
     if (!await keepRoot(added, (now) => ({ ...now, cosigned: rootSigned(c.payload, added, a) }))) return
-  } catch (e) { fail(e); return }
+  } catch (e) { if (pending.recover === c) fail(e); return } // nor is a late refusal of what was withdrawn
   await cosign()
 })
 
@@ -913,7 +916,7 @@ $('proof-sign').addEventListener('click', async () => {
     if (pending.proof !== p) return
     $('proof').value = JSON.stringify(a)
     $('proof').hidden = false
-  } catch (e) { fail(e) }
+  } catch (e) { if (pending.proof === p) fail(e) } // nor is a late refusal of what was withdrawn
 })
 
 // A control the page does not show does nothing (I4: what is signed is what was shown), even pressed by a script:
