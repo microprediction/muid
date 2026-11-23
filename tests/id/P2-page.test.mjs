@@ -875,12 +875,12 @@ test('a co-signature is kept, and its root made the identity\'s, only for the ro
     await t.page.waitForSelector('#add-handoff:not([hidden])')
     const payload = await t.page.inputValue('#add-handoff')
     const posted = []
-    let swap = false
+    let swap = null // what another tab stores while the witness is asked
     await b.page.route('**/v1/records', async (route) => {
       posted.push(route.request().postDataJSON().type)
-      if (swap) {
-        await change(b.page, 'root', other)
-        await b.page.waitForFunction((text) => document.getElementById('join-root').value === text, other.text)
+      if (swap !== null) {
+        await change(b.page, 'root', swap)
+        if (swap === other) await b.page.waitForFunction((text) => document.getElementById('join-root').value === text, other.text)
         // From here the page's next write to its store is the one that follows the witness's answer.
         await b.page.evaluate(() => { globalThis.from = globalThis.begun })
       }
@@ -938,7 +938,7 @@ test('a co-signature is kept, and its root made the identity\'s, only for the ro
     await change(b.page, 'root', mine)
     await b.page.waitForFunction((text) => document.getElementById('join-root').value === text, mine.text)
     await review()
-    swap = true
+    swap = other
     // The page's writes to its store are counted as they begin and noted as they end, so that the one after the
     // witness's answer is waited for: until then a page that marks the wrong root has not yet done so.
     await b.page.evaluate(() => {
@@ -958,6 +958,17 @@ test('a co-signature is kept, and its root made the identity\'s, only for the ro
     assert.equal(await b.page.inputValue('#join-root'), other.text)
     assert.deepEqual(posted, ['membership'])
     assert.deepEqual(await held(b.page, 'root'), other, 'the other root is not made the identity\'s')
+    assert.equal(await b.page.textContent('#status'), '', 'nor said to be co-signed')
+    // The same, when what is stored meanwhile is this root, held for another identity: it is left so.
+    await change(b.page, 'root', mine)
+    await b.page.waitForFunction((text) => document.getElementById('join-root').value === text, mine.text)
+    await review()
+    swap = { ...mine, identity: other.identity }
+    await b.page.evaluate(() => { globalThis.from = undefined })
+    await b.page.click('#cosign-sign')
+    await b.page.waitForFunction(() => globalThis.from !== undefined && globalThis.ended >= globalThis.from)
+    assert.deepEqual(posted, ['membership', 'membership'])
+    assert.deepEqual(await held(b.page, 'root'), swap, 'this root, held for another identity, is not made this one\'s')
     assert.equal(await b.page.textContent('#status'), '', 'nor said to be co-signed')
     assert.deepEqual(t.problems, [])
   } finally {

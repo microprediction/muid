@@ -62,15 +62,16 @@ let reviewed = false
 let full = false
 const pending = { delegation: null, change: null, cosign: null, renewal: null, designation: null, recoveryCosign: null, proof: null, recover: null, rescue: null }
 
-// A change to the stored root, made only while storage holds the root it was decided for (`mine`, its id: null
-// when one is being created): another's root is adopted, never overwritten, and what was shown for the one before
-// is withdrawn, as a notice of it would have it withdrawn. Whether the change was made.
+// A change to the stored root, made only while storage holds the root it was decided for (`mine`, for the identity
+// it was then held for: null when one is being created): another's root, or this one held for another identity, is
+// adopted, never overwritten, and what was shown for the one before is withdrawn, as a notice of it would have it
+// withdrawn. Whether the change was made.
 async function keepRoot (mine, change) {
   // Stryker disable next-line BooleanLiteral: equivalent; set by every update that returns
   let made = false
   const held = await store.update(KEY, (now) => {
     const r = rootOf(now)
-    made = (r === null ? null : r.id) === mine
+    made = same(r, mine)
     return made ? { value: change(r) } : undefined
   })
   root = rootOf(held)
@@ -401,7 +402,7 @@ async function register () {
   const r = root // the root sent: only it is marked, whatever this tab holds by the time the witness answers
   try {
     await submit(r.identity, 'root', r.text)
-    if (await keepRoot(r.id, (kept) => ({ ...kept, registered: true }))) $('status').textContent = 'Registered with the witness.'
+    if (await keepRoot(r, (kept) => ({ ...kept, registered: true }))) $('status').textContent = 'Registered with the witness.'
   } catch (e) { fail(e); return }
   // Now the witness knows the identity: what it holds for it (its designation, a recovery under notice) is asked.
   notice()
@@ -654,12 +655,12 @@ $('cosign-sign').addEventListener('click', async () => {
   const c = pending.cosign
   if (c === null) return
   $('error').textContent = ''
-  const mine = root.id // the root whose passkey signs
+  const mine = root // the root whose passkey signs
   try {
     const a = await sign([c.id])
     if (pending.cosign !== c) return
     // Kept before the witness is asked, as a registration is, so that a lost answer is sent again, not lost.
-    if (!await keepRoot(mine, (kept) => ({ ...kept, cosigned: rootSigned(c.payload, mine, a) }))) return
+    if (!await keepRoot(mine, (kept) => ({ ...kept, cosigned: rootSigned(c.payload, mine.id, a) }))) return
   } catch (e) { if (pending.cosign === c) fail(e); return } // nor is a late refusal of what was withdrawn
   await cosign()
 })
@@ -681,7 +682,7 @@ async function cosign () {
       await submit(identity, 'root', r.text)
       await submit(identity, 'membership', r.cosigned)
     }
-    if (await keepRoot(r.id, ({ cosigned, ...rest }) => ({ ...rest, identity, joining: false, registered: true }))) {
+    if (await keepRoot(r, ({ cosigned, ...rest }) => ({ ...rest, identity, joining: false, registered: true }))) {
       $('status').textContent = 'Co-signed. The change settles once its contest window has passed.'
     }
   } catch (e) { if (mine()) fail(e); return }
@@ -837,10 +838,11 @@ $('recover-sign').addEventListener('click', async () => {
   if (c === null) return
   $('error').textContent = ''
   const added = c.added // this passkey's root, as it was when the request was made
+  const mine = root // held so since: the request is withdrawn when it is not
   try {
     const a = await sign([c.id])
     if (pending.recover !== c) return
-    if (!await keepRoot(added, (now) => ({ ...now, cosigned: rootSigned(c.payload, added, a) }))) return
+    if (!await keepRoot(mine, (now) => ({ ...now, cosigned: rootSigned(c.payload, added, a) }))) return
   } catch (e) { if (pending.recover === c) fail(e); return } // nor is a late refusal of what was withdrawn
   await cosign()
 })
@@ -891,7 +893,7 @@ $('card-make').addEventListener('click', async () => {
   const r = root
   try {
     const salt = newSalt()
-    if (!await keepRoot(r.id, (now) => ({ ...now, salts: kept(now.salts, salt) }))) return
+    if (!await keepRoot(r, (now) => ({ ...now, salts: kept(now.salts, salt) }))) return
     if (!root.salts.includes(salt)) throw new Error(`this passkey has given out ${MAX_SALTS} recovery cards, the most it keeps`)
     $('card').value = card(r.text, salt)
     $('card').hidden = false
