@@ -258,6 +258,22 @@ export function currentMembership (records, ctx) {
   return { membership: s.membership, epoch: s.epoch, roots: [...s.roots], authority: [...s.authority], pending: s.pending, recovery, recovering }
 }
 
+// R11: whether `records` leave out the recovery notice that records read before (`earlier`, already verified) gave,
+// without what ends it. A notice ends only with something the witness then holds: its cancel stated, the recovery
+// anchored, a later membership settled; so taken with what was read before, those records end it. Records that only
+// leave it out, as an older answer replayed does, do not (issue #243): what was read bounds rollback, as a stored
+// head does for the verifier (TUF's rule). The lists are joined, each text once; one the core refuses throws.
+export function withheld (earlier, records, ctx) {
+  const before = currentMembership(earlier, ctx).recovering
+  if (before === null || currentMembership(records, ctx).recovering?.record === before.record) return false
+  const both = {}
+  for (const k of new Set([...Object.keys(earlier), ...Object.keys(records)])) {
+    // Stryker disable next-line ArrayDeclaration: equivalent; a stray element is not a record and is ignored
+    both[k] = [...new Set([earlier[k], records[k]].flatMap((x) => Array.isArray(x) ? x : []))]
+  }
+  return currentMembership(both, ctx).recovering?.record === before.record
+}
+
 // The membership change that adds the root in `root` (its root record) to the current membership (R1): the next
 // epoch, the roots sorted. { body, payload, id, added }; anything R1 or the witness would refuse, refused first.
 export function addRoot ({ identity, state, root, rpId }) {
