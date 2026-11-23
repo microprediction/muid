@@ -297,9 +297,9 @@ async function notice () {
 }
 
 // SPEC §7: a change notice need not arrive, so the root is read from storage before the passkey is asked, and again
-// before what it signed is handed over. One that another tab replaced meanwhile is adopted, as a notice would have
-// it adopted, and what was reviewed for the old one is withdrawn: neither asked for nor handed over. (What is sent
-// to the witness instead is checked there against the identity it names.)
+// once it has signed, before what it signed is handed over or sent. One that another tab replaced meanwhile is
+// adopted, as a notice would have it adopted, and what was reviewed for the old one is withdrawn: neither asked for,
+// nor handed over, nor sent.
 async function stillHeld () {
   if (rootOf(await store.get(KEY))?.id === root.id) return
   await refresh()
@@ -319,12 +319,11 @@ async function signed (covers, extensions) {
     allowCredentials: [{ type: 'public-key', id: fromB64u(root.credential) }],
     extensions, // undefined is none
   } })
-  // The passkey prompt can leave time for another tab to replace this root. Re-read before
-  // returning anything that a caller could hand to the witness or an application.
-  await stillHeld()
   return { assertion: assertion(covers, a.response), extensions: a.getClientExtensionResults() }
 }
-const sign = async (covers) => (await signed(covers)).assertion
+// The same, the root read again once the passkey has signed (the prompt may have been open while another tab
+// replaced it). A worker and a renewal read it later instead, after what they save and before they hand over.
+const sign = async (covers) => { const a = (await signed(covers)).assertion; await stillHeld(); return a }
 
 // Whether another tab changed the remembered workers since this one last read them (it may not have been told yet):
 // if so, it is brought up to date with nothing left to sign, since what was reviewed was reviewed against the list
@@ -581,7 +580,7 @@ $('renew-sign').addEventListener('click', async () => {
   if (r === null || lapsed(r.delegations) || await changedElsewhere()) return
   $('error').textContent = ''
   try {
-    const a = await sign(r.covers)
+    const a = (await signed(r.covers)).assertion
     // A renewal takes effect at this read of storage: a change committed after it is after the renewal.
     if (pending.renewal !== r) return // withdrawn while the passkey was asked
     if (await changedElsewhere() || pending.renewal !== r || lapsed(r.delegations)) return
