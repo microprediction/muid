@@ -280,20 +280,20 @@ async function notice () {
   const asked = {}
   asking = asked
   let s = null
+  const prior = isFor(noticed) ? noticed : null
   let failed = false
   try {
     s = await state(r)
   } catch (e) {
-    // Only the two ordinary states in which there can be no recovery are silent: an identity the witness says it
-    // does not know (404), and one that has ended. A malformed answer, or records that do not verify, is no answer:
-    // hiding that would make a recovery notice look absent when the page could not check it.
-    failed = e.unknown !== true && e.message !== 'this identity has ended'
+    // Only a 404 with no earlier verified notice, or a verified identity ending, is silent.
+    // A failed recheck preserves the last verified active notice and shows an unchecked warning.
+    failed = (e.unknown !== true || prior !== null) && e.message !== 'this identity has ended'
   }
   // The root can change in another tab while its request is in flight. Its reply is kept for the root it was asked
   // for, each part shown only while that root is held, so it says nothing of the root now held; nor does it replace
   // the answer to a later question, about that root or another, which may already be shown.
   if (asked !== asking) return
-  noticed = s !== null && s.recovering !== null ? { root: r.id, identity: r.identity, state: s } : null
+  noticed = s !== null && s.recovering !== null ? { root: r.id, identity: r.identity, state: s } : (failed ? prior : null)
   known = { root: r.id, identity: r.identity, state: s } // no answer is a state of null: nothing is known of this root
   unchecked = failed ? { root: r.id, identity: r.identity } : null
   show()
