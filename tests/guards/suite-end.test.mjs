@@ -1,6 +1,7 @@
 // tests/meta/suite.mjs ends a suite with everything it started. A suite here is a process that opens Chrome, as the
 // page's tests do, and then never finishes; a twin harness ends such a suite when it hangs, and whatever it runs when
-// it is itself told to stop.
+// it is itself told to stop. Its browser is hung (stopped), as the ones left running for days were: a browser that is
+// not may close by itself once the process that opened it is gone, on some platforms and not others.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
@@ -8,13 +9,14 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { start, end } from '../meta/suite.mjs'
 
-// A suite that opens a browser and says its pid, and a harness that runs it; `done()` removes them.
+// A suite that opens a browser, hangs it, and says its pid, and a harness that runs it; `done()` removes them.
 function scripts () {
   const dir = mkdtempSync(join(tmpdir(), 'muid-suite-end-'))
   const suite = join(dir, 'suite.mjs')
   const harness = join(dir, 'harness.mjs')
   writeFileSync(suite, `import { chromium } from ${JSON.stringify(import.meta.resolve('playwright-core'))}
 const browser = await chromium.launchServer({ channel: 'chrome', headless: true }) // started as launch starts it
+process.kill(browser.process().pid, 'SIGSTOP') // hung: it does nothing more, whatever becomes of this process
 console.log('browser', browser.process().pid)
 setInterval(() => {}, 1000)
 `)
