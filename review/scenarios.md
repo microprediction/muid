@@ -124,7 +124,7 @@ filed about it.
 98. A review that expires before signing is not signed; one that expires during signing is not handed over.
 99. An answer from the witness, or a passkey's refusal, arriving after its review was withdrawn changes nothing on screen, including the witness's answer to a signed record already sent. A review the page withdraws itself (another tab replaced the root) says why.
 100. A signature completed after its review was withdrawn is not sent, stored or shown.
-101. The root held changing in another tab mid-request never causes this tab to act for the wrong root.
+101. The root held changing in another tab mid-request, or the same root coming to be held for another identity, never causes this tab to act for the wrong root or identity.
 102. Framed, or at an origin other than its configured one, the page offers nothing to act on.
 103. The page's Content-Security-Policy admits no inline script but the one whose hash it names, and that hash matches.
 104. No text from the witness, the store, or an input reaches the document as HTML.
@@ -132,7 +132,7 @@ filed about it.
 106. A registration or co-signature whose answer was lost is retried with the same record, never a new passkey or signature.
 107. A recovery notice is shown on load, in every tab, to a current root with a cancel button and to the incoming root without one; also while this browser has yet to see its root's registration answered, and whatever else its storage holds (workers stored as what JSON cannot write are no workers, not a browser without storage).
 108. When the witness cannot be asked about a recovery, the page says so rather than showing nothing.
-109. The page never shows a notice, designation, code or recovery card that was read or made for a root it no longer holds, or for the same root held for another identity, nor says the witness gave no answer about a root it did not ask about; nor hands over or sends what a passkey signed while another tab replaced its root.
+109. The page never shows a notice, designation, code or recovery card that was read or made for a root it no longer holds, or for the same root held for another identity, nor says the witness gave no answer about a root it did not ask about; nor hands over or sends what a passkey signed while another tab replaced its root or held it for another identity.
 110. The fingerprint shown on the joining device and on the adding device is derived the same way from the same root, and is long enough that a second root matching it is infeasible to find.
 111. Worker keys are accepted only when their bytes form a canonical, prime-order Ed25519 public point; malformed key encodings are refused before storage or submission. A raw 32-byte private seed can accidentally encode such a point, so its bytes alone cannot reliably distinguish it from a public key.
 112. Nothing the page stores is a secret: taking a copy of its IndexedDB gives no signing power.

@@ -269,6 +269,8 @@ let asking = null // the latest question: only its answer is kept
 // Whether what was read is of the root held now, in the identity it is held for: the witness is asked by identity, and
 // storage (untrusted) may hold the same root for another (scenario 109).
 const isFor = (x) => x !== null && x.root === root?.id && x.identity === root.identity
+// Whether two roots read are the same: the same root, for the same identity (a root's identity changes as it joins one).
+const same = (a, b) => a?.id === b?.id && a?.identity === b?.identity
 async function notice () {
   const r = root
   // A root whose registration this browser has not seen answered is asked about too: the answer may have been lost
@@ -301,7 +303,7 @@ async function notice () {
 // adopted, as a notice would have it adopted, and what was reviewed for the old one is withdrawn: neither asked for,
 // nor handed over, nor sent.
 async function stillHeld () {
-  if (rootOf(await store.get(KEY))?.id === root.id) return
+  if (same(rootOf(await store.get(KEY)), root)) return
   await refresh()
   withdraw()
   show()
@@ -668,7 +670,7 @@ async function cosign () {
   const r = root // the root whose co-signature is sent: only it becomes the identity's
   // What the witness says of it is said while that root is held. It is said of the kept co-signature, not of a review:
   // it is sent again on load and by the button, with no review on screen, and a refusal is what the button is for.
-  const mine = () => root?.id === r.id
+  const mine = () => same(root, r)
   try {
     const identity = cosignedIdentity(r.cosigned, r.id)
     try {
@@ -700,7 +702,7 @@ $('notice-cancel').addEventListener('click', async () => {
   // page then shows that one. What was signed is sent only for the root it was signed for, and only while this page
   // holds it; nothing is said of it after.
   const r = root
-  const mine = () => root?.id === r.id
+  const mine = () => same(root, r)
   try {
     const c = cancel({ identity: r.identity, state: n.state })
     const a = await sign([c.id])
