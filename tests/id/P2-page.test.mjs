@@ -908,6 +908,32 @@ test('a co-signature is kept, and its root made the identity\'s, only for the ro
     assert.deepEqual(posted, [], 'nothing is sent')
     assert.equal(await b.page.textContent('#error'), ROOT_CHANGED, 'and nothing is tried, and why is said')
     assert.deepEqual(await held(b.page, 'root'), other, 'and the root there is left as it was')
+    // It becomes another after the root is read again and before the co-signature is kept: written by a transaction
+    // begun as that read ends, so ahead of the keeping. It is not kept, and not sent.
+    await change(b.page, 'root', mine)
+    await b.page.waitForFunction((text) => document.getElementById('join-root').value === text, mine.text)
+    await b.page.evaluate((other) => {
+      const get = navigator.credentials.get.bind(navigator.credentials)
+      const transaction = IDBDatabase.prototype.transaction
+      let armed = false
+      IDBDatabase.prototype.transaction = function (names, mode, options) {
+        const tx = transaction.call(this, names, mode, options)
+        if (armed && mode !== 'readwrite') {
+          armed = false
+          tx.addEventListener('complete', () => { transaction.call(this, 'values', 'readwrite').objectStore('values').put({ value: other }, 'root') })
+        }
+        return tx
+      }
+      navigator.credentials.get = async (o) => { const a = await get(o); navigator.credentials.get = get; armed = true; return a }
+    }, other)
+    await review()
+    await b.page.click('#cosign-sign')
+    await b.page.waitForFunction((text) => document.getElementById('join-root').value === text, other.text)
+    await idle(b.page)
+    assert.deepEqual(posted, [], 'nothing is sent')
+    assert.equal(await b.page.textContent('#error'), '', 'nor anything tried')
+    assert.equal(await b.page.isHidden('#cosign-panel'), true, 'and the review is withdrawn')
+    assert.deepEqual(await held(b.page, 'root'), other, 'and the root there is left as it was')
     // It becomes another while the witness is asked, and the tab is told: the other root is not marked.
     await change(b.page, 'root', mine)
     await b.page.waitForFunction((text) => document.getElementById('join-root').value === text, mine.text)
