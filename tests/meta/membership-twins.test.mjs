@@ -3,9 +3,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync, writeFileSync, mkdtempSync, rmSync, readdirSync } from 'node:fs'
-import { spawn } from 'node:child_process'
 import { tmpdir, availableParallelism } from 'node:os'
 import { join } from 'node:path'
+import { start, end } from './suite.mjs'
 
 // A test that never ends under a twin fails (the twin is caught) instead of holding the harness open.
 const TEST_TIMEOUT = 300_000
@@ -72,10 +72,9 @@ const TWINS = [
 function run (implPath, untilCaught = false) {
   const { NODE_TEST_CONTEXT, ...env } = process.env
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, ['--test', '--test-reporter=tap', `--test-timeout=${TEST_TIMEOUT}`, ...SUITE], {
+    const child = start(['--test', '--test-reporter=tap', `--test-timeout=${TEST_TIMEOUT}`, ...SUITE], {
       env: { ...env, MUID_MEMBERSHIP_IMPL: implPath ?? '', FC_RUNS: '60' },
       stdio: ['ignore', 'pipe', 'pipe'],
-      detached: true,
     })
     let out = ''
     let caught
@@ -86,7 +85,7 @@ function run (implPath, untilCaught = false) {
       const now = { pass: results('ok'), fail: results('not ok') }
       if (now.pass > 0 && now.fail > 0) {
         caught = now
-        try { process.kill(-child.pid, 'SIGKILL') } catch { /* already gone */ }
+        end(child)
       }
     }
     child.stdout.on('data', seen)
