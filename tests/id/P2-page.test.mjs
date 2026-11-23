@@ -1131,6 +1131,19 @@ test('a root replaced in storage without notice, before or during the passkey pr
     await replacedWhileSigning('#add-sign')
     assert.equal((await t.witnessGet(mineRecords)).memberships.length, sent, 'nothing was sent')
     assert.equal(await t.page.isHidden('#add-handoff'), true)
+    // This same root stored for another identity: the same (it is not the identity the review was for).
+    await hold(t.page, 'root', mine)
+    await t.page.reload()
+    await t.page.waitForSelector('#identity:not([hidden])')
+    await authorise(t.page)
+    await t.page.waitForSelector('#review-panel:not([hidden])')
+    await hold(t.page, 'root', { ...mine, identity: other.identity })
+    await t.page.click('#sign')
+    await errorShown(t.page)
+    assert.equal(await t.page.textContent('#error'), ROOT_CHANGED)
+    assert.equal(await t.page.isHidden('#review-panel'), true)
+    assert.equal(await t.page.isHidden('#handoff'), true)
+    await t.page.waitForFunction((id) => document.getElementById('identity-id').textContent === id, other.identity)
     // No root stored at all: the same, and the page offers only creation.
     await hold(t.page, 'root', mine)
     await t.page.reload()
@@ -2746,6 +2759,11 @@ test('a recovery under notice is shown on load with when it takes effect; one pr
       await change(t.page, 'root', elsewhere)
       await t.page.waitForFunction((id) => document.getElementById('identity-id').textContent === id, elsewhere.identity)
     }
+    // This same root, held for another identity (as a root is once it joins one): not the identity it signed for.
+    const toOtherIdentity = async () => {
+      await change(t.page, 'root', { ...mine, identity: elsewhere.identity })
+      await t.page.waitForFunction((id) => document.getElementById('identity-id').textContent === id, elsewhere.identity)
+    }
     const back = async () => {
       await change(t.page, 'root', mine)
       await t.page.waitForSelector('#recovery-notice:not([hidden])')
@@ -2762,8 +2780,8 @@ test('a recovery under notice is shown on load with when it takes effect; one pr
       }
     })
     const errors = () => t.problems.filter((p) => !/status of/.test(p))
-    // Another root, or none at all (the identity forgotten there).
-    for (const away of [toOther, () => change(t.page, 'root', null).then(() => t.page.waitForSelector('#create:not([hidden])'))]) {
+    // Another root, this root for another identity, or none at all (the identity forgotten there).
+    for (const away of [toOther, toOtherIdentity, () => change(t.page, 'root', null).then(() => t.page.waitForSelector('#create:not([hidden])'))]) {
       await holdPasskey()
       await t.page.click('#notice-cancel')
       await t.page.waitForFunction(() => globalThis.answerPasskey !== undefined)
@@ -2774,17 +2792,17 @@ test('a recovery under notice is shown on load with when it takes effect; one pr
       await back()
     }
     // The same while the witness answers the cancel sent: its answer, whichever, is said of no root.
-    for (const answer of [REFUSED, TAKEN]) {
+    for (const [answer, away] of [[REFUSED, toOther], [TAKEN, toOther], [REFUSED, toOtherIdentity], [TAKEN, toOtherIdentity]]) {
       const sent = await holdNext(t.page, '**/v1/records')
       await t.page.click('#notice-cancel')
       const go = await sent()
-      await toOther()
+      await away()
       await go(answer)
       await idle(t.page)
       assert.deepEqual([await t.page.textContent('#status'), await t.page.textContent('#error')], ['', ''], 'a late answer to the cancel')
       await back()
     }
-    assert.deepEqual(posts.map((p) => JSON.parse(p).identity), [a.identity, a.identity], 'only for the identity it was signed for')
+    assert.deepEqual(posts.map((p) => JSON.parse(p).identity), Array(4).fill(a.identity), 'only for the identity it was signed for')
 
     // A witness that refuses the cancel: said, and the notice stays.
     t.refusing(true)
