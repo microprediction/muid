@@ -64,6 +64,7 @@ const TWINS = [
   ["late-refusal-recover", "a passkey's refusal that comes after its recovery request was withdrawn is said", [["if (pending.recover === c) fail(e); return }", "fail(e); return }"]], "page.js"],
   ["late-refusal-proof", "a passkey's refusal that comes after its possession check was withdrawn is said", [["if (pending.proof === p) fail(e) }", "fail(e) }"]], "page.js"],
   ["root-changed-unsaid", "a review withdrawn because another tab replaced the root says nothing of why", [["  fail(e)\n  throw e\n", "  throw e\n"]], "page.js"],
+  ['signed-unrechecked', "what a passkey signed while another tab replaced the root is handed over, kept or sent", [["const sign = async (covers) => { const a = (await signed(covers)).assertion; await stillHeld(); return a }", "const sign = async (covers) => (await signed(covers)).assertion"]], "page.js"],
   ['recheck-twice-counted', "one recovery party's card pasted twice is counted as two parties that showed they hold their passkey", [["    if (new Set(parties.map((p) => p.root)).size !== parties.length) throw new Error('a recovery party is named twice')\n", ""]], "page.js"],
   ['recheck-undesignated', "a card that is not one of the parties designated is checked as if it were", [["    if (!parties.every((p) => designated(current.recovery, p))) throw new Error(\"a card here is not one of this identity's recovery parties\")\n", ""]], "page.js"],
   ['designate-handoff-withheld', "a designation that needs another passkey is not handed over to it", [["    $('designate-handoff').hidden = c.alone\n", "    $('designate-handoff').hidden = true\n"]], "page.js"],
@@ -129,7 +130,7 @@ const TWINS = [
   ['stored-key-unchecked', 'a stored worker whose key is not a key is kept', [[' || !checkEd25519Key(x.subject).ok) return undefined', ') return undefined']], 'records.js'],
   ['workers-change-keeps-review', "another tab's change of the workers leaves a review signable", [["refresh().then(() => { withdraw(); show(); notice() }, fail)", "refresh().then(() => { show(); notice() }, fail)"]], 'page.js'],
   ['renew-partly-shown', 'a renewal signs delegations it does not show (I4)', [["    $('renew-list').replaceChildren(...r.delegations.map((d) =>", "    $('renew-list').replaceChildren(...r.delegations.slice(0, 1).map((d) =>"]], 'page.js'],
-  ['renew-partly-signed', 'the assertion does not cover every renewed delegation', [['    const a = await sign(r.covers)\n', '    const a = await sign([r.covers[0]])\n']], 'page.js'],
+  ['renew-partly-signed', 'the assertion does not cover every renewed delegation', [['    const a = (await signed(r.covers)).assertion\n', '    const a = (await signed([r.covers[0]])).assertion\n']], 'page.js'],
   ['renew-unauthorised', 'a passkey still joining is offered workers to renew', [["  $('renew').hidden = root === null || joining || workers.length === 0\n", "  $('renew').hidden = root === null || workers.length === 0\n"]], 'page.js'],
   ['worker-not-remembered', 'an authorised worker is not kept for renewal', [["    if (await keepWorkers((list) => given.reduce((l, w) => remember(l, w), list), seen, () => pending.delegation === r) !== 'saved') return\n", ""]], 'page.js'],
   ['stale-list-written', "a tab not yet told of another's change writes its own list over it", [["      return { value: { rev: revOf(now) + 1, workers: change(workersOf(now)) } }\n", "      return { value: { rev: revOf(now) + 1, workers: change(workers) } }\n"]], 'page.js'],
@@ -233,7 +234,7 @@ test('id page broken twins', { timeout: 7_200_000 }, async (t) => {
     // MUID_TWIN_TARGETS_ONLY=1 makes every twin, each checking that its targets occur once, and runs none: every
     // pull request does this (tests/guards/twin-targets.test.mjs), the twins themselves running nightly.
     if (process.env.MUID_TWIN_TARGETS_ONLY === '1') {
-      assert.equal(TWINS.map(([name, , edits, file]) => generate(name, edits, file)).length, 167, 'twin count')
+      assert.equal(TWINS.map(([name, , edits, file]) => generate(name, edits, file)).length, 168, 'twin count')
       return
     }
     await t.test('control: an unmodified copy, run from outside the repository, passes', async () => {
@@ -242,7 +243,7 @@ test('id page broken twins', { timeout: 7_200_000 }, async (t) => {
       assert.ok(r.pass >= 14, `control: only ${r.pass} tests ran`)
     })
     const jobs = TWINS.map(([name, why, edits, file]) => [name, why, generate(name, edits, file)])
-    assert.equal(jobs.length, 167, 'twin count')
+    assert.equal(jobs.length, 168, 'twin count')
     const results = []
     const queue = part(jobs)
     assert.ok(queue.length > 0, 'this part has twins')

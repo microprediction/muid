@@ -906,7 +906,7 @@ test('a co-signature is kept, and its root made the identity\'s, only for the ro
     await b.page.waitForFunction((text) => document.getElementById('join-root').value === text, other.text)
     await idle(b.page)
     assert.deepEqual(posted, [], 'nothing is sent')
-    assert.equal(await b.page.textContent('#error'), '', 'and nothing is tried')
+    assert.equal(await b.page.textContent('#error'), ROOT_CHANGED, 'and nothing is tried, and why is said')
     assert.deepEqual(await held(b.page, 'root'), other, 'and the root there is left as it was')
     // It becomes another while the witness is asked, and the tab is told: the other root is not marked.
     await change(b.page, 'root', mine)
@@ -1068,6 +1068,43 @@ test('a root replaced in storage without notice, before or during the passkey pr
     assert.equal(await t.page.isHidden('#renew-panel'), true)
     assert.equal(await t.page.isHidden('#renew-handoffs'), true)
     await t.page.waitForFunction((id) => document.getElementById('identity-id').textContent === id, other.identity)
+    // Any signature, the same: the root is read again once the passkey has signed, and what it signed is neither
+    // handed over (a party's possession check) nor sent to the witness (a passkey added) (scenario 109).
+    const replacedWhileSigning = async (sign) => {
+      await t.page.evaluate(() => {
+        const get = navigator.credentials.get.bind(navigator.credentials)
+        globalThis.asked = new Promise((resolve) => { globalThis.asking = resolve })
+        navigator.credentials.get = async (o) => { navigator.credentials.get = get; globalThis.asking(); await new Promise((resolve) => { globalThis.answer = resolve }); return get(o) }
+      })
+      const signs = await signCount(t)
+      await t.page.click(sign)
+      await t.page.evaluate(() => globalThis.asked)
+      await hold(t.page, 'root', theirs)
+      await t.page.evaluate(() => globalThis.answer())
+      await errorShown(t.page)
+      assert.equal(await t.page.textContent('#error'), ROOT_CHANGED, sign)
+      assert.equal(await signCount(t), signs + 1, `${sign}: the passkey did sign`)
+      await t.page.waitForFunction((id) => document.getElementById('identity-id').textContent === id, other.identity)
+      await hold(t.page, 'root', mine)
+      await t.page.reload()
+      await t.page.waitForSelector('#identity:not([hidden])')
+    }
+    await hold(t.page, 'root', mine)
+    await t.page.reload()
+    await t.page.waitForSelector('#party:not([hidden])')
+    await t.page.fill('#proof-code', other.identity)
+    await t.page.click('#proof-review')
+    await t.page.waitForSelector('#proof-panel:not([hidden])')
+    await replacedWhileSigning('#proof-sign')
+    assert.deepEqual([await t.page.isHidden('#proof'), await t.page.inputValue('#proof')], [true, ''])
+    const mineRecords = `/v1/identities/${mine.identity}/records`
+    const sent = (await t.witnessGet(mineRecords)).memberships.length
+    await t.page.fill('#new-root', theirs.text)
+    await t.page.click('#add-review')
+    await t.page.waitForSelector('#add-panel:not([hidden])')
+    await replacedWhileSigning('#add-sign')
+    assert.equal((await t.witnessGet(mineRecords)).memberships.length, sent, 'nothing was sent')
+    assert.equal(await t.page.isHidden('#add-handoff'), true)
     // No root stored at all: the same, and the page offers only creation.
     await hold(t.page, 'root', mine)
     await t.page.reload()
