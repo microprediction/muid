@@ -157,6 +157,9 @@ const TWINS = [
   ['store-tells-nobody', 'other tabs are not told of a committed update', [['      if (r.changed) channel.postMessage(key)\n', '']], 'store.js'],
   ['root-overwritten', "a root is stored over another tab's", [['    made = same(r, mine)\n', '    made = true\n']], 'page.js'],
   ['keep-identity-blind', 'a root held now for another identity is changed as if it were the one decided for', [['    made = same(r, mine)\n', '    made = r?.id === mine?.id\n']], 'page.js'],
+  ['unknown-after-read', 'a 404 for an identity whose records were read here takes its notice down unsaid', [["    failed = (e.unknown !== true || read) && e.message", "    failed = e.unknown !== true && e.message"]], 'page.js'],
+  ['rescue-wait-adds', 'a recovery that adds no passkey says it waits for the passkeys it adds', [["${added.length === 0 ? '' : ' and every passkey it adds'}", " and every passkey it adds"]], 'page.js'],
+  ['rescue-removes-all', 'a recovery that keeps every passkey is shown removing them', [["$('rescue-removed').textContent = removed.length === 0 ? 'none' : ", "$('rescue-removed').textContent = "]], 'page.js'],
   ['no-storage-acts', 'without storage the page still offers to act', [["    REFUSAL = 'This browser gave the page no storage: it can do nothing here.'\n", '']], 'page.js'],
   ['list-put-back-unseen', 'a stored list put back as it was is taken for unchanged', [["      return { value: { rev: revOf(now) + 1, workers: change(workersOf(now)) } }\n", "      return { value: { rev: revOf(now), workers: change(workersOf(now)) } }\n"], ["const text = (held) => JSON.stringify({ rev: revOf(held), workers: workersOf(held) })\n", "const text = (held) => JSON.stringify(workersOf(held))\n"]], 'page.js'],
   ['forget-reaches-new-key', "a Forget in a stale tab forgets the row's new key", [["list.filter((x) => x.agent !== w.agent || x.aud !== w.aud || x.subject !== w.subject)", "list.filter((x) => x.agent !== w.agent || x.aud !== w.aud)"]], 'page.js'],
@@ -237,7 +240,7 @@ test('id page broken twins', { timeout: 7_200_000 }, async (t) => {
     // MUID_TWIN_TARGETS_ONLY=1 makes every twin, each checking that its targets occur once, and runs none: every
     // pull request does this (tests/guards/twin-targets.test.mjs), the twins themselves running nightly.
     if (process.env.MUID_TWIN_TARGETS_ONLY === '1') {
-      assert.equal(TWINS.map(([name, , edits, file]) => generate(name, edits, file)).length, 171, 'twin count')
+      assert.equal(TWINS.map(([name, , edits, file]) => generate(name, edits, file)).length, 174, 'twin count')
       return
     }
     await t.test('control: an unmodified copy, run from outside the repository, passes', async () => {
@@ -246,7 +249,7 @@ test('id page broken twins', { timeout: 7_200_000 }, async (t) => {
       assert.ok(r.pass >= 14, `control: only ${r.pass} tests ran`)
     })
     const jobs = TWINS.map(([name, why, edits, file]) => [name, why, generate(name, edits, file)])
-    assert.equal(jobs.length, 171, 'twin count')
+    assert.equal(jobs.length, 174, 'twin count')
     const results = []
     const queue = part(jobs)
     assert.ok(queue.length > 0, 'this part has twins')

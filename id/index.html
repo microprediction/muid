@@ -209,9 +209,11 @@
     <label>The recovery card you gave them, if this browser no longer has it <input id="rescue-card" autocomplete="off" spellcheck="false"></label>
     <button id="rescue-review" type="button">Review</button>
     <div id="rescue-panel" hidden>
-      <p>Your passkey will sign exactly this change. Once enough of the identity's recovery parties have, and the wait has passed uncancelled, every passkey the identity has is replaced:</p>
+      <p>Your passkey will sign exactly this change. It takes effect once enough of the identity's recovery parties have signed it, and the wait has passed uncancelled:</p>
       <dl>
         <dt>Identity</dt><dd id="rescue-identity"></dd>
+        <dt>Passkeys it removes</dt><dd id="rescue-removed"></dd>
+        <dt>Passkeys it adds</dt><dd id="rescue-added"></dd>
         <dt>Its only roots after it</dt><dd id="rescue-roots"></dd>
         <dt>Their fingerprints</dt><dd><code id="rescue-fingerprints"></code> — sign only if you are sure who is asking, and they show you the same</dd>
         <dt>Recovery parties after it</dt><dd id="rescue-recovery"></dd>
