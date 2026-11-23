@@ -203,3 +203,7 @@ filed about it.
 ## Recovery-party recheck — `id/page.js`, `tests/id/P2-page.test.mjs`
 
 161. A recovery-party possession recheck never counts one party more than once: duplicate cards of the same root are rejected rather than presented as proof from distinct recovery parties.
+
+## Previously verified recovery notices — `id/page.js`, `tests/id/P2-page.test.mjs`
+
+162. A 404 after this tab has verified an active recovery notice for its current root and identity cannot silently erase it: the last verified notice and Cancel action remain available, accompanied by a warning that the witness could not recheck it. A 404 for an identity never known to be under notice stays silent.
