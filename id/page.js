@@ -316,6 +316,9 @@ async function signed (covers, extensions) {
     allowCredentials: [{ type: 'public-key', id: fromB64u(root.credential) }],
     extensions, // undefined is none
   } })
+  // The passkey prompt can leave time for another tab to replace this root. Re-read before
+  // returning anything that a caller could hand to the witness or an application.
+  await stillHeld()
   return { assertion: assertion(covers, a.response), extensions: a.getClientExtensionResults() }
 }
 const sign = async (covers) => (await signed(covers)).assertion
