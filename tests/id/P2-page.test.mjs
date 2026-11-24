@@ -2624,6 +2624,10 @@ test('a recovery under notice is shown on load with when it takes effect; one pr
     assert.equal(await t.page.textContent('#notice-record'), R.id)
     assert.equal(await t.page.textContent('#notice-at'), iso(noticed.recovering.at))
     assert.equal(await t.page.textContent('#notice-matures'), iso(noticed.recovering.at + WAIT_S))
+    // A recovery need not replace a passkey (it may only end the designation, scenario 82): the owner is not told it
+    // does. And where parties are designated, that a party who signs one is known from then on (SPEC R11(h)).
+    assert.match(await t.page.textContent('#recovery-notice'), /for a change to this identity, which may replace its passkeys/)
+    assert.match(await t.page.textContent('#recovery'), /even if the recovery is cancelled: after one, ask your parties for new recovery cards and designate them again/)
     // A root whose registration this browser has not seen answered (the answer lost; the witness holds it) is asked
     // about all the same, while its registration is sent again and fails (scenarios 107-108).
     const acknowledged = await held(t.page, 'root')
@@ -2865,7 +2869,7 @@ test('a recovery under notice is shown on load with when it takes effect; one pr
     // One prompt cancels it: the witness says so, the notice goes, and the identity is as it was.
     await t.page.click('#notice-cancel')
     await t.page.waitForSelector('#recovery-notice', { state: 'hidden' })
-    assert.equal(await t.page.textContent('#status'), 'Cancel sent. The notice goes once the witness has said the recovery is cancelled.')
+    assert.equal(await t.page.textContent('#status'), 'Cancel sent. The notice goes once the witness has said the recovery is cancelled. The parties that signed it are known from now on: ask them for new recovery cards and designate them again.')
     assert.equal(await t.page.textContent('#error'), '')
     const kept = await t.witnessGet(path)
     assert.equal(kept.cancelled.length, 1)
@@ -3259,7 +3263,7 @@ test('recovery parties: a party gives a card and shows that its passkey is held;
     await t.page.reload()
     await t.page.waitForSelector('#recovery-notice:not([hidden])')
     await t.page.click('#notice-cancel')
-    await statusIs(t.page, 'Cancel sent. The notice goes once the witness has said the recovery is cancelled.')
+    await statusIs(t.page, 'Cancel sent. The notice goes once the witness has said the recovery is cancelled. The parties that signed it are known from now on: ask them for new recovery cards and designate them again.')
     await t.svc.tick()
 
     // Ending the designation: the same change without one, and no party is asked anything.
