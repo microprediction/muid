@@ -274,6 +274,27 @@ export function withheld (earlier, records, ctx) {
   return currentMembership(both, ctx).recovering?.record === before.record
 }
 
+// The roots of `identity`'s membership `id`, from the records the witness holds for it (untrusted, SPEC §1): the
+// first membership, whose id is the identity's, has the root the identity is named from; any other is the
+// membership record of that id, which is its payload's hash, so a record found under it is that membership.
+export function rootsOf (records, id, identity, rpId) {
+  // Stryker disable next-line ArrayDeclaration: equivalent; a stray element is no root record and no membership
+  const texts = (key) => Array.isArray(records[key]) ? records[key] : []
+  if (id === identity) {
+    for (const t of texts('roots')) {
+      const r = checkRoot(t, { rpId })
+      if (r.ok && identityOf(r.id) === identity) return [r.id]
+    }
+  }
+  for (const t of texts('memberships')) {
+    try {
+      const m = open(t, 'membership')
+      if (m.id === id) return Array.from(m.body.roots)
+    } catch {} // not a membership record: not the one asked for
+  }
+  throw new Error('the witness holds no record of that membership')
+}
+
 // The membership change that adds the root in `root` (its root record) to the current membership (R1): the next
 // epoch, the roots sorted. { body, payload, id, added }; anything R1 or the witness would refuse, refused first.
 export function addRoot ({ identity, state, root, rpId }) {

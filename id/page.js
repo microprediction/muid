@@ -5,7 +5,7 @@
 // record and the credential id are kept in this browser only. The workers it authorised are remembered here too, so
 // that one assertion renews up to eight of them at once (decision 3).
 import { openStore } from './store.js'
-import { rootRecord, challenge, assertion, delegations, handOff, readRequest, audiencesOf, answer, opened, firstRootIdentities, secretInput, prfOutput, sealSecret, b64u, fromB64u, currentMembership, addRoot, rootSigned, changeToSign, fingerprint, storedRoot, cosignedIdentity, storedWorkers, remember, retired, renewals, cancel, maturesAt, withheld, card, kept, newSalt, fromCard, majority, possessionId, shows, designate, undesignate, designated, recoveryChange, MAX_SALTS, recovery, rescue, partySigned } from './records.js'
+import { rootRecord, challenge, assertion, delegations, handOff, readRequest, audiencesOf, answer, opened, firstRootIdentities, secretInput, prfOutput, sealSecret, b64u, fromB64u, currentMembership, addRoot, rootSigned, changeToSign, fingerprint, storedRoot, cosignedIdentity, storedWorkers, remember, retired, renewals, cancel, maturesAt, withheld, rootsOf, card, kept, newSalt, fromCard, majority, possessionId, shows, designate, undesignate, designated, recoveryChange, MAX_SALTS, recovery, rescue, partySigned } from './records.js'
 
 const $ = (id) => document.getElementById(id)
 const meta = (name) => document.querySelector(`meta[name="${name}"]`).content
@@ -119,6 +119,8 @@ const fields = (b) => [['Agent', b.agent], ['Audience', b.aud], ['Scopes', b.sco
 // (issue #147). A change that states none ends the one in force.
 const DAY = 86_400
 const wait = (s) => s % DAY === 0 ? `${s / DAY} days` : `${s} seconds`
+// Roots listed by id, or none.
+const listed = (ids) => ids.length === 0 ? 'none' : ids.join(' ')
 const designation = (r) => r === undefined || r === null ? 'none' : `${r.threshold} of ${r.parties.length}, after ${wait(r.window)}; parties ${r.parties.map(fingerprint).join(', ')}`
 const when = (t) => new Date(t * 1000).toISOString()
 const slot = (w) => JSON.stringify([w.agent, w.aud])
@@ -650,17 +652,28 @@ $('add-sign').addEventListener('click', async () => {
   } catch (e) { if (pending.change === c) fail(e) } // nor is a late refusal of it
 })
 
-$('cosign-review').addEventListener('click', () => {
+// The change a joining passkey co-signs, shown with the passkeys it removes and adds (I4, issue #246): against the
+// membership it follows, which must be the identity's current one as the witness holds it, unless the change is
+// itself the one pending (this passkey's co-signature sent before, or reviewed again).
+$('cosign-review').addEventListener('click', async () => {
   withdraw()
+  const asked = withdrawals
   try {
     const c = changeToSign($('cosign-payload').value.trim())
     if (!c.body.roots.includes(root.id)) throw new Error('that change does not add this passkey')
+    const records = await held(c.body.identity)
+    const now = stateOf(records, c.body.identity)
+    if (asked !== withdrawals) return // withdrawn while the witness was asked
+    if (c.body.prev !== now.membership && c.id !== now.membership) throw new Error("that change does not follow the identity's current membership")
+    const before = rootsOf(records, c.body.prev, c.body.identity, rpId)
     pending.cosign = c
     $('cosign-identity').textContent = c.body.identity
     $('cosign-roots').textContent = c.body.roots.join(' ')
+    $('cosign-removed').textContent = listed(before.filter((x) => !c.body.roots.includes(x)))
+    $('cosign-added').textContent = listed(c.body.roots.filter((x) => !before.includes(x)))
     $('cosign-recovery').textContent = designation(c.body.recovery)
     $('cosign-panel').hidden = false
-  } catch (e) { fail(e) }
+  } catch (e) { if (asked === withdrawals) fail(e) } // a refusal of what was withdrawn is not shown
 })
 
 $('cosign-sign').addEventListener('click', async () => {
@@ -881,8 +894,8 @@ $('rescue-review').addEventListener('click', async () => {
     const removed = current.roots.filter((x) => !c.body.roots.includes(x))
     const added = c.body.roots.filter((x) => !current.roots.includes(x))
     $('rescue-identity').textContent = c.body.identity
-    $('rescue-removed').textContent = removed.length === 0 ? 'none' : removed.join(' ')
-    $('rescue-added').textContent = added.length === 0 ? 'none' : added.join(' ')
+    $('rescue-removed').textContent = listed(removed)
+    $('rescue-added').textContent = listed(added)
     $('rescue-roots').textContent = c.body.roots.join(' ')
     $('rescue-fingerprints').textContent = c.body.roots.map(fingerprint).join(', ')
     $('rescue-recovery').textContent = designation(c.body.recovery)

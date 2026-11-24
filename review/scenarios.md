@@ -203,3 +203,7 @@ filed about it.
 ## Recovery-party recheck — `id/page.js`, `tests/id/P2-page.test.mjs`
 
 161. A recovery-party possession recheck never counts one party more than once: duplicate cards of the same root are rejected rather than presented as proof from distinct recovery parties.
+
+## Joining passkey review — `id/page.js`, `tests/id/P2-page.test.mjs`
+
+162. A joining passkey co-signs only a change it was shown with the passkeys it removes and adds, against the membership it follows as the witness holds it: the current one, or the change itself when pending. A change that follows another is refused.
