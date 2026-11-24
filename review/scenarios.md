@@ -130,8 +130,8 @@ filed about it.
 104. No text from the witness, the store, or an input reaches the document as HTML.
 105. A joining passkey can authorise no worker, designate no party and be nobody's party, even by a script pressing the controls it is not shown: no control in a hidden part of the page does anything.
 106. A registration or co-signature whose answer was lost is retried with the same record, never a new passkey or signature.
-107. A recovery notice is shown on load, in every tab, to a current root with a cancel button and to the incoming root without one; also while this browser has yet to see its root's registration answered, and whatever else its storage holds (workers stored as what JSON cannot write are no workers, not a browser without storage).
-108. When the witness cannot be asked about a recovery, the page says so rather than showing nothing; a 404 for an identity whose records the tab has read for that root is no answer either, however many follow; nor are records that leave out a notice the tab has read without what ends it (its cancel stated, the recovery anchored, a later membership settled), such as older records served again.
+107. A recovery notice is shown on load, in every tab, to a current root with a cancel button and to the incoming root without one; also while this browser has yet to see its root's registration answered, and whatever else its storage holds (workers stored as what JSON cannot write are no workers, not a browser without storage). Signing in for an application asks the witness first, for a root found from a synced passkey too, and a notice or a failed check not shown when the button was pressed is shown, and nothing signed, until it is pressed again.
+108. When the witness cannot be asked about a recovery, the page says so rather than showing nothing; a 404 for an identity whose records the tab has read for that root is no answer either, however many follow; nor are records that leave out a notice the tab has read without what ends it (its cancel stated, the recovery anchored, a later membership settled), such as older records served again; nor does an answer about another root the tab has held since.
 109. The page never shows a notice, designation, code or recovery card that was read or made for a root it no longer holds, or for the same root held for another identity, nor says the witness gave no answer about a root it did not ask about; nor hands over or sends what a passkey signed while another tab replaced its root or held it for another identity.
 110. The fingerprint shown on the joining device and on the adding device is derived the same way from the same root, and is long enough that a second root matching it is infeasible to find.
 111. Worker keys are accepted only when their bytes form a canonical, prime-order Ed25519 public point; malformed key encodings are refused before storage or submission. A raw 32-byte private seed can accidentally encode such a point, so its bytes alone cannot reliably distinguish it from a public key.
@@ -202,7 +202,7 @@ filed about it.
 
 ## Recovery-party recheck — `id/page.js`, `tests/id/P2-page.test.mjs`
 
-161. A recovery-party possession recheck never counts one party more than once: duplicate cards of the same root are rejected rather than presented as proof from distinct recovery parties.
+161. A recovery-party possession recheck never counts one party more than once: duplicate cards of the same root are rejected rather than presented as proof from distinct recovery parties. Nor does it count what a party signed before: it is over a fresh code, new on each load and after each check, so a proof made for the designation or an earlier check shows nothing of now.
 
 ## Joining passkey review — `id/page.js`, `tests/id/P2-page.test.mjs`
 

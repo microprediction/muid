@@ -2653,6 +2653,47 @@ test('a recovery under notice is shown on load with when it takes effect; one pr
     assert.equal(await t.page.textContent('#notice-record'), R.id)
     assert.equal(await t.page.textContent('#notice-at'), iso(noticed.recovering.at))
     assert.equal(await t.page.textContent('#notice-matures'), iso(noticed.recovering.at + WAIT_S))
+    // Signing in for an application asks the witness about a recovery before anything is signed, and shows what it
+    // was not showing when the button was pressed: the page leaves once it has signed (R2, scenarios 107-108).
+    // On a device the passkey has synced to, with nothing stored, the identity is found and then asked about.
+    const signin = { v: 1, agent: 'drive', subject: SUBJECT, aud: 'https://node.example', scopes: ['store.ref'], days: 1, return: 'https://app.example/drive/', state: 'N-1' }
+    const synced = await t.device()
+    const arrived = []
+    await synced.context.route('https://app.example/**', async (route) => { arrived.push(route.request().url()); await route.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><title>app</title>' }) })
+    await synced.cdp.send('WebAuthn.addCredential', { authenticatorId: synced.authenticatorId, credential: (await t.cdp.send('WebAuthn.getCredentials', { authenticatorId: t.authenticatorId })).credentials[0] })
+    const signIn = async (state, first) => {
+      await synced.page.goto('about:blank')
+      await synced.page.goto(t.site.origin + '/id/#muid-request=' + Buffer.from(JSON.stringify({ ...signin, state })).toString('base64url'))
+      await synced.page.waitForSelector('#signin:not([hidden])')
+      await synced.page.click('#signin-button')
+      await errorIs(synced.page, 'A recovery of this identity is under way, shown above. Cancel it if you did not ask for it, or press the button again to sign in.')
+      assert.deepEqual([await synced.page.isHidden('#recovery-notice'), await synced.page.isHidden('#notice-cancel'), arrived.length], [false, false, first], 'shown, and nothing signed')
+      await synced.page.click('#signin-button')
+      await synced.page.waitForURL((u) => u.origin === 'https://app.example')
+      assert.equal(arrived.length, first + 1, 'signed once the notice was shown')
+    }
+    await signIn('N-1', 0)
+    // With the root stored, and the question asked on load held: the button asks again, and does not sign unasked.
+    let holding = true
+    await synced.page.route(`**${path}`, async (route) => { if (holding) { holding = false; return } await route.fallback() })
+    await signIn('N-2', 1)
+    await synced.page.unroute(`**${path}`)
+    // The witness not answering when asked at the button, though it did on load: that is said, and nothing signed;
+    // its answer to the next press, the notice, is said too, and the press after that signs.
+    let gets = 0
+    await synced.page.route(`**${path}`, async (route) => { if (++gets === 2) await route.fulfill(NO_ANSWER); else await route.fallback() })
+    await synced.page.goto('about:blank')
+    await synced.page.goto(t.site.origin + '/id/#muid-request=' + Buffer.from(JSON.stringify({ ...signin, state: 'N-3' })).toString('base64url'))
+    await synced.page.waitForSelector('#recovery-notice:not([hidden])')
+    await synced.page.click('#signin-button')
+    await errorIs(synced.page, 'The witness could not be asked whether a recovery of this identity is under way. Ask again, or press the button again to sign in.')
+    assert.deepEqual([await synced.page.isHidden('#notice-unchecked'), arrived.length], [false, 2])
+    await synced.page.click('#signin-button')
+    await errorIs(synced.page, 'A recovery of this identity is under way, shown above. Cancel it if you did not ask for it, or press the button again to sign in.')
+    await synced.page.click('#signin-button')
+    await synced.page.waitForURL((u) => u.origin === 'https://app.example')
+    assert.equal(arrived.length, 3)
+    await synced.page.unroute(`**${path}`)
     // A recovery need not replace a passkey (it may only end the designation, scenario 82): the owner is not told it
     // does. And where parties are designated, that a party who signs one is known from then on (SPEC R11(h)).
     assert.match(await t.page.textContent('#recovery-notice'), /for a change to this identity, which may replace its passkeys/)
@@ -2727,6 +2768,27 @@ test('a recovery under notice is shown on load with when it takes effect; one pr
         assert.deepEqual([await t.page.isHidden('#recovery-notice'), await t.page.isHidden('#notice-unchecked')], [true, false],
           'a notice not checked is not shown as checked')
       }
+      served = null
+      await change(t.page, 'root', acknowledged)
+      await t.page.waitForSelector('#recovery-notice:not([hidden])')
+      await idle(t.page)
+      assert.equal(await t.page.isHidden('#notice-unchecked'), true)
+    }
+    // Nor when the tab has held another identity's root between, and taken its answer (issue #251): what was read
+    // of each root is kept apart.
+    const bDevice = await t.device()
+    await createIdentity(bDevice.page)
+    const bRoot = await held(bDevice.page, 'root')
+    for (const answer of [replayed, NOT_FOUND]) {
+      await change(t.page, 'root', bRoot)
+      await t.page.waitForFunction((id) => document.getElementById('identity-id').textContent === id, bRoot.identity)
+      await idle(t.page)
+      assert.deepEqual([await t.page.isHidden('#recovery-notice'), await t.page.isHidden('#notice-unchecked')], [true, true], 'nothing of A is said of B')
+      served = answer
+      await change(t.page, 'root', acknowledged)
+      await t.page.waitForSelector('#notice-unchecked:not([hidden])')
+      await idle(t.page)
+      assert.equal(await t.page.isHidden('#recovery-notice'), true)
       served = null
       await change(t.page, 'root', acknowledged)
       await t.page.waitForSelector('#recovery-notice:not([hidden])')
@@ -3070,7 +3132,9 @@ test('recovery parties: a party gives a card and shows that its passkey is held;
     const current = async () => pageRecords.currentMembership(await t.witnessGet(path), { identity: a.identity, rpId, origin: t.site.origin, witnessKeys: t.keys })
     const settle = async () => { t.advance(61); await t.svc.tick(); t.advance(61); await t.svc.tick() }
     await t.page.waitForFunction(() => document.getElementById('recovery-now').textContent === 'none')
-    assert.equal(await t.page.textContent('#recheck-code'), a.identity)
+    const firstCode = await t.page.textContent('#recheck-code')
+    assert.match(firstCode, /^[0-9a-f]{64}$/)
+    assert.notEqual(firstCode, a.identity, 'a fresh code, not the membership')
     // The party: its own identity on its own device. Each card has a new salt, kept beside its root before it is shown.
     const g = await t.device()
     const gRoot = await createIdentity(g.page)
@@ -3236,7 +3300,11 @@ test('recovery parties: a party gives a card and shows that its passkey is held;
     // Loaded again, the page says what is designated; the same check is made over the current membership.
     await t.page.reload()
     await t.page.waitForFunction(() => document.getElementById('recovery-now').textContent.startsWith('1 of 1, after 14 days; parties '))
-    assert.equal(await t.page.textContent('#recheck-code'), code)
+    // Over a fresh code, not the membership (issue #247): new on each load.
+    const fresh = await t.page.textContent('#recheck-code')
+    assert.match(fresh, /^[0-9a-f]{64}$/)
+    assert.notEqual(fresh, code)
+    assert.notEqual(fresh, firstCode)
     await t.page.click('#recheck')
     await errorIs(t.page, 'paste the recovery cards of the parties to check')
     await t.page.fill('#party-cards', card)
@@ -3259,12 +3327,20 @@ test('recovery parties: a party gives a card and shows that its passkey is held;
     }
     await t.page.click('#recheck')
     await statusIs(t.page, '0 of 1 of these parties showed that they hold their passkey.')
-    const again = await proofOf(g, code)
+    // What the party signed for the designation shows nothing of now; what it signs over the code shown does, once.
+    const before = await proofOf(g, code)
+    await t.page.bringToFront()
+    await t.page.fill('#recheck-proofs', before)
+    await t.page.click('#recheck')
+    await statusIs(t.page, '0 of 1 of these parties showed that they hold their passkey.')
+    const again = await proofOf(g, await t.page.textContent('#recheck-code'))
     await t.page.bringToFront()
     await t.page.fill('#recheck-proofs', `${other}\n${again}`)
     await t.page.click('#recheck')
     await statusIs(t.page, '1 of 1 of these parties showed that they hold their passkey.')
     assert.equal(await t.page.textContent('#error'), '')
+    await t.page.click('#recheck')
+    await statusIs(t.page, '0 of 1 of these parties showed that they hold their passkey.')
     // One party pasted twice must not be reported as two parties whose possession was shown.
     await t.page.fill('#party-cards', `${card}\n${card}`)
     await t.page.click('#recheck')
@@ -3345,10 +3421,21 @@ test('recovery parties: two designated parties are checked again together, each 
     await t.page.waitForFunction(() => document.getElementById('recovery-now').textContent.startsWith('2 of 2, '))
     assert.equal((await t.witnessGet(path)).memberships.length, 1)
     await t.page.fill('#party-cards', `${gCard}\n${hCard}`)
-    await t.page.fill('#recheck-proofs', gProof)
+    // What they signed for the designation shows nothing of now (issue #247): a check is over the code shown.
+    await t.page.fill('#recheck-proofs', `${hProof}\n${gProof}`)
+    await t.page.click('#recheck')
+    await statusIs(t.page, '0 of 2 of these parties showed that they hold their passkey.')
+    const now = async (party) => { const p = await proofOf(party, await t.page.textContent('#recheck-code')); await t.page.bringToFront(); return p }
+    const gNow = await now(g)
+    await t.page.fill('#recheck-proofs', gNow)
     await t.page.click('#recheck')
     await statusIs(t.page, '1 of 2 of these parties showed that they hold their passkey.')
-    await t.page.fill('#recheck-proofs', `${hProof}\n${gProof}`)
+    const hNow = await now(h)
+    await t.page.fill('#recheck-proofs', `${hNow}\n${gNow}`)
+    await t.page.click('#recheck')
+    await statusIs(t.page, '1 of 2 of these parties showed that they hold their passkey.')
+    const [gLater, hLater] = [await now(g), await now(h)]
+    await t.page.fill('#recheck-proofs', `${hLater}\n${gLater}`)
     await t.page.click('#recheck')
     await statusIs(t.page, '2 of 2 of these parties showed that they hold their passkey.')
     assert.equal(await t.page.textContent('#error'), '')

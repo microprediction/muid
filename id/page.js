@@ -17,6 +17,11 @@ const KEY = 'root'
 const WORKERS = 'workers'
 const WITNESS = meta('muid-witness')
 const WITNESS_KEYS = JSON.parse(meta('muid-witness-keys'))
+// A value no one could have signed before: 32 random bytes, in hex.
+const freshValue = () => Array.from(crypto.getRandomValues(new Uint8Array(32)), (x) => x.toString(16).padStart(2, '0')).join('')
+// The code a recovery party's passkey signs to show it is held now (issue #247): fresh on each load and after each
+// check, so that what was signed before, for the designation or an earlier check, shows nothing of now.
+let recheckCode = freshValue()
 
 // SPEC §7: what the page keeps (the root with its credential id, and the remembered workers) it keeps through the
 // storage adapter alone. Every change is one transaction there, made to what storage holds at that moment, so no tab
@@ -193,7 +198,7 @@ function show () {
   // The designation in force and the membership a party's check is made over, as the witness last gave them.
   const now = isFor(known) ? known.state : null
   $('recovery-now').textContent = now === null ? 'not known' : designation(now.recovery)
-  $('recheck-code').textContent = now === null ? '' : now.membership
+  $('recheck-code').textContent = now === null ? '' : recheckCode
   if (under !== null) {
     $('notice-at').textContent = when(under.recovering.at)
     $('notice-matures').textContent = when(maturesAt(under))
@@ -269,7 +274,11 @@ async function membership () {
 let noticed = null
 let known = null
 let unchecked = null
-let answered = null // the records last taken as an answer, for the root and identity asked about: what bounds rollback
+// The records last taken as an answer for each root and identity asked about, what bounds rollback: kept apart, so
+// that an answer about one says nothing of another's (issue #251). One entry for each root this tab has held and
+// the witness answered for, each the size of an identity's records.
+const answered = new Map()
+const askedOf = (r) => `${r.id} ${r.identity}`
 let asking = null // the latest question: only its answer is kept
 // Whether what was read is of root `r`, in the identity it is held for: the witness is asked by identity, and
 // storage (untrusted) may hold the same root for another (scenario 109). `isFor`: of the root held now.
@@ -291,7 +300,8 @@ async function notice () {
     records = await held(r.identity)
     s = stateOf(records, r.identity)
     // Records that leave out a notice read before, without what ends it, are no answer either (issue #243).
-    if (of(answered, r) && withheld(answered.records, records, ctxOf(r.identity))) throw new Error() // a notice read before is left out
+    const before = answered.get(askedOf(r))
+    if (before !== undefined && withheld(before, records, ctxOf(r.identity))) throw new Error() // a notice read before is left out
   } catch (e) {
     // Only the two ordinary states in which there can be no recovery are silent: an identity the witness says it
     // does not know (404), and one that has ended. A malformed answer, or records that do not verify, is no answer:
@@ -300,13 +310,13 @@ async function notice () {
     // among them) is not checked away.
     s = null
     records = null
-    failed = (e.unknown !== true || of(answered, r)) && e.message !== 'this identity has ended'
+    failed = (e.unknown !== true || answered.has(askedOf(r))) && e.message !== 'this identity has ended'
   }
   // The root can change in another tab while its request is in flight. Its reply is kept for the root it was asked
   // for, each part shown only while that root is held, so it says nothing of the root now held; nor does it replace
   // the answer to a later question, about that root or another, which may already be shown.
   if (asked !== asking) return
-  if (records !== null) answered = { root: r.id, identity: r.identity, records }
+  if (records !== null) answered.set(askedOf(r), records)
   noticed = s !== null && s.recovering !== null ? { root: r.id, identity: r.identity, state: s } : null
   known = { root: r.id, identity: r.identity, state: s } // no answer is a state of null: nothing is known of this root
   unchecked = failed ? { root: r.id, identity: r.identity } : null
@@ -508,7 +518,6 @@ $('sign').addEventListener('click', () => signDelegation())
 // The sign-in view's button. With no identity here, the passkey the platform offers for this site is asked first,
 // over a fresh value that is no record's id; the identity it is the first root of is opened as by its id. Then the
 // identity is registered if it is not yet, the request reviewed, and signed: the person is sent back with the answer.
-const freshValue = () => Array.from(crypto.getRandomValues(new Uint8Array(32)), (x) => x.toString(16).padStart(2, '0')).join('')
 async function discover () {
   const covers = [possessionId(freshValue())]
   const a = await navigator.credentials.get({ publicKey: { rpId, challenge: challenge(covers), userVerification: 'required' } })
@@ -522,16 +531,29 @@ async function discover () {
       throw e
     }
     const r = opened({ identity, record: covers[0], roots: records.roots, state: stateOf(records, identity), assertion: signed, rpId, origin: ORIGIN })
-    // Kept unless another tab has stored a root meanwhile, which is then the one used. The page signs and leaves
-    // next, so the witness is not asked about a recovery here: the page asks on its next load.
+    // Kept unless another tab has stored a root meanwhile, which is then the one used. Whether a recovery of it is
+    // under way is asked next, before anything is signed (proceed).
     await keepRoot(null, () => ({ ...r, credential: b64u(a.rawId), joining: false, registered: true }))
     return
   }
   throw new Error('The identity of that passkey was not found. If it was added to an identity on another device, choose More options and open that identity by its id.')
 }
-async function proceed () {
+// What the page says of a recovery of the root held: the notice's record, that the witness could not be asked, or nothing.
+const told = () => isFor(unchecked) ? 'unchecked' : isFor(noticed) ? noticed.state.recovering.record : null
+// `before`: what was said when the button was pressed. The witness is asked about a recovery of the root before
+// anything is signed, and what it says that was not said then is shown, not passed over: the person signs in with
+// another press (R2, scenarios 107-108; the page leaves once it has signed).
+async function proceed (before) {
   if (root === null) return
   if (root.joining === true) { fail(new Error('This passkey is joining an identity and can sign nothing until that change has settled.')); return }
+  await notice()
+  const now = told()
+  if (now !== null && now !== before) {
+    fail(new Error(now === 'unchecked'
+      ? 'The witness could not be asked whether a recovery of this identity is under way. Ask again, or press the button again to sign in.'
+      : 'A recovery of this identity is under way, shown above. Cancel it if you did not ask for it, or press the button again to sign in.'))
+    return
+  }
   if (unregistered()) {
     await register()
     if (unregistered()) return
@@ -545,6 +567,7 @@ async function proceed () {
 const activeSignin = () => !$('signin').hidden
 $('signin-button').addEventListener('click', async () => {
   if (!activeSignin()) return
+  const before = told()
   $('error').textContent = ''
   $('signin-new').hidden = true
   if (root === null) {
@@ -556,12 +579,12 @@ $('signin-button').addEventListener('click', async () => {
       return
     }
   }
-  await proceed()
+  await proceed(before)
 })
 $('signin-create').addEventListener('click', async () => {
   if (!activeSignin() || $('signin-new').hidden) return
   await create(false)
-  await proceed()
+  await proceed(null)
 })
 $('signin-more').addEventListener('click', () => { full = true; show() })
 
@@ -787,11 +810,12 @@ $('designate-sign').addEventListener('click', async () => {
   } catch (e) { if (pending.designation === c) fail(e) } // a late answer to what was withdrawn is not shown
 })
 
-// The same check later, over the current membership: a passkey shown once may be gone since.
+// The same check later, over a fresh code: a passkey shown once may be gone since.
 $('recheck').addEventListener('click', async () => {
   withdraw()
   $('status').textContent = ''
   const asked = withdrawals
+  const code = recheckCode
   try {
     const parties = lines('party-cards').map((t) => fromCard(t, rpId))
     const proofs = lines('recheck-proofs')
@@ -800,7 +824,10 @@ $('recheck').addEventListener('click', async () => {
     if (parties.length === 0) throw new Error('paste the recovery cards of the parties to check')
     if (!parties.every((p) => designated(current.recovery, p))) throw new Error("a card here is not one of this identity's recovery parties")
     if (new Set(parties.map((p) => p.root)).size !== parties.length) throw new Error('a recovery party is named twice')
-    const held = parties.filter((p) => proofs.some((t) => shows(p, t, { record: current.membership, rpId, origin: ORIGIN }))).length
+    const held = parties.filter((p) => proofs.some((t) => shows(p, t, { record: code, rpId, origin: ORIGIN }))).length
+    // Used once: the next check is over a new code.
+    recheckCode = freshValue()
+    show()
     $('status').textContent = `${held} of ${parties.length} of these parties showed that they hold their passkey.`
   } catch (e) { if (asked === withdrawals) fail(e) }
 })
