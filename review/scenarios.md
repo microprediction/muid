@@ -104,13 +104,13 @@ filed about it.
 81. A party signature is accepted only with the salt that opens that party's commitment in the designation in force.
 82. Notice is given only once every root the recovery adds has itself signed and its root record is held. A recovery that adds no root (one that keeps or removes roots, or changes only the designation) needs the parties' threshold alone and gets notice like any other; the owner's cancel within the wait answers it.
 83. The roots change no earlier than the notice time plus the full waiting period.
-84. A cancel signed by any one root of the settled membership, any time before the wait ends, stops the recovery and is acknowledged even while an ordinary successor is pending.
+84. A cancel signed by any one root of the settled membership, any time before the wait ends, stops the recovery and is acknowledged even while an ordinary successor is pending. The owner is told, when it cancels and where parties are designated, that the parties who signed are known from then on and should be designated again with new cards (SPEC R11(h)).
 85. A cancel signed by the incoming root, a party, or a removed root does nothing.
 86. After a cancel, no recovery is put under notice during the cooling-off period. Afterwards one may be while the notices held under the settled membership number fewer than 256 (`MAX_RECORDS`); once they reach it, none is given until an ordinary change settles and clears them.
 87. Two different recoveries for one identity cannot both be under notice.
 88. A recovery cannot be contested into ending the identity by anyone but those the spec allows.
 89. An ordinary change signed by the roots while a recovery is under notice has the effect the spec states, and cannot be used by the parties to shorten the wait.
-90. A recovery carries the designation forward or ends it exactly as its payload states, and that is what was shown to each signer, with the passkeys it removes and adds (none, when it changes only the designation): it is not said to replace passkeys it keeps.
+90. A recovery carries the designation forward or ends it exactly as its payload states, and that is what was shown to each signer, with the passkeys it removes and adds (none, when it changes only the designation): it is not said to replace passkeys it keeps, to a party or to the owner shown its notice.
 91. The witness's notice, cancelled and matured statements cannot be given for a record it does not hold.
 92. A verifier checks the signature, shape, freshness and usual consistency of a head carrying a notice, but `lastHead` alone cannot detect a backdated notice. Recovery timing trusts the witness; auditing such timing requires independent monitoring of logged heads.
 93. A party that has given out the maximum number of recovery cards gives no more and loses none.

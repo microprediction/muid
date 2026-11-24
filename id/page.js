@@ -736,7 +736,7 @@ $('notice-cancel').addEventListener('click', async () => {
     if (!mine()) return
     await submit(r.identity, 'cancel', rootSigned(c.payload, r.id, a))
     if (!mine()) return
-    $('status').textContent = 'Cancel sent. The notice goes once the witness has said the recovery is cancelled.'
+    $('status').textContent = 'Cancel sent. The notice goes once the witness has said the recovery is cancelled. The parties that signed it are known from now on: ask them for new recovery cards and designate them again.'
     await notice()
   } catch (e) { if (mine()) fail(e) }
 })
