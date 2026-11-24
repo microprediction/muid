@@ -5,7 +5,7 @@
 // record and the credential id are kept in this browser only. The workers it authorised are remembered here too, so
 // that one assertion renews up to eight of them at once (decision 3).
 import { openStore } from './store.js'
-import { rootRecord, challenge, assertion, delegations, handOff, readRequest, audiencesOf, answer, opened, firstRootIdentities, secretInput, prfOutput, sealSecret, b64u, fromB64u, currentMembership, addRoot, rootSigned, changeToSign, fingerprint, storedRoot, cosignedIdentity, storedWorkers, remember, retired, renewals, cancel, maturesAt, card, kept, newSalt, fromCard, majority, possessionId, shows, designate, undesignate, designated, recoveryChange, MAX_SALTS, recovery, rescue, partySigned } from './records.js'
+import { rootRecord, challenge, assertion, delegations, handOff, readRequest, audiencesOf, answer, opened, firstRootIdentities, secretInput, prfOutput, sealSecret, b64u, fromB64u, currentMembership, addRoot, rootSigned, changeToSign, fingerprint, storedRoot, cosignedIdentity, storedWorkers, remember, retired, renewals, cancel, maturesAt, withheld, card, kept, newSalt, fromCard, majority, possessionId, shows, designate, undesignate, designated, recoveryChange, MAX_SALTS, recovery, rescue, partySigned } from './records.js'
 
 const $ = (id) => document.getElementById(id)
 const meta = (name) => document.querySelector(`meta[name="${name}"]`).content
@@ -251,7 +251,8 @@ async function held (identity) {
   if (!res.ok) throw Object.assign(new Error('the witness holds no record of this identity'), { unknown: true })
   return res.json()
 }
-const stateOf = (records, identity) => currentMembership(records, { identity, rpId, origin: ORIGIN, witnessKeys: WITNESS_KEYS })
+const ctxOf = (identity) => ({ identity, rpId, origin: ORIGIN, witnessKeys: WITNESS_KEYS })
+const stateOf = (records, identity) => currentMembership(records, ctxOf(identity))
 const state = async (r = root) => stateOf(await held(r.identity), r.identity)
 // The current membership's id, for a delegation: only a root with authority (R6) signs one.
 async function membership () {
@@ -266,10 +267,12 @@ async function membership () {
 let noticed = null
 let known = null
 let unchecked = null
+let answered = null // the records last taken as an answer, for the root and identity asked about: what bounds rollback
 let asking = null // the latest question: only its answer is kept
-// Whether what was read is of the root held now, in the identity it is held for: the witness is asked by identity, and
-// storage (untrusted) may hold the same root for another (scenario 109).
-const isFor = (x) => x !== null && x.root === root?.id && x.identity === root.identity
+// Whether what was read is of root `r`, in the identity it is held for: the witness is asked by identity, and
+// storage (untrusted) may hold the same root for another (scenario 109). `isFor`: of the root held now.
+const of = (x, r) => x !== null && x.root === r?.id && x.identity === r.identity
+const isFor = (x) => of(x, root)
 // Whether two roots read are the same: the same root, for the same identity (a root's identity changes as it joins one).
 const same = (a, b) => a?.id === b?.id && a?.identity === b?.identity
 async function notice () {
@@ -280,21 +283,28 @@ async function notice () {
   const asked = {}
   asking = asked
   let s = null
+  let records = null
   let failed = false
   try {
-    s = await state(r)
+    records = await held(r.identity)
+    s = stateOf(records, r.identity)
+    // Records that leave out a notice read before, without what ends it, are no answer either (issue #243).
+    if (of(answered, r) && withheld(answered.records, records, ctxOf(r.identity))) throw new Error() // a notice read before is left out
   } catch (e) {
     // Only the two ordinary states in which there can be no recovery are silent: an identity the witness says it
     // does not know (404), and one that has ended. A malformed answer, or records that do not verify, is no answer:
     // hiding that would make a recovery notice look absent when the page could not check it. So is a 404 for an
-    // identity whose records this tab has read for this root: what it read (a notice among them) is not checked away.
-    const read = known?.root === r.id && known.identity === r.identity && known.state !== null
-    failed = (e.unknown !== true || read) && e.message !== 'this identity has ended'
+    // identity whose records this tab has taken for this root, however many no-answers since: what it read (a notice
+    // among them) is not checked away.
+    s = null
+    records = null
+    failed = (e.unknown !== true || of(answered, r)) && e.message !== 'this identity has ended'
   }
   // The root can change in another tab while its request is in flight. Its reply is kept for the root it was asked
   // for, each part shown only while that root is held, so it says nothing of the root now held; nor does it replace
   // the answer to a later question, about that root or another, which may already be shown.
   if (asked !== asking) return
+  if (records !== null) answered = { root: r.id, identity: r.identity, records }
   noticed = s !== null && s.recovering !== null ? { root: r.id, identity: r.identity, state: s } : null
   known = { root: r.id, identity: r.identity, state: s } // no answer is a state of null: nothing is known of this root
   unchecked = failed ? { root: r.id, identity: r.identity } : null

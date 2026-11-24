@@ -201,6 +201,15 @@ test("a party's signature built by the page starts a recovery; the page reads th
   const r = w.advance(admit(noticed, 'cancel', rootSigned(c.payload, wf.rootId('a'), by('a', c.id))), T0 + 6)
   assert.deepEqual(r.signed.map((x) => x.type), ['cancelled'])
   assert.equal(current(r.held).recovering, null)
+  // Issue #243: records read after the notice end it only with what ends it. The cancel stated, or the recovery
+  // matured and settled, does; the records from before the notice, served again, only leave it out.
+  const matured = w.advance(noticed, T0 + 5 + MIN).held
+  assert.deepEqual([current(matured).epoch, current(matured).recovering], [3, null])
+  const withheld = (earlier, later) => records.withheld(earlier, later, wf.CTX)
+  assert.deepEqual([withheld(noticed, held), withheld(noticed, h), withheld(noticed, r.held), withheld(noticed, matured), withheld(noticed, noticed)],
+    [true, true, false, false, false])
+  assert.deepEqual([withheld(held, noticed), withheld(r.held, held), withheld(matured, held)], [false, false, false], 'no notice was read')
+  assert.throws(() => withheld(noticed, { ...held, memberships: Array(257).fill('x') }), { message: 'the witness holds no record of this identity' })
 })
 
 test('one who lost every passkey asks for a recovery; a party reads the request against the identity; signed by both, the witness gives notice', () => {

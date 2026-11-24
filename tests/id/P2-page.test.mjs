@@ -970,6 +970,17 @@ test('a co-signature is kept, and its root made the identity\'s, only for the ro
     assert.deepEqual(posted, ['membership', 'membership'])
     assert.deepEqual(await held(b.page, 'root'), swap, 'this root, held for another identity, is not made this one\'s')
     assert.equal(await b.page.textContent('#status'), '', 'nor said to be co-signed')
+    // And when it is another root, held for this root's identity: that root is not the one decided for.
+    await change(b.page, 'root', mine)
+    await b.page.waitForFunction((text) => document.getElementById('join-root').value === text, mine.text)
+    await review()
+    swap = { ...other, identity: mine.identity }
+    await b.page.evaluate(() => { globalThis.from = undefined })
+    await b.page.click('#cosign-sign')
+    await b.page.waitForFunction(() => globalThis.from !== undefined && globalThis.ended >= globalThis.from)
+    assert.deepEqual(posted, ['membership', 'membership', 'membership'])
+    assert.deepEqual(await held(b.page, 'root'), swap, 'another root of this identity is not marked co-signed')
+    assert.equal(await b.page.textContent('#status'), '', 'nor said to be co-signed')
     assert.deepEqual(t.problems, [])
   } finally {
     await t.close()
@@ -2555,6 +2566,9 @@ test('a recovery under notice is shown on load with when it takes effect; one pr
     assert.match(await t.page.textContent('#recovery-now'), designated(`1 of 1, after ${WAIT_S} seconds`))
     await t.page.fill('#new-root', '')
 
+    // What the witness held before the notice: valid records for this identity, which a network may serve again later.
+    const earlier = await t.witnessGet(path)
+    assert.equal(pageRecords.currentMembership(earlier, { identity: a.identity, rpId, origin: t.site.origin, witnessKeys: t.keys }).recovering, null)
     // The party asks for a recovery to a root of its choosing: the witness gives notice.
     const nId = rootModule.checkRoot(rootOf('n'), { rpId }).id
     const R = envelope.seal('membership', { identity: a.identity, prev: d.id, epoch: 3, roots: [nId] })
@@ -2663,19 +2677,24 @@ test('a recovery under notice is shown on load with when it takes effect; one pr
     await change(t.page, 'root', acknowledged)
     await t.page.waitForSelector('#recovery-notice:not([hidden])')
     // A 404 for an identity whose records this tab has read for this root is no answer, and is said: it does not
-    // take the notice down as if it had been checked away (the witness is not trusted, SPEC §1). So whether or not
-    // the root is stored as registered (its registration's answer may have been lost).
-    let unknown = false // the witness says it does not know the identity, and takes no registration
+    // take the notice down as if it had been checked away (the witness is not trusted, SPEC §1); nor does a second,
+    // or records from before the notice served again, which leave it out without what ends it (issue #243). So
+    // whether or not the root is stored as registered (its registration's answer may have been lost).
+    let served = null // what the witness is shown to answer: a 404 (and it takes no registration), or older records
     const NOT_FOUND = { status: 404, contentType: 'application/json', body: '{"ok":false,"reason":"unknown-identity"}' }
-    await t.page.route(`**${path}`, (route) => unknown ? route.fulfill(NOT_FOUND) : route.fallback())
-    await t.page.route('**/v1/records', (route) => unknown ? route.fulfill(NO_ANSWER) : route.fallback())
-    for (const stored of [acknowledged, { ...acknowledged, registered: false }]) {
-      unknown = true
-      await change(t.page, 'root', stored)
-      await t.page.waitForSelector('#notice-unchecked:not([hidden])')
-      assert.equal(await t.page.isHidden('#recovery-notice'), true, 'a notice not checked is not shown as checked')
-      await idle(t.page)
-      unknown = false
+    const replayed = { status: 200, contentType: 'application/json', body: JSON.stringify(earlier) }
+    await t.page.route(`**${path}`, (route) => served === null ? route.fallback() : route.fulfill(served))
+    await t.page.route('**/v1/records', (route) => served === null ? route.fallback() : route.fulfill(NO_ANSWER))
+    for (const answer of [NOT_FOUND, replayed]) {
+      served = answer
+      for (const stored of [acknowledged, { ...acknowledged, registered: false }]) {
+        await change(t.page, 'root', stored)
+        await t.page.waitForSelector('#notice-unchecked:not([hidden])')
+        await idle(t.page)
+        assert.deepEqual([await t.page.isHidden('#recovery-notice'), await t.page.isHidden('#notice-unchecked')], [true, false],
+          'a notice not checked is not shown as checked')
+      }
+      served = null
       await change(t.page, 'root', acknowledged)
       await t.page.waitForSelector('#recovery-notice:not([hidden])')
       await idle(t.page)
