@@ -1412,7 +1412,8 @@ test('a co-signature whose answer is lost is pending: sent again on reload and b
     await t.page.waitForSelector('#add-panel:not([hidden])')
     await t.page.click('#add-sign')
     await t.page.waitForSelector('#add-handoff:not([hidden])')
-    await b.page.fill('#cosign-payload', await t.page.inputValue('#add-handoff'))
+    const handed = await t.page.inputValue('#add-handoff')
+    await b.page.fill('#cosign-payload', handed)
     await b.page.click('#cosign-review')
     await b.page.waitForSelector('#cosign-panel:not([hidden])')
     assert.equal(await b.page.isHidden('#cosign-pending'), true, 'nothing kept yet')
@@ -1434,6 +1435,24 @@ test('a co-signature whose answer is lost is pending: sent again on reload and b
     assert.equal(await b.page.isHidden('#identity'), true, 'still joining')
     const signers = async () => (await t.witnessGet(`/v1/identities/${a.identity}/records`)).memberships.length
     assert.equal(await signers(), 2, 'the witness took it')
+    // Taken, its answer lost, the change is pending: reviewed again, it is shown (scenario 162). Once it has settled
+    // it asks nothing more of this passkey: reviewed again, it is refused (#257); the kept co-signature is still sent
+    // again, below.
+    t.outage(null)
+    // While it is pending, a change that follows another is refused all the same.
+    const unfollowed = envelope.seal('membership', { ...envelope.open(envelope.wrap(handed, {}), 'membership').body, prev: '0'.repeat(64) }).payload
+    await b.page.fill('#cosign-payload', unfollowed)
+    await b.page.click('#cosign-review')
+    await b.page.waitForFunction((text) => document.getElementById('error').textContent === text, "that change does not follow the identity's current membership")
+    await b.page.fill('#cosign-payload', handed)
+    await b.page.click('#cosign-review')
+    await b.page.waitForSelector('#cosign-panel:not([hidden])')
+    t.advance(61)
+    assert.equal((await t.svc.tick()).length, 1, 'the settlement, once the window has passed')
+    await b.page.click('#cosign-review')
+    await b.page.waitForFunction((text) => document.getElementById('error').textContent === text, "that change does not follow the identity's current membership")
+    assert.equal(await b.page.isHidden('#cosign-panel'), true)
+    t.outage('lost')
     // Reloaded, the change is no longer on the page; the kept co-signature is sent again, and its answer lost again.
     await t.collect()
     await b.page.reload()

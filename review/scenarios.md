@@ -206,4 +206,4 @@ filed about it.
 
 ## Joining passkey review — `id/page.js`, `tests/id/P2-page.test.mjs`
 
-162. A joining passkey co-signs only a change it was shown with the passkeys it removes and adds, against the membership it follows as the witness holds it: the current one, or the change itself when pending. A change that follows another is refused.
+162. A joining passkey co-signs only a change it was shown with the passkeys it removes and adds, against the membership it follows as the witness holds it: the current one, or the change itself when pending. A change that follows another is refused, and so is one that has already settled: it asks nothing more of this passkey, whose kept co-signature is still sent again by Retry.
