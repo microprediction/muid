@@ -272,7 +272,11 @@ async function membership () {
 let noticed = null
 let known = null
 let unchecked = null
-let answered = null // the records last taken as an answer, for the root and identity asked about: what bounds rollback
+// The records last taken as an answer for each root and identity asked about, what bounds rollback: kept apart, so
+// that an answer about one says nothing of another's (issue #251). One entry for each root this tab has held and
+// the witness answered for, each the size of an identity's records.
+const answered = new Map()
+const askedOf = (r) => `${r.id} ${r.identity}`
 let asking = null // the latest question: only its answer is kept
 // Whether what was read is of root `r`, in the identity it is held for: the witness is asked by identity, and
 // storage (untrusted) may hold the same root for another (scenario 109). `isFor`: of the root held now.
@@ -294,7 +298,8 @@ async function notice () {
     records = await held(r.identity)
     s = stateOf(records, r.identity)
     // Records that leave out a notice read before, without what ends it, are no answer either (issue #243).
-    if (of(answered, r) && withheld(answered.records, records, ctxOf(r.identity))) throw new Error() // a notice read before is left out
+    const before = answered.get(askedOf(r))
+    if (before !== undefined && withheld(before, records, ctxOf(r.identity))) throw new Error() // a notice read before is left out
   } catch (e) {
     // Only the two ordinary states in which there can be no recovery are silent: an identity the witness says it
     // does not know (404), and one that has ended. A malformed answer, or records that do not verify, is no answer:
@@ -303,13 +308,13 @@ async function notice () {
     // among them) is not checked away.
     s = null
     records = null
-    failed = (e.unknown !== true || of(answered, r)) && e.message !== 'this identity has ended'
+    failed = (e.unknown !== true || answered.has(askedOf(r))) && e.message !== 'this identity has ended'
   }
   // The root can change in another tab while its request is in flight. Its reply is kept for the root it was asked
   // for, each part shown only while that root is held, so it says nothing of the root now held; nor does it replace
   // the answer to a later question, about that root or another, which may already be shown.
   if (asked !== asking) return
-  if (records !== null) answered = { root: r.id, identity: r.identity, records }
+  if (records !== null) answered.set(askedOf(r), records)
   noticed = s !== null && s.recovering !== null ? { root: r.id, identity: r.identity, state: s } : null
   known = { root: r.id, identity: r.identity, state: s } // no answer is a state of null: nothing is known of this root
   unchecked = failed ? { root: r.id, identity: r.identity } : null

@@ -2745,6 +2745,27 @@ test('a recovery under notice is shown on load with when it takes effect; one pr
       await idle(t.page)
       assert.equal(await t.page.isHidden('#notice-unchecked'), true)
     }
+    // Nor when the tab has held another identity's root between, and taken its answer (issue #251): what was read
+    // of each root is kept apart.
+    const bDevice = await t.device()
+    await createIdentity(bDevice.page)
+    const bRoot = await held(bDevice.page, 'root')
+    for (const answer of [replayed, NOT_FOUND]) {
+      await change(t.page, 'root', bRoot)
+      await t.page.waitForFunction((id) => document.getElementById('identity-id').textContent === id, bRoot.identity)
+      await idle(t.page)
+      assert.deepEqual([await t.page.isHidden('#recovery-notice'), await t.page.isHidden('#notice-unchecked')], [true, true], 'nothing of A is said of B')
+      served = answer
+      await change(t.page, 'root', acknowledged)
+      await t.page.waitForSelector('#notice-unchecked:not([hidden])')
+      await idle(t.page)
+      assert.equal(await t.page.isHidden('#recovery-notice'), true)
+      served = null
+      await change(t.page, 'root', acknowledged)
+      await t.page.waitForSelector('#recovery-notice:not([hidden])')
+      await idle(t.page)
+      assert.equal(await t.page.isHidden('#notice-unchecked'), true)
+    }
     await t.page.unroute(`**${path}`)
     await t.page.unroute('**/v1/records')
     // On load, too; and in another tab of the browser.

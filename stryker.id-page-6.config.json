@@ -10,7 +10,7 @@
     ]
   },
   "mutate": [
-    "id/page.js:585-669"
+    "id/page.js:588-674"
   ],
   "coverageAnalysis": "off",
   "thresholds": {
