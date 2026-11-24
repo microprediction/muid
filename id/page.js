@@ -699,7 +699,8 @@ $('cosign-review').addEventListener('click', async () => {
     const records = await held(c.body.identity)
     const now = stateOf(records, c.body.identity)
     if (asked !== withdrawals) return // withdrawn while the witness was asked
-    if (c.body.prev !== now.membership && c.id !== now.membership) throw new Error("that change does not follow the identity's current membership")
+    // The change follows the current membership, or is itself pending (its review asked again): a settled one asks nothing (#257).
+    if (c.body.prev !== now.membership && !(now.pending && c.id === now.membership)) throw new Error("that change does not follow the identity's current membership")
     const before = rootsOf(records, c.body.prev, c.body.identity, rpId)
     pending.cosign = c
     $('cosign-identity').textContent = c.body.identity

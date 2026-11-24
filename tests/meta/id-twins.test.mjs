@@ -161,13 +161,14 @@ const TWINS = [
   ['unknown-after-no-answer', 'a second 404 after a read takes the notice down unsaid', [["    records = null\n    failed =", "    records = null\n    answered.clear()\n    failed ="]], 'page.js'],
   ['rollback-silent', 'records that leave out a notice read before are taken as its end', [["    if (!taken(r, records)) throw new Error() // a notice read before is left out: no answer either\n", '']], 'page.js'],
   ['withheld-when-shown', 'records that still give the notice are taken as leaving it out', [["  if (before === null || currentMembership(records, ctx).recovering?.record === before.record) return false\n", "  if (before === null) return false\n"]], 'records.js'],
-  ['cosign-unfollowed', "a joining passkey co-signs a change that does not follow the identity's membership", [["    if (c.body.prev !== now.membership && c.id !== now.membership) throw new Error(\"that change does not follow the identity's current membership\")\n", '']], 'page.js'],
+  ['cosign-unfollowed', "a joining passkey co-signs a change that does not follow the identity's membership", [["    if (c.body.prev !== now.membership && !(now.pending && c.id === now.membership)) throw new Error(\"that change does not follow the identity's current membership\")\n", '']], 'page.js'],
   ['cosign-removes-unsaid', 'a joining passkey is not told the passkeys a change removes', [["$('cosign-removed').textContent = listed(before.filter((x) => !c.body.roots.includes(x)))", "$('cosign-removed').textContent = 'none'"]], 'page.js'],
   ['answered-one-slot', "an answer about another root forgets what was read of this one", [["  if (records !== null) answered.set(askedOf(r), records)\n", "  if (records !== null) { answered.clear(); answered.set(askedOf(r), records) }\n"]], 'page.js'],
   ['signin-unasked', 'the sign-in shortcut signs without asking about a recovery', [["  notice()\n  for (let p; p !== latest;) { p = latest; await p }\n  const now = told()\n", "  const now = told()\n"]], 'page.js'],
   ['signin-stops-always', 'the sign-in shortcut stops at a recovery already shown', [["  if (now !== null && now !== before) {\n", "  if (now !== null) {\n"]], 'page.js'],
   ['recheck-over-membership', 'a recheck counts what a party signed over the membership, at any time', [["shows(p, t, { record: code, rpId, origin: ORIGIN })", "shows(p, t, { record: current.membership, rpId, origin: ORIGIN })"]], 'page.js'],
   ['recheck-code-reused', 'a recheck code counts again after it was used', [["    recheckCode = freshValue()\n", '']], 'page.js'],
+  ['cosign-settled', 'a joining passkey is shown a change that has already settled, as if it asked a signature', [["!(now.pending && c.id === now.membership)", "c.id !== now.membership"]], 'page.js'],
   ['signin-overtaken', 'a sign-in whose check another overtook signs on what it read before', [["  notice()\n  for (let p; p !== latest;) { p = latest; await p }\n", "  await notice()\n"]], 'page.js'],
   ['discover-unseeded', 'records read when a passkey is found bound nothing read after', [[")) && taken(r, records)) answered.set(askedOf(r), records)\n", "))) {}\n"]], 'page.js'],
   ['open-unseeded', 'records read when an identity is opened bound nothing read after', [["    if (taken(r, records)) answered.set(askedOf(r), records) // what was read of it bounds what is read next\n", '']], 'page.js'],
@@ -253,7 +254,7 @@ test('id page broken twins', { timeout: 7_200_000 }, async (t) => {
     // MUID_TWIN_TARGETS_ONLY=1 makes every twin, each checking that its targets occur once, and runs none: every
     // pull request does this (tests/guards/twin-targets.test.mjs), the twins themselves running nightly.
     if (process.env.MUID_TWIN_TARGETS_ONLY === '1') {
-      assert.equal(TWINS.map(([name, , edits, file]) => generate(name, edits, file)).length, 187, 'twin count')
+      assert.equal(TWINS.map(([name, , edits, file]) => generate(name, edits, file)).length, 188, 'twin count')
       return
     }
     await t.test('control: an unmodified copy, run from outside the repository, passes', async () => {
@@ -262,7 +263,7 @@ test('id page broken twins', { timeout: 7_200_000 }, async (t) => {
       assert.ok(r.pass >= 14, `control: only ${r.pass} tests ran`)
     })
     const jobs = TWINS.map(([name, why, edits, file]) => [name, why, generate(name, edits, file)])
-    assert.equal(jobs.length, 187, 'twin count')
+    assert.equal(jobs.length, 188, 'twin count')
     const results = []
     const queue = part(jobs)
     assert.ok(queue.length > 0, 'this part has twins')
