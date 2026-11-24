@@ -90,7 +90,7 @@ const TWINS = [
   ['unverified-answer-silent', 'records served that do not verify are taken for an identity the witness does not know', [["    failed = (e.unknown !== true || answered.has(askedOf(r))) && e.message !== 'this identity has ended'\n", "    failed = e.message !== 'the witness holds no record of this identity' && e.message !== 'this identity has ended'\n"]], 'page.js'],
   ['unchecked-of-another-root', "that the witness gave no answer about one root is said of another held after it", [["  $('notice-unchecked').hidden = !isFor(unchecked) || joining\n", "  $('notice-unchecked').hidden = unchecked === null || joining\n"]], 'page.js'],
   ['notice-of-another-identity', "what the witness said of a root in one identity is shown for the same root stored in another", [["x.root === r?.id && x.identity === r.identity", "x.root === r?.id"]], 'page.js'],
-  ['unacknowledged-not-asked', "a root whose registration answer was lost is not asked about, so a recovery of it is not shown", [["  if (r === null || r.joining === true) return\n", "  if (r === null || r.joining === true || r.registered !== true) return\n"]], 'page.js'],
+  ['unacknowledged-not-asked', "a root whose registration answer was lost is not asked about, so a recovery of it is not shown", [["  if (r === null || r.joining === true) return latest\n", "  if (r === null || r.joining === true || r.registered !== true) return latest\n"]], 'page.js'],
   ['load-registers-only', "on load, a root whose registration is sent again is not asked about meanwhile", [["if (unregistered()) register()\nnotice()\n", "if (unregistered()) register()\nelse notice()\n"]], 'page.js'],
   ['no-answer-silent', 'a witness that gives no answer about recoveries is not said', [['  unchecked = failed ? { root: r.id, identity: r.identity } : null\n', '  unchecked = null\n']], 'page.js'],
   ['add-designation-not-shown', 'an added passkey is reviewed without the designation the change states (I4)', [["    $('add-recovery').textContent = designation(c.body.recovery)\n", '']], 'page.js'],
@@ -159,16 +159,19 @@ const TWINS = [
   ['keep-identity-blind', 'a root held now for another identity is changed as if it were the one decided for', [['    made = same(r, mine)\n', '    made = r?.id === mine?.id\n']], 'page.js'],
   ['unknown-after-read', 'a 404 for an identity whose records were read here takes its notice down unsaid', [["    failed = (e.unknown !== true || answered.has(askedOf(r))) && e.message", "    failed = e.unknown !== true && e.message"]], 'page.js'],
   ['unknown-after-no-answer', 'a second 404 after a read takes the notice down unsaid', [["    records = null\n    failed =", "    records = null\n    answered.clear()\n    failed ="]], 'page.js'],
-  ['rollback-silent', 'records that leave out a notice read before are taken as its end', [["    if (before !== undefined && withheld(before, records, ctxOf(r.identity))) throw new Error() // a notice read before is left out\n", '']], 'page.js'],
+  ['rollback-silent', 'records that leave out a notice read before are taken as its end', [["    if (!taken(r, records)) throw new Error() // a notice read before is left out: no answer either\n", '']], 'page.js'],
   ['withheld-when-shown', 'records that still give the notice are taken as leaving it out', [["  if (before === null || currentMembership(records, ctx).recovering?.record === before.record) return false\n", "  if (before === null) return false\n"]], 'records.js'],
   ['cosign-unfollowed', "a joining passkey co-signs a change that does not follow the identity's membership", [["    if (c.body.prev !== now.membership && !(now.pending && c.id === now.membership)) throw new Error(\"that change does not follow the identity's current membership\")\n", '']], 'page.js'],
   ['cosign-removes-unsaid', 'a joining passkey is not told the passkeys a change removes', [["$('cosign-removed').textContent = listed(before.filter((x) => !c.body.roots.includes(x)))", "$('cosign-removed').textContent = 'none'"]], 'page.js'],
   ['answered-one-slot', "an answer about another root forgets what was read of this one", [["  if (records !== null) answered.set(askedOf(r), records)\n", "  if (records !== null) { answered.clear(); answered.set(askedOf(r), records) }\n"]], 'page.js'],
-  ['signin-unasked', 'the sign-in shortcut signs without asking about a recovery', [["  await notice()\n  const now = told()\n", "  const now = told()\n"]], 'page.js'],
+  ['signin-unasked', 'the sign-in shortcut signs without asking about a recovery', [["  notice()\n  for (let p; p !== latest;) { p = latest; await p }\n  const now = told()\n", "  const now = told()\n"]], 'page.js'],
   ['signin-stops-always', 'the sign-in shortcut stops at a recovery already shown', [["  if (now !== null && now !== before) {\n", "  if (now !== null) {\n"]], 'page.js'],
   ['recheck-over-membership', 'a recheck counts what a party signed over the membership, at any time', [["shows(p, t, { record: code, rpId, origin: ORIGIN })", "shows(p, t, { record: current.membership, rpId, origin: ORIGIN })"]], 'page.js'],
   ['recheck-code-reused', 'a recheck code counts again after it was used', [["    recheckCode = freshValue()\n", '']], 'page.js'],
   ['cosign-settled', 'a joining passkey is shown a change that has already settled, as if it asked a signature', [["!(now.pending && c.id === now.membership)", "c.id !== now.membership"]], 'page.js'],
+  ['signin-overtaken', 'a sign-in whose check another overtook signs on what it read before', [["  notice()\n  for (let p; p !== latest;) { p = latest; await p }\n", "  await notice()\n"]], 'page.js'],
+  ['discover-unseeded', 'records read when a passkey is found bound nothing read after', [[")) && taken(r, records)) answered.set(askedOf(r), records)\n", "))) {}\n"]], 'page.js'],
+  ['open-unseeded', 'records read when an identity is opened bound nothing read after', [["    if (taken(r, records)) answered.set(askedOf(r), records) // what was read of it bounds what is read next\n", '']], 'page.js'],
   ['rescue-wait-adds', 'a recovery that adds no passkey says it waits for the passkeys it adds', [["${added.length === 0 ? '' : ' and every passkey it adds'}", " and every passkey it adds"]], 'page.js'],
   ['rescue-removes-all', 'a recovery that keeps every passkey is shown removing them', [["const listed = (ids) => ids.length === 0 ? 'none' : ids.join(' ')", "const listed = (ids) => ids.join(' ')"]], 'page.js'],
   ['no-storage-acts', 'without storage the page still offers to act', [["    REFUSAL = 'This browser gave the page no storage: it can do nothing here.'\n", '']], 'page.js'],
@@ -251,7 +254,7 @@ test('id page broken twins', { timeout: 7_200_000 }, async (t) => {
     // MUID_TWIN_TARGETS_ONLY=1 makes every twin, each checking that its targets occur once, and runs none: every
     // pull request does this (tests/guards/twin-targets.test.mjs), the twins themselves running nightly.
     if (process.env.MUID_TWIN_TARGETS_ONLY === '1') {
-      assert.equal(TWINS.map(([name, , edits, file]) => generate(name, edits, file)).length, 185, 'twin count')
+      assert.equal(TWINS.map(([name, , edits, file]) => generate(name, edits, file)).length, 188, 'twin count')
       return
     }
     await t.test('control: an unmodified copy, run from outside the repository, passes', async () => {
@@ -260,7 +263,7 @@ test('id page broken twins', { timeout: 7_200_000 }, async (t) => {
       assert.ok(r.pass >= 14, `control: only ${r.pass} tests ran`)
     })
     const jobs = TWINS.map(([name, why, edits, file]) => [name, why, generate(name, edits, file)])
-    assert.equal(jobs.length, 185, 'twin count')
+    assert.equal(jobs.length, 188, 'twin count')
     const results = []
     const queue = part(jobs)
     assert.ok(queue.length > 0, 'this part has twins')

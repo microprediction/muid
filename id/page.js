@@ -280,28 +280,37 @@ let unchecked = null
 const answered = new Map()
 const askedOf = (r) => `${r.id} ${r.identity}`
 let asking = null // the latest question: only its answer is kept
+let latest = Promise.resolve() // that question, settled once its answer is kept
 // Whether what was read is of root `r`, in the identity it is held for: the witness is asked by identity, and
 // storage (untrusted) may hold the same root for another (scenario 109). `isFor`: of the root held now.
 const of = (x, r) => x !== null && x.root === r?.id && x.identity === r.identity
 const isFor = (x) => of(x, root)
 // Whether two roots read are the same: the same root, for the same identity (a root's identity changes as it joins one).
 const same = (a, b) => a?.id === b?.id && a?.identity === b?.identity
-async function notice () {
+// Whether records verified for root `r` are taken as an answer for it: not if they leave out a notice read before,
+// without what ends it (issue #243). Records verified when a root is opened are taken as notice() takes them (#256).
+function taken (r, records) {
+  const before = answered.get(askedOf(r))
+  return before === undefined || !withheld(before, records, ctxOf(r.identity))
+}
+function notice () {
   const r = root
   // A root whose registration this browser has not seen answered is asked about too: the answer may have been lost
   // with the witness holding it, and a recovery of it (scenarios 107-108). A witness that does not know it says so.
-  if (r === null || r.joining === true) return
+  if (r === null || r.joining === true) return latest
   const asked = {}
   asking = asked
+  latest = ask(r, asked)
+  return latest
+}
+async function ask (r, asked) {
   let s = null
   let records = null
   let failed = false
   try {
     records = await held(r.identity)
     s = stateOf(records, r.identity)
-    // Records that leave out a notice read before, without what ends it, are no answer either (issue #243).
-    const before = answered.get(askedOf(r))
-    if (before !== undefined && withheld(before, records, ctxOf(r.identity))) throw new Error() // a notice read before is left out
+    if (!taken(r, records)) throw new Error() // a notice read before is left out: no answer either
   } catch (e) {
     // Only the two ordinary states in which there can be no recovery are silent: an identity the witness says it
     // does not know (404), and one that has ended. A malformed answer, or records that do not verify, is no answer:
@@ -444,6 +453,7 @@ $('open-button').addEventListener('click', async () => {
     const records = await held(identity)
     const r = opened({ identity, roots: records.roots, state: stateOf(records, identity), assertion: assertion(covers, a.response), rpId, origin: ORIGIN })
     if (!await keepRoot(null, () => ({ ...r, credential: b64u(a.rawId), joining: false, registered: true }))) return
+    if (taken(r, records)) answered.set(askedOf(r), records) // what was read of it bounds what is read next
     $('status').textContent = 'Opened with your passkey.'
   } catch (e) { fail(e); return }
   notice()
@@ -533,7 +543,7 @@ async function discover () {
     const r = opened({ identity, record: covers[0], roots: records.roots, state: stateOf(records, identity), assertion: signed, rpId, origin: ORIGIN })
     // Kept unless another tab has stored a root meanwhile, which is then the one used. Whether a recovery of it is
     // under way is asked next, before anything is signed (proceed).
-    await keepRoot(null, () => ({ ...r, credential: b64u(a.rawId), joining: false, registered: true }))
+    if (await keepRoot(null, () => ({ ...r, credential: b64u(a.rawId), joining: false, registered: true })) && taken(r, records)) answered.set(askedOf(r), records)
     return
   }
   throw new Error('The identity of that passkey was not found. If it was added to an identity on another device, choose More options and open that identity by its id.')
@@ -546,7 +556,9 @@ const told = () => isFor(unchecked) ? 'unchecked' : isFor(noticed) ? noticed.sta
 async function proceed (before) {
   if (root === null) return
   if (root.joining === true) { fail(new Error('This passkey is joining an identity and can sign nothing until that change has settled.')); return }
-  await notice()
+  // A check another overtook (a second press, a change in another tab) kept no answer: the latest is awaited (#255).
+  notice()
+  for (let p; p !== latest;) { p = latest; await p }
   const now = told()
   if (now !== null && now !== before) {
     fail(new Error(now === 'unchecked'
