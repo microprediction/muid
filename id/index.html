@@ -88,7 +88,7 @@
   </section>
   <section id="recovery-notice" hidden>
     <h2>A recovery of this identity is under way</h2>
-    <p>Its recovery parties asked the witness, on <span id="notice-at"></span>, to replace this identity's passkeys. Unless it is cancelled, that takes effect on <span id="notice-matures"></span>.</p>
+    <p>Its recovery parties asked the witness, on <span id="notice-at"></span>, for a change to this identity, which may replace its passkeys. Unless it is cancelled, it takes effect on <span id="notice-matures"></span>.</p>
     <div id="notice-own">
       <p>If you did not ask for it, cancel it. Your passkey will sign exactly this:</p>
       <dl>
@@ -155,7 +155,7 @@
   </section>
   <section id="recovery" hidden>
     <h2>Recovery parties</h2>
-    <p>Optional. People or services you trust who, together, can replace this identity's passkeys if you lose them all. Each gives you a recovery card from this page on their own device. Designated now: <span id="recovery-now">not known</span>.</p>
+    <p>Optional. People or services you trust who, together, can replace this identity's passkeys if you lose them all. Each gives you a recovery card from this page on their own device. A party that signs a recovery shows who it is for good, even if the recovery is cancelled: after one, ask your parties for new recovery cards and designate them again. Designated now: <span id="recovery-now">not known</span>.</p>
     <label>Their recovery cards, one on each line (1 to 3) <textarea id="party-cards" spellcheck="false"></textarea></label>
     <label>Days a recovery waits before it takes effect <input id="recovery-days" type="number" value="14" min="3" max="90"></label>
     <button id="designate-review" type="button">Review</button>
