@@ -161,6 +161,8 @@ const TWINS = [
   ['unknown-after-no-answer', 'a second 404 after a read takes the notice down unsaid', [["    records = null\n    failed =", "    records = null\n    answered = null\n    failed ="]], 'page.js'],
   ['rollback-silent', 'records that leave out a notice read before are taken as its end', [["    if (of(answered, r) && withheld(answered.records, records, ctxOf(r.identity))) throw new Error() // a notice read before is left out\n", '']], 'page.js'],
   ['withheld-when-shown', 'records that still give the notice are taken as leaving it out', [["  if (before === null || currentMembership(records, ctx).recovering?.record === before.record) return false\n", "  if (before === null) return false\n"]], 'records.js'],
+  ['signin-unasked', 'the sign-in shortcut signs without asking about a recovery', [["  await notice()\n  const now = told()\n", "  const now = told()\n"]], 'page.js'],
+  ['signin-stops-always', 'the sign-in shortcut stops at a recovery already shown', [["  if (now !== null && now !== before) {\n", "  if (now !== null) {\n"]], 'page.js'],
   ['rescue-wait-adds', 'a recovery that adds no passkey says it waits for the passkeys it adds', [["${added.length === 0 ? '' : ' and every passkey it adds'}", " and every passkey it adds"]], 'page.js'],
   ['rescue-removes-all', 'a recovery that keeps every passkey is shown removing them', [["$('rescue-removed').textContent = removed.length === 0 ? 'none' : ", "$('rescue-removed').textContent = "]], 'page.js'],
   ['no-storage-acts', 'without storage the page still offers to act', [["    REFUSAL = 'This browser gave the page no storage: it can do nothing here.'\n", '']], 'page.js'],
@@ -243,7 +245,7 @@ test('id page broken twins', { timeout: 7_200_000 }, async (t) => {
     // MUID_TWIN_TARGETS_ONLY=1 makes every twin, each checking that its targets occur once, and runs none: every
     // pull request does this (tests/guards/twin-targets.test.mjs), the twins themselves running nightly.
     if (process.env.MUID_TWIN_TARGETS_ONLY === '1') {
-      assert.equal(TWINS.map(([name, , edits, file]) => generate(name, edits, file)).length, 177, 'twin count')
+      assert.equal(TWINS.map(([name, , edits, file]) => generate(name, edits, file)).length, 179, 'twin count')
       return
     }
     await t.test('control: an unmodified copy, run from outside the repository, passes', async () => {
@@ -252,7 +254,7 @@ test('id page broken twins', { timeout: 7_200_000 }, async (t) => {
       assert.ok(r.pass >= 14, `control: only ${r.pass} tests ran`)
     })
     const jobs = TWINS.map(([name, why, edits, file]) => [name, why, generate(name, edits, file)])
-    assert.equal(jobs.length, 177, 'twin count')
+    assert.equal(jobs.length, 179, 'twin count')
     const results = []
     const queue = part(jobs)
     assert.ok(queue.length > 0, 'this part has twins')

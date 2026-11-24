@@ -2624,6 +2624,47 @@ test('a recovery under notice is shown on load with when it takes effect; one pr
     assert.equal(await t.page.textContent('#notice-record'), R.id)
     assert.equal(await t.page.textContent('#notice-at'), iso(noticed.recovering.at))
     assert.equal(await t.page.textContent('#notice-matures'), iso(noticed.recovering.at + WAIT_S))
+    // Signing in for an application asks the witness about a recovery before anything is signed, and shows what it
+    // was not showing when the button was pressed: the page leaves once it has signed (R2, scenarios 107-108).
+    // On a device the passkey has synced to, with nothing stored, the identity is found and then asked about.
+    const signin = { v: 1, agent: 'drive', subject: SUBJECT, aud: 'https://node.example', scopes: ['store.ref'], days: 1, return: 'https://app.example/drive/', state: 'N-1' }
+    const synced = await t.device()
+    const arrived = []
+    await synced.context.route('https://app.example/**', async (route) => { arrived.push(route.request().url()); await route.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><title>app</title>' }) })
+    await synced.cdp.send('WebAuthn.addCredential', { authenticatorId: synced.authenticatorId, credential: (await t.cdp.send('WebAuthn.getCredentials', { authenticatorId: t.authenticatorId })).credentials[0] })
+    const signIn = async (state, first) => {
+      await synced.page.goto('about:blank')
+      await synced.page.goto(t.site.origin + '/id/#muid-request=' + Buffer.from(JSON.stringify({ ...signin, state })).toString('base64url'))
+      await synced.page.waitForSelector('#signin:not([hidden])')
+      await synced.page.click('#signin-button')
+      await errorIs(synced.page, 'A recovery of this identity is under way, shown above. Cancel it if you did not ask for it, or press the button again to sign in.')
+      assert.deepEqual([await synced.page.isHidden('#recovery-notice'), await synced.page.isHidden('#notice-cancel'), arrived.length], [false, false, first], 'shown, and nothing signed')
+      await synced.page.click('#signin-button')
+      await synced.page.waitForURL((u) => u.origin === 'https://app.example')
+      assert.equal(arrived.length, first + 1, 'signed once the notice was shown')
+    }
+    await signIn('N-1', 0)
+    // With the root stored, and the question asked on load held: the button asks again, and does not sign unasked.
+    let holding = true
+    await synced.page.route(`**${path}`, async (route) => { if (holding) { holding = false; return } await route.fallback() })
+    await signIn('N-2', 1)
+    await synced.page.unroute(`**${path}`)
+    // The witness not answering when asked at the button, though it did on load: that is said, and nothing signed;
+    // its answer to the next press, the notice, is said too, and the press after that signs.
+    let gets = 0
+    await synced.page.route(`**${path}`, async (route) => { if (++gets === 2) await route.fulfill(NO_ANSWER); else await route.fallback() })
+    await synced.page.goto('about:blank')
+    await synced.page.goto(t.site.origin + '/id/#muid-request=' + Buffer.from(JSON.stringify({ ...signin, state: 'N-3' })).toString('base64url'))
+    await synced.page.waitForSelector('#recovery-notice:not([hidden])')
+    await synced.page.click('#signin-button')
+    await errorIs(synced.page, 'The witness could not be asked whether a recovery of this identity is under way. Ask again, or press the button again to sign in.')
+    assert.deepEqual([await synced.page.isHidden('#notice-unchecked'), arrived.length], [false, 2])
+    await synced.page.click('#signin-button')
+    await errorIs(synced.page, 'A recovery of this identity is under way, shown above. Cancel it if you did not ask for it, or press the button again to sign in.')
+    await synced.page.click('#signin-button')
+    await synced.page.waitForURL((u) => u.origin === 'https://app.example')
+    assert.equal(arrived.length, 3)
+    await synced.page.unroute(`**${path}`)
     // A root whose registration this browser has not seen answered (the answer lost; the witness holds it) is asked
     // about all the same, while its registration is sent again and fails (scenarios 107-108).
     const acknowledged = await held(t.page, 'root')

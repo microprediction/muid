@@ -520,16 +520,29 @@ async function discover () {
       throw e
     }
     const r = opened({ identity, record: covers[0], roots: records.roots, state: stateOf(records, identity), assertion: signed, rpId, origin: ORIGIN })
-    // Kept unless another tab has stored a root meanwhile, which is then the one used. The page signs and leaves
-    // next, so the witness is not asked about a recovery here: the page asks on its next load.
+    // Kept unless another tab has stored a root meanwhile, which is then the one used. Whether a recovery of it is
+    // under way is asked next, before anything is signed (proceed).
     await keepRoot(null, () => ({ ...r, credential: b64u(a.rawId), joining: false, registered: true }))
     return
   }
   throw new Error('The identity of that passkey was not found. If it was added to an identity on another device, choose More options and open that identity by its id.')
 }
-async function proceed () {
+// What the page says of a recovery of the root held: the notice's record, that the witness could not be asked, or nothing.
+const told = () => isFor(unchecked) ? 'unchecked' : isFor(noticed) ? noticed.state.recovering.record : null
+// `before`: what was said when the button was pressed. The witness is asked about a recovery of the root before
+// anything is signed, and what it says that was not said then is shown, not passed over: the person signs in with
+// another press (R2, scenarios 107-108; the page leaves once it has signed).
+async function proceed (before) {
   if (root === null) return
   if (root.joining === true) { fail(new Error('This passkey is joining an identity and can sign nothing until that change has settled.')); return }
+  await notice()
+  const now = told()
+  if (now !== null && now !== before) {
+    fail(new Error(now === 'unchecked'
+      ? 'The witness could not be asked whether a recovery of this identity is under way. Ask again, or press the button again to sign in.'
+      : 'A recovery of this identity is under way, shown above. Cancel it if you did not ask for it, or press the button again to sign in.'))
+    return
+  }
   if (unregistered()) {
     await register()
     if (unregistered()) return
@@ -543,6 +556,7 @@ async function proceed () {
 const activeSignin = () => !$('signin').hidden
 $('signin-button').addEventListener('click', async () => {
   if (!activeSignin()) return
+  const before = told()
   $('error').textContent = ''
   $('signin-new').hidden = true
   if (root === null) {
@@ -554,12 +568,12 @@ $('signin-button').addEventListener('click', async () => {
       return
     }
   }
-  await proceed()
+  await proceed(before)
 })
 $('signin-create').addEventListener('click', async () => {
   if (!activeSignin() || $('signin-new').hidden) return
   await create(false)
-  await proceed()
+  await proceed(null)
 })
 $('signin-more').addEventListener('click', () => { full = true; show() })
 
