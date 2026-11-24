@@ -9,7 +9,7 @@ import { make } from '../assertion/helpers.mjs'
 import { membership, envelope } from '../impl.mjs'
 import { createHash } from 'node:crypto'
 
-const { recovery, rescue } = records
+const { recovery, rescue, rootsOf } = records
 const { party, designate, undesignate, possession, possessionId, shows, card, fromCard, kept, newSalt, majority, recoveryChange, storedRoot, MAX_SALTS, designated, cancel, maturesAt, partySigned, rootSigned, currentMembership, addRoot, changeToSign, DEFAULT_RECOVERY_WINDOW } = records
 const { IDENTITY, BASE, WINDOW, w } = wf
 const { rpId: RP_ID, origin: ORIGIN } = wf.CTX
@@ -254,4 +254,18 @@ test('one who lost every passkey asks for a recovery; a party reads the request 
   const noticed = current(w.advance(h, T0 + 5).held)
   assert.deepEqual(noticed.recovering, { record: c.id, at: T0 + 5 })
   assert.throws(() => recovery({ identity: IDENTITY, state: noticed, root: wf.rootText('n'), rpId: RP_ID }), { message: 'a recovery of that identity is already under notice' })
+})
+
+test("a membership's roots are read from the witness's records by its id: the first, from the root the identity is named from", () => {
+  const { held, d } = designatedBy()
+  const of = (records, id) => rootsOf(records, id, IDENTITY, RP_ID)
+  assert.deepEqual(of(held, IDENTITY), [wf.rootId('a')])
+  assert.deepEqual(of(held, d.id), d.body.roots)
+  // Records that are not what is asked for are passed over: another identity's root, what is not a membership.
+  assert.deepEqual(of({ ...held, roots: [wf.rootText('b'), 'x', ...held.roots] }, IDENTITY), [wf.rootId('a')])
+  assert.deepEqual(of({ ...held, memberships: ['x', envelope.seal('root', { pub: 'x' }).payload, ...held.memberships] }, d.id), d.body.roots)
+  for (const bad of [{ ...held, memberships: undefined }, { ...held, roots: undefined }, { ...held, roots: [wf.rootText('b')] }]) {
+    assert.throws(() => of(bad, bad.memberships === undefined ? d.id : IDENTITY), { message: 'the witness holds no record of that membership' })
+  }
+  assert.throws(() => of(held, '0'.repeat(64)), { message: 'the witness holds no record of that membership' })
 })

@@ -807,11 +807,37 @@ test('a second passkey: one device adds it, the other co-signs; once settled it 
     await b.page.fill('#cosign-payload', 'x')
     await b.page.click('#cosign-review')
     assert.equal(await b.page.textContent('#error'), 'that is not a membership change')
+    // A change that replaces the identity's passkey with this one says so, before this passkey signs (I4, #246);
+    // one that does not follow the identity's current membership is refused.
+    const aId = rootModule.checkRoot(a.text, { rpId }).id
+    await b.page.fill('#cosign-payload', envelope.seal('membership', { ...change.body, roots: [bId] }).payload)
+    await b.page.click('#cosign-review')
+    await b.page.waitForSelector('#cosign-panel:not([hidden])')
+    assert.deepEqual([await b.page.textContent('#cosign-roots'), await b.page.textContent('#cosign-removed'), await b.page.textContent('#cosign-added')], [bId, aId, bId])
+    const two = [bId, 'f'.repeat(64)].sort()
+    await b.page.fill('#cosign-payload', envelope.seal('membership', { ...change.body, roots: two }).payload)
+    await b.page.click('#cosign-review')
+    await b.page.waitForFunction((t) => document.getElementById('cosign-added').textContent === t, two.join(' '))
+    // Withdrawn while the witness is asked, it shows nothing of the late answer, a refusal or not.
+    for (const answer of [NO_ANSWER, undefined]) {
+      const asked = await holdNext(b.page, `**/v1/identities/${a.identity}/records`)
+      await b.page.click('#cosign-review')
+      const go = await asked()
+      await b.page.fill('#cosign-payload', payload)
+      await go(answer)
+      await idle(b.page)
+      assert.deepEqual([await b.page.textContent('#error'), await b.page.isHidden('#cosign-panel')], ['', true])
+    }
+    await b.page.fill('#cosign-payload', envelope.seal('membership', { ...change.body, prev: '0'.repeat(64) }).payload)
+    await b.page.click('#cosign-review')
+    await errorIs(b.page, "that change does not follow the identity's current membership")
+    assert.equal(await b.page.isHidden('#cosign-panel'), true)
     await b.page.fill('#cosign-payload', payload)
     await b.page.click('#cosign-review')
     await b.page.waitForSelector('#cosign-panel:not([hidden])')
     assert.equal(await b.page.textContent('#cosign-identity'), a.identity)
     assert.equal(await b.page.textContent('#cosign-roots'), Array.from(change.body.roots).join(' '))
+    assert.deepEqual([await b.page.textContent('#cosign-removed'), await b.page.textContent('#cosign-added')], ['none', bId], 'it adds this passkey and removes none')
     assert.equal(await b.page.textContent('#cosign-recovery'), 'none')
     await b.page.click('#cosign-sign')
     await b.page.waitForSelector('#identity:not([hidden])')
@@ -848,7 +874,7 @@ test('a second passkey: one device adds it, the other co-signs; once settled it 
       maxLifetime: 2_592_000, maxStaleness: 86_400, maxClaimAge: 300 })
     const accepted = v.verifyDelegation({ delegation: text, root: bRoot, head, logged }, { now: t.clock(), scope: 'post', revoked: [] })
     assert.equal(accepted.ok, true, JSON.stringify(accepted))
-    assert.deepEqual(t.problems, [])
+    assert.deepEqual(t.problems.filter((p) => !/status of 503 \(Service Unavailable\)$/.test(p)), [])
   } finally {
     await t.close()
   }
@@ -1233,8 +1259,11 @@ test('signing buttons do nothing before a review; the witness refusing is shown;
     await b.page.click('#cosign-sign')
     await errorShown(b.page)
     assert.equal(await b.page.textContent('#error'), 'the witness refused the membership: test')
+    t.refusing(false) // a review asks the witness for the membership the change follows
     await b.page.click('#cosign-review')
+    await b.page.waitForSelector('#cosign-panel:not([hidden])')
     assert.equal(await b.page.textContent('#error'), '', 'a new review clears the message')
+    t.refusing(true)
     await b.page.click('#cosign-sign')
     await errorShown(b.page)
     t.refusing(false)
