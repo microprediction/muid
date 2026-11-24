@@ -3082,7 +3082,9 @@ test('recovery parties: a party gives a card and shows that its passkey is held;
     const current = async () => pageRecords.currentMembership(await t.witnessGet(path), { identity: a.identity, rpId, origin: t.site.origin, witnessKeys: t.keys })
     const settle = async () => { t.advance(61); await t.svc.tick(); t.advance(61); await t.svc.tick() }
     await t.page.waitForFunction(() => document.getElementById('recovery-now').textContent === 'none')
-    assert.equal(await t.page.textContent('#recheck-code'), a.identity)
+    const firstCode = await t.page.textContent('#recheck-code')
+    assert.match(firstCode, /^[0-9a-f]{64}$/)
+    assert.notEqual(firstCode, a.identity, 'a fresh code, not the membership')
     // The party: its own identity on its own device. Each card has a new salt, kept beside its root before it is shown.
     const g = await t.device()
     const gRoot = await createIdentity(g.page)
@@ -3248,7 +3250,11 @@ test('recovery parties: a party gives a card and shows that its passkey is held;
     // Loaded again, the page says what is designated; the same check is made over the current membership.
     await t.page.reload()
     await t.page.waitForFunction(() => document.getElementById('recovery-now').textContent.startsWith('1 of 1, after 14 days; parties '))
-    assert.equal(await t.page.textContent('#recheck-code'), code)
+    // Over a fresh code, not the membership (issue #247): new on each load.
+    const fresh = await t.page.textContent('#recheck-code')
+    assert.match(fresh, /^[0-9a-f]{64}$/)
+    assert.notEqual(fresh, code)
+    assert.notEqual(fresh, firstCode)
     await t.page.click('#recheck')
     await errorIs(t.page, 'paste the recovery cards of the parties to check')
     await t.page.fill('#party-cards', card)
@@ -3271,12 +3277,20 @@ test('recovery parties: a party gives a card and shows that its passkey is held;
     }
     await t.page.click('#recheck')
     await statusIs(t.page, '0 of 1 of these parties showed that they hold their passkey.')
-    const again = await proofOf(g, code)
+    // What the party signed for the designation shows nothing of now; what it signs over the code shown does, once.
+    const before = await proofOf(g, code)
+    await t.page.bringToFront()
+    await t.page.fill('#recheck-proofs', before)
+    await t.page.click('#recheck')
+    await statusIs(t.page, '0 of 1 of these parties showed that they hold their passkey.')
+    const again = await proofOf(g, await t.page.textContent('#recheck-code'))
     await t.page.bringToFront()
     await t.page.fill('#recheck-proofs', `${other}\n${again}`)
     await t.page.click('#recheck')
     await statusIs(t.page, '1 of 1 of these parties showed that they hold their passkey.')
     assert.equal(await t.page.textContent('#error'), '')
+    await t.page.click('#recheck')
+    await statusIs(t.page, '0 of 1 of these parties showed that they hold their passkey.')
     // One party pasted twice must not be reported as two parties whose possession was shown.
     await t.page.fill('#party-cards', `${card}\n${card}`)
     await t.page.click('#recheck')
@@ -3357,10 +3371,21 @@ test('recovery parties: two designated parties are checked again together, each 
     await t.page.waitForFunction(() => document.getElementById('recovery-now').textContent.startsWith('2 of 2, '))
     assert.equal((await t.witnessGet(path)).memberships.length, 1)
     await t.page.fill('#party-cards', `${gCard}\n${hCard}`)
-    await t.page.fill('#recheck-proofs', gProof)
+    // What they signed for the designation shows nothing of now (issue #247): a check is over the code shown.
+    await t.page.fill('#recheck-proofs', `${hProof}\n${gProof}`)
+    await t.page.click('#recheck')
+    await statusIs(t.page, '0 of 2 of these parties showed that they hold their passkey.')
+    const now = async (party) => { const p = await proofOf(party, await t.page.textContent('#recheck-code')); await t.page.bringToFront(); return p }
+    const gNow = await now(g)
+    await t.page.fill('#recheck-proofs', gNow)
     await t.page.click('#recheck')
     await statusIs(t.page, '1 of 2 of these parties showed that they hold their passkey.')
-    await t.page.fill('#recheck-proofs', `${hProof}\n${gProof}`)
+    const hNow = await now(h)
+    await t.page.fill('#recheck-proofs', `${hNow}\n${gNow}`)
+    await t.page.click('#recheck')
+    await statusIs(t.page, '1 of 2 of these parties showed that they hold their passkey.')
+    const [gLater, hLater] = [await now(g), await now(h)]
+    await t.page.fill('#recheck-proofs', `${hLater}\n${gLater}`)
     await t.page.click('#recheck')
     await statusIs(t.page, '2 of 2 of these parties showed that they hold their passkey.')
     assert.equal(await t.page.textContent('#error'), '')

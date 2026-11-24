@@ -17,6 +17,11 @@ const KEY = 'root'
 const WORKERS = 'workers'
 const WITNESS = meta('muid-witness')
 const WITNESS_KEYS = JSON.parse(meta('muid-witness-keys'))
+// A value no one could have signed before: 32 random bytes, in hex.
+const freshValue = () => Array.from(crypto.getRandomValues(new Uint8Array(32)), (x) => x.toString(16).padStart(2, '0')).join('')
+// The code a recovery party's passkey signs to show it is held now (issue #247): fresh on each load and after each
+// check, so that what was signed before, for the designation or an earlier check, shows nothing of now.
+let recheckCode = freshValue()
 
 // SPEC §7: what the page keeps (the root with its credential id, and the remembered workers) it keeps through the
 // storage adapter alone. Every change is one transaction there, made to what storage holds at that moment, so no tab
@@ -191,7 +196,7 @@ function show () {
   // The designation in force and the membership a party's check is made over, as the witness last gave them.
   const now = isFor(known) ? known.state : null
   $('recovery-now').textContent = now === null ? 'not known' : designation(now.recovery)
-  $('recheck-code').textContent = now === null ? '' : now.membership
+  $('recheck-code').textContent = now === null ? '' : recheckCode
   if (under !== null) {
     $('notice-at').textContent = when(under.recovering.at)
     $('notice-matures').textContent = when(maturesAt(under))
@@ -506,7 +511,6 @@ $('sign').addEventListener('click', () => signDelegation())
 // The sign-in view's button. With no identity here, the passkey the platform offers for this site is asked first,
 // over a fresh value that is no record's id; the identity it is the first root of is opened as by its id. Then the
 // identity is registered if it is not yet, the request reviewed, and signed: the person is sent back with the answer.
-const freshValue = () => Array.from(crypto.getRandomValues(new Uint8Array(32)), (x) => x.toString(16).padStart(2, '0')).join('')
 async function discover () {
   const covers = [possessionId(freshValue())]
   const a = await navigator.credentials.get({ publicKey: { rpId, challenge: challenge(covers), userVerification: 'required' } })
@@ -788,11 +792,12 @@ $('designate-sign').addEventListener('click', async () => {
   } catch (e) { if (pending.designation === c) fail(e) } // a late answer to what was withdrawn is not shown
 })
 
-// The same check later, over the current membership: a passkey shown once may be gone since.
+// The same check later, over a fresh code: a passkey shown once may be gone since.
 $('recheck').addEventListener('click', async () => {
   withdraw()
   $('status').textContent = ''
   const asked = withdrawals
+  const code = recheckCode
   try {
     const parties = lines('party-cards').map((t) => fromCard(t, rpId))
     const proofs = lines('recheck-proofs')
@@ -801,7 +806,10 @@ $('recheck').addEventListener('click', async () => {
     if (parties.length === 0) throw new Error('paste the recovery cards of the parties to check')
     if (!parties.every((p) => designated(current.recovery, p))) throw new Error("a card here is not one of this identity's recovery parties")
     if (new Set(parties.map((p) => p.root)).size !== parties.length) throw new Error('a recovery party is named twice')
-    const held = parties.filter((p) => proofs.some((t) => shows(p, t, { record: current.membership, rpId, origin: ORIGIN }))).length
+    const held = parties.filter((p) => proofs.some((t) => shows(p, t, { record: code, rpId, origin: ORIGIN }))).length
+    // Used once: the next check is over a new code.
+    recheckCode = freshValue()
+    show()
     $('status').textContent = `${held} of ${parties.length} of these parties showed that they hold their passkey.`
   } catch (e) { if (asked === withdrawals) fail(e) }
 })
