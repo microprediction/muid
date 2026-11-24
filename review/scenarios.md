@@ -202,4 +202,4 @@ filed about it.
 
 ## Recovery-party recheck — `id/page.js`, `tests/id/P2-page.test.mjs`
 
-161. A recovery-party possession recheck never counts one party more than once: duplicate cards of the same root are rejected rather than presented as proof from distinct recovery parties.
+161. A recovery-party possession recheck never counts one party more than once: duplicate cards of the same root are rejected rather than presented as proof from distinct recovery parties. Nor does it count what a party signed before: it is over a fresh code, new on each load and after each check, so a proof made for the designation or an earlier check shows nothing of now.
