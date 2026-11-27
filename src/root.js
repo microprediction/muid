@@ -37,6 +37,15 @@ export function identityOf (rootId) {
   return toHex(sha256(concat('muid-identity\n', rootId)))
 }
 
+// A root's fingerprint, compared on two devices before one adds the other's root (Bluetooth pairing's numeric
+// comparison; Signal's safety numbers), and by any page that shows a root: 96 bits of its id, six groups of four.
+export function fingerprint (rootId) {
+  if (typeof rootId !== 'string' || apply(exec, ID, [rootId]) === null) throw new TypeError('a root id is 64 lowercase hex digits')
+  let out = ''
+  for (let i = 0; i < 24; i += 4) out += (i === 0 ? '' : ' ') + rootId[i] + rootId[i + 1] + rootId[i + 2] + rootId[i + 3]
+  return out
+}
+
 // Decision 13: a light identity's id, derived from its identity and its delegations' agent name.
 const AGENT = /^[a-z][a-z0-9_.:-]{0,63}$/
 export function agentIdOf (identity, agent) {

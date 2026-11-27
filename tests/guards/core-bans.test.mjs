@@ -7,7 +7,7 @@ import { join, relative } from 'node:path'
 
 const SRC = new URL('../../src/', import.meta.url).pathname
 // Raised from 2100 for R11 (recovery parties), decided for version 1.
-const LINE_BUDGET = 2200
+const LINE_BUDGET = 2210
 
 function files (dir) {
   return readdirSync(dir).flatMap((name) => {

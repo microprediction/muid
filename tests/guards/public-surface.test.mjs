@@ -14,7 +14,10 @@ const SURFACE = {
   './envelope': ['EnvelopeError', 'MAX_PAYLOAD', 'open', 'seal', 'signedBytes', 'wrap'],
   './encoding': ['EncodingError', 'MAX_BYTES', 'MAX_DEPTH', 'decode', 'encode'],
   './origin': ['isCanonicalOrigin'],
-  './root': ['agentIdOf', 'checkRoot', 'identityOf', 'rootIdOf'],
+  './root': ['agentIdOf', 'checkRoot', 'fingerprint', 'identityOf', 'rootIdOf'],
+  // The decision function (SPEC §6), for a page that reads an identity's records itself: its settled and pending
+  // memberships, its designation and a recovery under notice, the witness's statements checked under its keys.
+  './membership': ['MAX_RECORDS', 'MAX_RECOVERY_WINDOW', 'MAX_REVOKED', 'MIN_RECOVERY_WINDOW', 'headOf', 'isMembership', 'membershipState', 'recoveryCommitment'],
   './ed25519': ['checkEd25519', 'checkEd25519Key'],
   './adapter': ['relyingParty'],
   './adapter/stores': ['memoryStore', 'sqliteStore'],
