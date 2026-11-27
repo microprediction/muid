@@ -12,6 +12,7 @@ import { verifyCheckpoint } from 'muid/checkpoint'
 import { verifyReceipt } from 'muid/receipt'
 import { verifyInclusion, leafHash } from 'muid/merkle'
 import { seal, wrap, signedBytes, open } from 'muid/envelope'
+import { membershipState } from 'muid/membership'
 import { newKey, enrol, request } from 'muid/worker'
 
 const NOW = 1_800_000_000
@@ -162,7 +163,7 @@ test('the entry is built through the package\'s other entries and its two crypto
   const source = readFileSync(new URL('../../testing/index.js', import.meta.url), 'utf8')
   const imports = [...source.matchAll(/from '([^']+)'/g)].map((m) => m[1])
   assert.ok(imports.length > 0)
-  for (const from of imports) assert.match(from, /^(muid\/(envelope|root|witness|witness\/service|merkle)|@noble\/(curves|hashes)\/[a-z0-9]+\.js)$/, from)
+  for (const from of imports) assert.match(from, /^(muid\/(envelope|root|membership|witness|witness\/service|merkle)|@noble\/(curves|hashes)\/[a-z0-9]+\.js)$/, from)
   assert.equal(/\bimport\(|require\(/.test(source), false)
 })
 
@@ -183,4 +184,50 @@ test('a claim kept with its records verifies again as of its own time, after its
   assert.equal(v.verifyClaim(kept, call({ now, contentDigest: digest })).ok, false, 'not as of now')
   assert.equal(v.verifyClaim(kept, call({ now: at, contentDigest: Buffer.alloc(32, 8).toString('base64') })).reason, 'claim-digest')
   assert.equal(v.verifyClaim({ ...kept, head: id.head(now) }, call({ now: at, contentDigest: digest })).ok, false, 'a head of a later time')
+})
+
+// A recovery's records, as a service that releases something only after one (a drive's key) tests against them: a
+// designation, a recovery by the parties that keeps one root and adds another, matured and settled, then later
+// changes. Everything moves only when the test moves the witness's clock.
+test('a test identity designates parties, is recovered, and changes again; the records say so as the witness serves them', async () => {
+  const DAY = 86_400
+  let now = NOW
+  const id = testIdentity({ clock: () => now })
+  const state = async () => membershipState(await id.records(), { identity: id.identity, ...id.verifier })
+  const settle = (days) => { now += days * DAY + 1; id.advance(now) }
+  // Designated: pending until the contest window has passed, then settled.
+  const d = id.change({ parties: ['g'], threshold: 1, window: 3 * DAY })
+  assert.equal((await state()).pending, true)
+  settle(3)
+  assert.deepEqual([(await state()).settled, (await state()).recovery.threshold], [d.id, 1])
+  // The party asks for a recovery that keeps the first root and adds `n`: under notice, then matured, then settled.
+  const n = id.passkey('n').root
+  const r = id.recover({ keep: [id.root], add: ['n'], parties: ['g'] })
+  assert.deepEqual(r.added, [n])
+  assert.equal((await state()).recovering.record, r.id)
+  assert.deepEqual((await state()).recovered, [])
+  settle(3)
+  settle(3)
+  let s = await state()
+  assert.deepEqual([s.settled, s.roots, s.recovered], [r.id, [id.root, n].sort(), [{ id: r.id, added: [n] }]])
+  // A claim by an agent of the added root is accepted under the head as it now stands.
+  const viaN = id.agent({ name: 'restored', aud: AUD, scopes: ['put'], passkey: 'n' })
+  const v = service(id)
+  const ok = v.verifyClaim(viaN.records({ url: URL_, at: now }), call({ now }))
+  assert.equal(ok.ok, true, JSON.stringify(ok))
+  // Later changes: a passkey added and the parties named again; the recovery is still one the chain went through.
+  const before = await id.records()
+  id.change({ add: ['p'], parties: ['g', 'h', 'i'], threshold: 2 })
+  settle(3)
+  s = await state()
+  assert.deepEqual([s.roots.length, s.recovery.parties.length, s.recovered], [3, 3, [{ id: r.id, added: [n] }]])
+  // Records read before that change settled are behind a head signed after it.
+  const stale = membershipState(before, { identity: id.identity, ...id.verifier })
+  assert.notEqual(stale.settled, open(id.head(now), 'head').body.memberships[0])
+  // The added root removed: still listed as what that recovery added, and without authority.
+  id.change({ remove: [n] })
+  settle(3)
+  s = await state()
+  assert.deepEqual([s.recovered, s.authority.includes(n)], [[{ id: r.id, added: [n] }], false])
+  assert.equal(v.verifyClaim(viaN.records({ url: URL_, at: now }), call({ now })).ok, false)
 })
