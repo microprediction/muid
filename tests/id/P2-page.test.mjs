@@ -2567,65 +2567,72 @@ const commands = fc.array(fc.oneof(
 // R11 at the page. The designation and the recovery are made here in Node with the page's own record builders: the
 // identity's passkey signs by its private key, read from the virtual authenticator; the party and the root the
 // recovery would install are keys held here.
+// The fixture of the recovery-notice tests: an identity on `t`'s page that designated one party, then a recovery of
+// it by that party, which the witness put under notice; and the records the witness held before it.
+async function underNotice (t) {
+  const rpId = 'localhost'
+  const MIN = membershipModule.MIN_RECOVERY_WINDOW
+  const a = await createIdentity(t.page)
+  const aId = rootModule.checkRoot(a.text, { rpId }).id
+  assert.equal(await t.page.isHidden('#recovery-notice'), true)
+  assert.equal(await t.page.isHidden('#notice-unchecked'), true, 'nothing was asked, and nothing is said of it')
+  // With no notice shown, the cancel button (hidden) does nothing.
+  await t.page.evaluate(() => document.getElementById('notice-cancel').click())
+  await idle(t.page)
+  assert.equal(await t.page.textContent('#error'), '')
+  const { credentials } = await t.cdp.send('WebAuthn.getCredentials', { authenticatorId: t.authenticatorId })
+  const aSecret = Buffer.from(createPrivateKey({ key: Buffer.from(credentials[0].privateKey, 'base64'), format: 'der', type: 'pkcs8' }).export({ format: 'jwk' }).d, 'base64url')
+  const secret = (name) => Uint8Array.from(createHash('sha256').update('P2 recovery ' + name).digest())
+  const rootOf = (name) => envelope.wrap(envelope.seal('root', { pub: hex(p256.getPublicKey(secret(name), false)), rp_id: rpId }).payload)
+  const by = (key, id) => makeAssertion({ covers: [id], ad: authData({ rpId }), cdj: clientData({ challenge: challengeFor([id]), origin: t.site.origin }), secret: key })
+  const path = `/v1/identities/${a.identity}/records`
+  const current = async () => pageRecords.currentMembership(await t.witnessGet(path), { identity: a.identity, rpId, origin: t.site.origin, witnessKeys: t.keys })
+  const post = async (type, text, root) => {
+    const r = await t.witnessPost('/v1/records', root === undefined ? { identity: a.identity, type, text } : { identity: a.identity, type, text, root })
+    assert.equal(r.ok, true, `${type}: ${r.reason}`)
+  }
+  // The owner designates one party, a wait of three days and a second (not whole days, as another client may
+  // state one: the page then gives it in seconds); it settles.
+  const WAIT_S = MIN + 1
+  const g = pageRecords.party(rootOf('g'), hex(secret('salt')), rpId)
+  const d = pageRecords.designate({ identity: a.identity, state: await current(), parties: [g], threshold: 1, window: WAIT_S })
+  await post('membership', pageRecords.rootSigned(d.payload, aId, by(aSecret, d.id)))
+  t.advance(61)
+  await t.svc.tick()
+  assert.equal((await current()).recovery.threshold, 1)
+  await t.page.reload()
+  await t.page.waitForSelector('#identity:not([hidden])')
+  await idle(t.page)
+  assert.equal(await t.page.isHidden('#recovery-notice'), true, 'designated, and nothing under notice')
+  assert.equal(await t.page.isHidden('#notice-unchecked'), true)
+  // A change the page builds states the designation again, and shows it.
+  await t.page.fill('#new-root', rootOf('b'))
+  await t.page.click('#add-review')
+  await t.page.waitForSelector('#add-panel:not([hidden])')
+  assert.match(await t.page.textContent('#add-recovery'), designated(`1 of 1, after ${WAIT_S} seconds`))
+  assert.match(await t.page.textContent('#recovery-now'), designated(`1 of 1, after ${WAIT_S} seconds`))
+  await t.page.fill('#new-root', '')
+
+  // What the witness held before the notice: valid records for this identity, which a network may serve again later.
+  const earlier = await t.witnessGet(path)
+  assert.equal(pageRecords.currentMembership(earlier, { identity: a.identity, rpId, origin: t.site.origin, witnessKeys: t.keys }).recovering, null)
+  // The party asks for a recovery to a root of its choosing: the witness gives notice.
+  const nId = rootModule.checkRoot(rootOf('n'), { rpId }).id
+  const R = envelope.seal('membership', { identity: a.identity, prev: d.id, epoch: 3, roots: [nId] })
+  await post('membership', pageRecords.partySigned(R.payload, g, by(secret('g'), R.id)), rootOf('g'))
+  await post('root', rootOf('n'))
+  await post('membership', pageRecords.rootSigned(R.payload, nId, by(secret('n'), R.id)))
+  const noticed = await current()
+  assert.equal(noticed.recovering.record, R.id)
+  const iso = (s) => new Date(s * 1000).toISOString()
+  return { rpId, MIN, a, aId, credentials, aSecret, secret, rootOf, by, path, current, post, WAIT_S, g, d, earlier, nId, R, noticed, iso }
+}
+
 test('a recovery under notice is shown on load with when it takes effect; one prompt cancels it; a witness that gives no answer is said; a change shows the designation it states', { timeout: 180_000 }, async () => {
   const t = await open()
   const unavailable = /^Failed to load resource: the server responded with a status of 503/
   try {
-    const rpId = 'localhost'
-    const MIN = membershipModule.MIN_RECOVERY_WINDOW
-    const a = await createIdentity(t.page)
-    const aId = rootModule.checkRoot(a.text, { rpId }).id
-    assert.equal(await t.page.isHidden('#recovery-notice'), true)
-    assert.equal(await t.page.isHidden('#notice-unchecked'), true, 'nothing was asked, and nothing is said of it')
-    // With no notice shown, the cancel button (hidden) does nothing.
-    await t.page.evaluate(() => document.getElementById('notice-cancel').click())
-    await idle(t.page)
-    assert.equal(await t.page.textContent('#error'), '')
-    const { credentials } = await t.cdp.send('WebAuthn.getCredentials', { authenticatorId: t.authenticatorId })
-    const aSecret = Buffer.from(createPrivateKey({ key: Buffer.from(credentials[0].privateKey, 'base64'), format: 'der', type: 'pkcs8' }).export({ format: 'jwk' }).d, 'base64url')
-    const secret = (name) => Uint8Array.from(createHash('sha256').update('P2 recovery ' + name).digest())
-    const rootOf = (name) => envelope.wrap(envelope.seal('root', { pub: hex(p256.getPublicKey(secret(name), false)), rp_id: rpId }).payload)
-    const by = (key, id) => makeAssertion({ covers: [id], ad: authData({ rpId }), cdj: clientData({ challenge: challengeFor([id]), origin: t.site.origin }), secret: key })
-    const path = `/v1/identities/${a.identity}/records`
-    const current = async () => pageRecords.currentMembership(await t.witnessGet(path), { identity: a.identity, rpId, origin: t.site.origin, witnessKeys: t.keys })
-    const post = async (type, text, root) => {
-      const r = await t.witnessPost('/v1/records', root === undefined ? { identity: a.identity, type, text } : { identity: a.identity, type, text, root })
-      assert.equal(r.ok, true, `${type}: ${r.reason}`)
-    }
-    // The owner designates one party, a wait of three days and a second (not whole days, as another client may
-    // state one: the page then gives it in seconds); it settles.
-    const WAIT_S = MIN + 1
-    const g = pageRecords.party(rootOf('g'), hex(secret('salt')), rpId)
-    const d = pageRecords.designate({ identity: a.identity, state: await current(), parties: [g], threshold: 1, window: WAIT_S })
-    await post('membership', pageRecords.rootSigned(d.payload, aId, by(aSecret, d.id)))
-    t.advance(61)
-    await t.svc.tick()
-    assert.equal((await current()).recovery.threshold, 1)
-    await t.page.reload()
-    await t.page.waitForSelector('#identity:not([hidden])')
-    await idle(t.page)
-    assert.equal(await t.page.isHidden('#recovery-notice'), true, 'designated, and nothing under notice')
-    assert.equal(await t.page.isHidden('#notice-unchecked'), true)
-    // A change the page builds states the designation again, and shows it.
-    await t.page.fill('#new-root', rootOf('b'))
-    await t.page.click('#add-review')
-    await t.page.waitForSelector('#add-panel:not([hidden])')
-    assert.match(await t.page.textContent('#add-recovery'), designated(`1 of 1, after ${WAIT_S} seconds`))
-    assert.match(await t.page.textContent('#recovery-now'), designated(`1 of 1, after ${WAIT_S} seconds`))
-    await t.page.fill('#new-root', '')
-
-    // What the witness held before the notice: valid records for this identity, which a network may serve again later.
-    const earlier = await t.witnessGet(path)
-    assert.equal(pageRecords.currentMembership(earlier, { identity: a.identity, rpId, origin: t.site.origin, witnessKeys: t.keys }).recovering, null)
-    // The party asks for a recovery to a root of its choosing: the witness gives notice.
-    const nId = rootModule.checkRoot(rootOf('n'), { rpId }).id
-    const R = envelope.seal('membership', { identity: a.identity, prev: d.id, epoch: 3, roots: [nId] })
-    await post('membership', pageRecords.partySigned(R.payload, g, by(secret('g'), R.id)), rootOf('g'))
-    await post('root', rootOf('n'))
-    await post('membership', pageRecords.rootSigned(R.payload, nId, by(secret('n'), R.id)))
-    const noticed = await current()
-    assert.equal(noticed.recovering.record, R.id)
-    const iso = (s) => new Date(s * 1000).toISOString()
+    const { rpId, a, aId, aSecret, secret, rootOf, by, path, current, post, WAIT_S, g, d, earlier, R, noticed, iso } = await underNotice(t)
 
     // The witness gives no answer: the page says it could not ask, and shows no notice it does not have.
     t.outage('down')
@@ -2672,146 +2679,6 @@ test('a recovery under notice is shown on load with when it takes effect; one pr
     assert.equal(await t.page.textContent('#notice-record'), R.id)
     assert.equal(await t.page.textContent('#notice-at'), iso(noticed.recovering.at))
     assert.equal(await t.page.textContent('#notice-matures'), iso(noticed.recovering.at + WAIT_S))
-    // Signing in for an application asks the witness about a recovery before anything is signed, and shows what it
-    // was not showing when the button was pressed: the page leaves once it has signed (R2, scenarios 107-108).
-    // On a device the passkey has synced to, with nothing stored, the identity is found and then asked about.
-    const signin = { v: 1, agent: 'drive', subject: SUBJECT, aud: 'https://node.example', scopes: ['store.ref'], days: 1, return: 'https://app.example/drive/', state: 'N-1' }
-    const synced = await t.device()
-    const arrived = []
-    await synced.context.route('https://app.example/**', async (route) => { arrived.push(route.request().url()); await route.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><title>app</title>' }) })
-    await synced.cdp.send('WebAuthn.addCredential', { authenticatorId: synced.authenticatorId, credential: (await t.cdp.send('WebAuthn.getCredentials', { authenticatorId: t.authenticatorId })).credentials[0] })
-    const signIn = async (state, first) => {
-      await synced.page.goto('about:blank')
-      await synced.page.goto(t.site.origin + '/id/#muid-request=' + Buffer.from(JSON.stringify({ ...signin, state })).toString('base64url'))
-      await synced.page.waitForSelector('#signin:not([hidden])')
-      await synced.page.click('#signin-button')
-      await errorIs(synced.page, 'A recovery of this identity is under way, shown above. Cancel it if you did not ask for it, or press the button again to sign in.')
-      assert.deepEqual([await synced.page.isHidden('#recovery-notice'), await synced.page.isHidden('#notice-cancel'), arrived.length], [false, false, first], 'shown, and nothing signed')
-      await synced.page.click('#signin-button')
-      await synced.page.waitForURL((u) => u.origin === 'https://app.example')
-      assert.equal(arrived.length, first + 1, 'signed once the notice was shown')
-    }
-    await signIn('N-1', 0)
-    // With the root stored, and the question asked on load held: the button asks again, and does not sign unasked.
-    let holding = true
-    await synced.page.route(`**${path}`, async (route) => { if (holding) { holding = false; return } await route.fallback() })
-    await signIn('N-2', 1)
-    await synced.page.unroute(`**${path}`)
-    // The witness not answering when asked at the button, though it did on load: that is said, and nothing signed;
-    // its answer to the next press, the notice, is said too, and the press after that signs.
-    let gets = 0
-    await synced.page.route(`**${path}`, async (route) => { if (++gets === 2) await route.fulfill(NO_ANSWER); else await route.fallback() })
-    await synced.page.goto('about:blank')
-    await synced.page.goto(t.site.origin + '/id/#muid-request=' + Buffer.from(JSON.stringify({ ...signin, state: 'N-3' })).toString('base64url'))
-    await synced.page.waitForSelector('#recovery-notice:not([hidden])')
-    await synced.page.click('#signin-button')
-    await errorIs(synced.page, 'The witness could not be asked whether a recovery of this identity is under way. Ask again, or press the button again to sign in.')
-    assert.deepEqual([await synced.page.isHidden('#notice-unchecked'), arrived.length], [false, 2])
-    await synced.page.click('#signin-button')
-    await errorIs(synced.page, 'A recovery of this identity is under way, shown above. Cancel it if you did not ask for it, or press the button again to sign in.')
-    await synced.page.click('#signin-button')
-    await synced.page.waitForURL((u) => u.origin === 'https://app.example')
-    assert.equal(arrived.length, 3)
-    await synced.page.unroute(`**${path}`)
-    const NOT_FOUND = { status: 404, contentType: 'application/json', body: '{"ok":false,"reason":"unknown-identity"}' }
-    const replayed = { status: 200, contentType: 'application/json', body: JSON.stringify(earlier) }
-    const request = (state) => t.site.origin + '/id/#muid-request=' + Buffer.from(JSON.stringify({ ...signin, state })).toString('base64url')
-    // A check another overtook, from a second press or a change heard from another tab, kept no answer: the press
-    // that asked it signs nothing before the latest has answered, and that answer's notice is shown (issue #255).
-    const until = async (done) => { while (!done()) await new Promise((resolve) => setTimeout(resolve, 10)) } // a condition polled
-    const aside = await t.tab(synced.context) // a change written in another tab is heard here
-    const stored = await held(aside, 'root')
-    for (const overtake of [() => synced.page.click('#signin-button'), () => change(aside, 'root', { ...stored })]) {
-      const asks = [] // the checks asked at the button, held; and anything asked after them, until `open`
-      let loaded = false
-      let open = false
-      await synced.page.route(`**${path}`, async (route) => {
-        if (!loaded) { loaded = true; return route.fulfill(replayed) } // on load, the records from before the notice
-        if (!open) { asks.push(route); return }
-        await route.fallback()
-      })
-      await synced.page.goto('about:blank')
-      await synced.page.goto(request('N-4'))
-      await synced.page.waitForSelector('#signin:not([hidden])')
-      await until(() => loaded)
-      await synced.page.click('#signin-button')
-      await until(() => asks.length === 1)
-      await overtake()
-      await until(() => asks.length === 2)
-      const first = synced.page.waitForResponse((r) => r.url().endsWith(path))
-      await asks[0].fallback()
-      await first
-      await asks[1].fallback()
-      await errorIs(synced.page, 'A recovery of this identity is under way, shown above. Cancel it if you did not ask for it, or press the button again to sign in.')
-      assert.deepEqual([await synced.page.isHidden('#recovery-notice'), asks.length, arrived.length], [false, 2, 3], 'nothing reviewed or signed on the overtaken answer')
-      open = true
-      await synced.page.click('#signin-button')
-      await synced.page.waitForURL((u) => u.origin === 'https://app.example')
-      assert.equal(arrived.length, 4)
-      arrived.pop()
-      await synced.page.unroute(`**${path}`)
-    }
-    // Records read when the identity is opened, found from the passkey or by its id, are taken as notice() takes
-    // them (issue #256): a 404 or the records from before the notice, served to the question that follows, is no
-    // answer, and nothing is signed until the person has been told so and pressed again.
-    let reads = 0
-    let next = null
-    await synced.page.route(`**${path}`, async (route) => { if (++reads === 2) await route.fulfill(next); else await route.fallback() })
-    for (const answer of [NOT_FOUND, replayed]) {
-      await synced.page.goto('about:blank')
-      await drop(aside, 'root')
-      reads = 0
-      next = answer
-      await synced.page.goto(request('N-5'))
-      await synced.page.waitForSelector('#signin:not([hidden])')
-      await synced.page.click('#signin-button')
-      await errorIs(synced.page, 'The witness could not be asked whether a recovery of this identity is under way. Ask again, or press the button again to sign in.')
-      assert.deepEqual([await synced.page.isHidden('#notice-unchecked'), arrived.length], [false, 3], 'said, and nothing signed')
-      await synced.page.click('#signin-button')
-      await errorIs(synced.page, 'A recovery of this identity is under way, shown above. Cancel it if you did not ask for it, or press the button again to sign in.')
-      await synced.page.click('#signin-button')
-      await synced.page.waitForURL((u) => u.origin === 'https://app.example')
-      assert.equal(arrived.length, 4)
-      arrived.pop()
-      // Opened by its id, the same.
-      await synced.page.goto('about:blank')
-      await drop(aside, 'root')
-      reads = 0
-      await synced.page.goto(t.site.origin + '/id/')
-      await synced.page.waitForSelector('#create:not([hidden])')
-      await synced.page.fill('#open-identity', a.identity)
-      await synced.page.click('#open-button')
-      await synced.page.waitForSelector('#notice-unchecked:not([hidden])')
-      assert.equal(await synced.page.isHidden('#recovery-notice'), true)
-    }
-    await synced.page.unroute(`**${path}`)
-    // Nor do older records, read when it is found or opened again in a tab that has read its notice, replace what
-    // was read (issue #243): the question that follows, served them too, is no answer.
-    const queue = [] // what the witness is shown to answer next, in turn; then what it holds
-    await synced.page.route(`**${path}`, (route) => queue.length > 0 ? route.fulfill(queue.shift()) : route.fallback())
-    const again = async (start, done) => {
-      await start()
-      await synced.page.waitForSelector('#recovery-notice:not([hidden])')
-      await change(aside, 'root', null) // heard: the root is no longer held here
-      await synced.page.waitForSelector('#recovery-notice', { state: 'hidden' })
-      queue.push(replayed, replayed)
-      await start()
-      await done()
-      assert.deepEqual([queue.length, await synced.page.isHidden('#recovery-notice'), arrived.length], [0, true, 3])
-    }
-    await synced.page.goto('about:blank')
-    await drop(aside, 'root')
-    await synced.page.goto(request('N-6'))
-    await synced.page.waitForSelector('#signin:not([hidden])')
-    await again(() => synced.page.click('#signin-button'),
-      () => errorIs(synced.page, 'The witness could not be asked whether a recovery of this identity is under way. Ask again, or press the button again to sign in.'))
-    await synced.page.goto('about:blank')
-    await drop(aside, 'root')
-    await synced.page.goto(t.site.origin + '/id/')
-    await synced.page.waitForSelector('#create:not([hidden])')
-    await again(async () => { await synced.page.fill('#open-identity', a.identity); await synced.page.click('#open-button') },
-      () => synced.page.waitForSelector('#notice-unchecked:not([hidden])'))
-    await synced.page.unroute(`**${path}`)
     // A recovery need not replace a passkey (it may only end the designation, scenario 82): the owner is not told it
     // does. And where parties are designated, that a party who signs one is known from then on (SPEC R11(h)).
     assert.match(await t.page.textContent('#recovery-notice'), /for a change to this identity, which may replace its passkeys/)
@@ -2872,6 +2739,8 @@ test('a recovery under notice is shown on load with when it takes effect; one pr
     // take the notice down as if it had been checked away (the witness is not trusted, SPEC §1); nor does a second,
     // or records from before the notice served again, which leave it out without what ends it (issue #243). So
     // whether or not the root is stored as registered (its registration's answer may have been lost).
+    const NOT_FOUND = { status: 404, contentType: 'application/json', body: '{"ok":false,"reason":"unknown-identity"}' }
+    const replayed = { status: 200, contentType: 'application/json', body: JSON.stringify(earlier) }
     let served = null // what the witness is shown to answer: a 404 (and it takes no registration), or older records
     await t.page.route(`**${path}`, (route) => served === null ? route.fallback() : route.fulfill(served))
     await t.page.route('**/v1/records', (route) => served === null ? route.fallback() : route.fulfill(NO_ANSWER))
@@ -3127,6 +2996,157 @@ test('a recovery under notice is shown on load with when it takes effect; one pr
     assert.equal(await t.page.textContent('#recovery-now'), 'not known')
     await t.collect()
     assert.deepEqual(t.problems.filter((p) => !unavailable.test(p) && !/status of (422|404)/.test(p)), [], 'the browser reports only the answers the test arranged')
+  } finally { await t.close() }
+})
+
+// Signing in for an application asks the witness about a recovery before anything is signed (R2, scenarios 107-108):
+// the fixture above, signed in for from a device the passkey has synced to.
+test('signing in for an application asks about a recovery first, and signs nothing until a notice or a failed check not shown is shown', { timeout: 180_000 }, async () => {
+  const t = await open()
+  try {
+    const { a, by, path, earlier } = await underNotice(t)
+    // Signing in for an application asks the witness about a recovery before anything is signed, and shows what it
+    // was not showing when the button was pressed: the page leaves once it has signed (R2, scenarios 107-108).
+    // On a device the passkey has synced to, with nothing stored, the identity is found and then asked about.
+    const signin = { v: 1, agent: 'drive', subject: SUBJECT, aud: 'https://node.example', scopes: ['store.ref'], days: 1, return: 'https://app.example/drive/', state: 'N-1' }
+    const synced = await t.device()
+    const arrived = []
+    await synced.context.route('https://app.example/**', async (route) => { arrived.push(route.request().url()); await route.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><title>app</title>' }) })
+    await synced.cdp.send('WebAuthn.addCredential', { authenticatorId: synced.authenticatorId, credential: (await t.cdp.send('WebAuthn.getCredentials', { authenticatorId: t.authenticatorId })).credentials[0] })
+    const signIn = async (state, first) => {
+      await synced.page.goto('about:blank')
+      await synced.page.goto(t.site.origin + '/id/#muid-request=' + Buffer.from(JSON.stringify({ ...signin, state })).toString('base64url'))
+      await synced.page.waitForSelector('#signin:not([hidden])')
+      await synced.page.click('#signin-button')
+      await errorIs(synced.page, 'A recovery of this identity is under way, shown above. Cancel it if you did not ask for it, or press the button again to sign in.')
+      assert.deepEqual([await synced.page.isHidden('#recovery-notice'), await synced.page.isHidden('#notice-cancel'), arrived.length], [false, false, first], 'shown, and nothing signed')
+      await synced.page.click('#signin-button')
+      await synced.page.waitForURL((u) => u.origin === 'https://app.example')
+      assert.equal(arrived.length, first + 1, 'signed once the notice was shown')
+    }
+    await signIn('N-1', 0)
+    // With the root stored, and the question asked on load held: the button asks again, and does not sign unasked.
+    let holding = true
+    await synced.page.route(`**${path}`, async (route) => { if (holding) { holding = false; return } await route.fallback() })
+    await signIn('N-2', 1)
+    await synced.page.unroute(`**${path}`)
+    // The witness not answering when asked at the button, though it did on load: that is said, and nothing signed;
+    // its answer to the next press, the notice, is said too, and the press after that signs.
+    let gets = 0
+    await synced.page.route(`**${path}`, async (route) => { if (++gets === 2) await route.fulfill(NO_ANSWER); else await route.fallback() })
+    await synced.page.goto('about:blank')
+    await synced.page.goto(t.site.origin + '/id/#muid-request=' + Buffer.from(JSON.stringify({ ...signin, state: 'N-3' })).toString('base64url'))
+    await synced.page.waitForSelector('#recovery-notice:not([hidden])')
+    await synced.page.click('#signin-button')
+    await errorIs(synced.page, 'The witness could not be asked whether a recovery of this identity is under way. Ask again, or press the button again to sign in.')
+    assert.deepEqual([await synced.page.isHidden('#notice-unchecked'), arrived.length], [false, 2])
+    await synced.page.click('#signin-button')
+    await errorIs(synced.page, 'A recovery of this identity is under way, shown above. Cancel it if you did not ask for it, or press the button again to sign in.')
+    await synced.page.click('#signin-button')
+    await synced.page.waitForURL((u) => u.origin === 'https://app.example')
+    assert.equal(arrived.length, 3)
+    await synced.page.unroute(`**${path}`)
+    const NOT_FOUND = { status: 404, contentType: 'application/json', body: '{"ok":false,"reason":"unknown-identity"}' }
+    const replayed = { status: 200, contentType: 'application/json', body: JSON.stringify(earlier) }
+    const request = (state) => t.site.origin + '/id/#muid-request=' + Buffer.from(JSON.stringify({ ...signin, state })).toString('base64url')
+    // A check another overtook, from a second press or a change heard from another tab, kept no answer: the press
+    // that asked it signs nothing before the latest has answered, and that answer's notice is shown (issue #255).
+    const until = async (done) => { while (!done()) await new Promise((resolve) => setTimeout(resolve, 10)) } // a condition polled
+    const aside = await t.tab(synced.context) // a change written in another tab is heard here
+    const stored = await held(aside, 'root')
+    for (const overtake of [() => synced.page.click('#signin-button'), () => change(aside, 'root', { ...stored })]) {
+      const asks = [] // the checks asked at the button, held; and anything asked after them, until `open`
+      let loaded = false
+      let open = false
+      await synced.page.route(`**${path}`, async (route) => {
+        if (!loaded) { loaded = true; return route.fulfill(replayed) } // on load, the records from before the notice
+        if (!open) { asks.push(route); return }
+        await route.fallback()
+      })
+      await synced.page.goto('about:blank')
+      await synced.page.goto(request('N-4'))
+      await synced.page.waitForSelector('#signin:not([hidden])')
+      await until(() => loaded)
+      await synced.page.click('#signin-button')
+      await until(() => asks.length === 1)
+      await overtake()
+      await until(() => asks.length === 2)
+      const first = synced.page.waitForResponse((r) => r.url().endsWith(path))
+      await asks[0].fallback()
+      await first
+      await asks[1].fallback()
+      await errorIs(synced.page, 'A recovery of this identity is under way, shown above. Cancel it if you did not ask for it, or press the button again to sign in.')
+      assert.deepEqual([await synced.page.isHidden('#recovery-notice'), asks.length, arrived.length], [false, 2, 3], 'nothing reviewed or signed on the overtaken answer')
+      open = true
+      await synced.page.click('#signin-button')
+      await synced.page.waitForURL((u) => u.origin === 'https://app.example')
+      assert.equal(arrived.length, 4)
+      arrived.pop()
+      await synced.page.unroute(`**${path}`)
+    }
+    // Records read when the identity is opened, found from the passkey or by its id, are taken as notice() takes
+    // them (issue #256): a 404 or the records from before the notice, served to the question that follows, is no
+    // answer, and nothing is signed until the person has been told so and pressed again.
+    let reads = 0
+    let next = null
+    await synced.page.route(`**${path}`, async (route) => { if (++reads === 2) await route.fulfill(next); else await route.fallback() })
+    for (const answer of [NOT_FOUND, replayed]) {
+      await synced.page.goto('about:blank')
+      await drop(aside, 'root')
+      reads = 0
+      next = answer
+      await synced.page.goto(request('N-5'))
+      await synced.page.waitForSelector('#signin:not([hidden])')
+      await synced.page.click('#signin-button')
+      await errorIs(synced.page, 'The witness could not be asked whether a recovery of this identity is under way. Ask again, or press the button again to sign in.')
+      assert.deepEqual([await synced.page.isHidden('#notice-unchecked'), arrived.length], [false, 3], 'said, and nothing signed')
+      await synced.page.click('#signin-button')
+      await errorIs(synced.page, 'A recovery of this identity is under way, shown above. Cancel it if you did not ask for it, or press the button again to sign in.')
+      await synced.page.click('#signin-button')
+      await synced.page.waitForURL((u) => u.origin === 'https://app.example')
+      assert.equal(arrived.length, 4)
+      arrived.pop()
+      // Opened by its id, the same.
+      await synced.page.goto('about:blank')
+      await drop(aside, 'root')
+      reads = 0
+      await synced.page.goto(t.site.origin + '/id/')
+      await synced.page.waitForSelector('#create:not([hidden])')
+      await synced.page.fill('#open-identity', a.identity)
+      await synced.page.click('#open-button')
+      await synced.page.waitForSelector('#notice-unchecked:not([hidden])')
+      assert.equal(await synced.page.isHidden('#recovery-notice'), true)
+    }
+    await synced.page.unroute(`**${path}`)
+    // Nor do older records, read when it is found or opened again in a tab that has read its notice, replace what
+    // was read (issue #243): the question that follows, served them too, is no answer.
+    const queue = [] // what the witness is shown to answer next, in turn; then what it holds
+    await synced.page.route(`**${path}`, (route) => queue.length > 0 ? route.fulfill(queue.shift()) : route.fallback())
+    const again = async (start, done) => {
+      await start()
+      await synced.page.waitForSelector('#recovery-notice:not([hidden])')
+      await change(aside, 'root', null) // heard: the root is no longer held here
+      await synced.page.waitForSelector('#recovery-notice', { state: 'hidden' })
+      queue.push(replayed, replayed)
+      await start()
+      await done()
+      assert.deepEqual([queue.length, await synced.page.isHidden('#recovery-notice'), arrived.length], [0, true, 3])
+    }
+    await synced.page.goto('about:blank')
+    await drop(aside, 'root')
+    await synced.page.goto(request('N-6'))
+    await synced.page.waitForSelector('#signin:not([hidden])')
+    await again(() => synced.page.click('#signin-button'),
+      () => errorIs(synced.page, 'The witness could not be asked whether a recovery of this identity is under way. Ask again, or press the button again to sign in.'))
+    await synced.page.goto('about:blank')
+    await drop(aside, 'root')
+    await synced.page.goto(t.site.origin + '/id/')
+    await synced.page.waitForSelector('#create:not([hidden])')
+    await again(async () => { await synced.page.fill('#open-identity', a.identity); await synced.page.click('#open-button') },
+      () => synced.page.waitForSelector('#notice-unchecked:not([hidden])'))
+    await synced.page.unroute(`**${path}`)
+    await t.collect()
+    assert.deepEqual(t.problems.filter((p) => !/status of (503|404)/.test(p)), [], 'the browser reports only the answers the test arranged')
   } finally { await t.close() }
 })
 

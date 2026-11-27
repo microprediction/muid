@@ -42,8 +42,10 @@ const validContest = (base, c) => 2 * base.roots.filter((r) => c.signers.has(r))
 //   { dead: false, record, base, pending, authority, frozen, chain, notice }
 // `record` is the effective membership; while it is pending, `authority` is only the roots it shares with `base`.
 // `notice` is the recovery of `base` under notice, { id, at }, or null: one the witness gave notice of and has not
-// said was cancelled, and that is not yet anchored. It changes nobody's authority.
-export function evaluate (genesis, items) {
+// said was cancelled, and that is not yet anchored. It changes nobody's authority. Of several notices at one time (a
+// witness that lies), the least id: `less` orders ids, by default as the model writes them; a verifier orders the
+// records' real ids, which a comparison with one passes.
+export function evaluate (genesis, items, less = (x, y) => x < y) {
   const payloads = payloadsOf(items)
   const contests = contestsOf(items)
   const matured = new Set(items.filter((it) => it.kind === 'U').map((it) => it.id))
@@ -76,7 +78,7 @@ export function evaluate (genesis, items) {
   const frozen = frozenBy(record) || (!!pending && frozenBy(cur))
   const cancelled = new Set(items.filter((it) => it.kind === 'K').map((it) => it.id))
   const noticed = items.filter((it) => it.kind === 'N' && payloads.get(it.id)?.prev === cur.id && !cancelled.has(it.id) && !anchors.has(it.id))
-    .sort((a, b) => b.at - a.at || (a.id < b.id ? -1 : 1))
+    .sort((a, b) => b.at - a.at || (less(a.id, b.id) ? -1 : 1))
   const notice = noticed.length > 0 ? { id: noticed[0].id, at: noticed[0].at } : null
   return { dead: false, record, base: cur, pending: !!pending, authority, frozen, chain: chain.map((c) => c.id), notice }
 }
