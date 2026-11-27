@@ -339,9 +339,11 @@ is `{ root, salt, assertion }`; a root-signed **cancel** is `{ identity, record 
   `ctx = { identity, rpId, origin, witnessKeys }`, verifies each record on its own — a record that does not verify
   carries no authority and is ignored — and returns `{ ok: true, dead: true }`, or
   `{ ok: true, dead: false, identity, membership, settled, epoch, roots, pending, authority, frozen, recovery,
-  recovering }` (`settled` is the last settled membership, `membership` the effective one; `recovery` is the settled
-  membership's designation and `recovering` the recovery of it under notice, `{ record, at }`, each null where there
-  is none: R11), or `{ ok: false, reason }`
+  recovering, recovered }` (`settled` is the last settled membership, `membership` the effective one; `recovery` is the
+  settled membership's designation and `recovering` the recovery of it under notice, `{ record, at }`, each null where
+  there is none; `recovered` lists, in order, the memberships of the settled chain that settled as a recovery the
+  witness said matured, each `{ id, added }` with the roots it added, those not in the membership before it: R11), or
+  `{ ok: false, reason }`
   with `self-test` when its known answers fail (§4), `unknown-identity` when no root record given is the identity's
   first root, or `records` when a list is longer than `MAX_RECORDS` (256) or cannot be read; a list that is not an array is empty. A signer already counted
   for a record is not verified again, and `MAX_RECORDS` bounds each list, so the work a caller can cause is bounded.
@@ -1294,11 +1296,13 @@ reputation layer.
 
 ## 11. Budget
 
-Trusted core ≤ 2,210 lines, so that it stays reviewable in one sitting. The budget is raised deliberately when
+Trusted core ≤ 2,220 lines, so that it stays reviewable in one sitting. The budget is raised deliberately when
 clarity needs it, and never met by compressing comments. It was raised from 1,800 for the transparency-log checks
 (`src/merkle.js`, `src/note.js`), whose adoption is to delete decision 10's rule, and from 2,000 for claims as DPoP
 proofs (C1) and logged delegations (R10), and from 2,100 for recovery parties (R11), and from 2,200 for a root's fingerprint, its display form, so that every
-page that shows a root (the id page, an application's own) shows it alike.
+page that shows a root (the id page, an application's own) shows it alike, and from 2,210 for the recoveries a
+settled chain went through, with the roots each added (R11), so that what an application releases only after a
+recovery rests on the decision function.
 
 ## 12. Automated assurance
 
