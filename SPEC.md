@@ -339,9 +339,11 @@ is `{ root, salt, assertion }`; a root-signed **cancel** is `{ identity, record 
   `ctx = { identity, rpId, origin, witnessKeys }`, verifies each record on its own — a record that does not verify
   carries no authority and is ignored — and returns `{ ok: true, dead: true }`, or
   `{ ok: true, dead: false, identity, membership, settled, epoch, roots, pending, authority, frozen, recovery,
-  recovering }` (`settled` is the last settled membership, `membership` the effective one; `recovery` is the settled
-  membership's designation and `recovering` the recovery of it under notice, `{ record, at }`, each null where there
-  is none: R11), or `{ ok: false, reason }`
+  recovering, recovered }` (`settled` is the last settled membership, `membership` the effective one; `recovery` is the
+  settled membership's designation and `recovering` the recovery of it under notice, `{ record, at }`, each null where
+  there is none; `recovered` lists, in order, the memberships of the settled chain that settled as a recovery the
+  witness said matured, each `{ id, added }` with the roots it added, those not in the membership before it: R11), or
+  `{ ok: false, reason }`
   with `self-test` when its known answers fail (§4), `unknown-identity` when no root record given is the identity's
   first root, or `records` when a list is longer than `MAX_RECORDS` (256) or cannot be read; a list that is not an array is empty. A signer already counted
   for a record is not verified again, and `MAX_RECORDS` bounds each list, so the work a caller can cause is bounded.
@@ -835,7 +837,10 @@ another just wrote. Research: [`browser-storage.md`](research/browser-storage.md
 stable).** A service behind the adapter is tested best against the real verifier, with requests made as real ones
 are, as libraries ship their own test doubles beside them (Go's `httptest`, `rxjs/testing`). `testIdentity` gives an
 identity whose passkey is a key in memory, registered with an in-process witness, and its agents: for each, the
-logged delegation, signed claims, the five records a request carries, and a revocation by the owner. `testLog` gives
+logged delegation, signed claims, the five records a request carries, and a revocation by the owner. Its membership
+changes as the id page's would (more passkeys by name, a designation, a recovery by the parties that keeps some roots
+and adds others), each taking effect only when the test brings the witness's clock there, and its records are served
+as the witness serves them: what a service that relies on a recovery (R11) tests against. `testLog` gives
 an in-memory log with `tesseraLog`'s interface, whose checkpoints are signed and cosigned by test keys, and the
 configuration that verifies them. Both are built through the package's other entries alone (a test holds them to
 that), so they can do nothing a consumer could not; the software passkey asserts a user verification that never
@@ -1246,6 +1251,11 @@ is the demo's limit, by design, and no property of the core or the adapter depen
    owner: the bounds of the window (3 to 90 days) and its default (14 days); up to three parties; the cooling-off (3
    days). The model and its tests came first; the core and the witness now follow R11, each tested against the
    model, and the id page is next.
+16. **Logged heads (R12) — deferred.** Proposed for review (#94): heads proved in the witness's log, so that a head
+   rests on cosigned time and not on the witness's word alone, and a monitor sees a recovery said to have matured
+   that never waited (R11 limit (g)). Deferred for version 1 (2026-11-26): it adds to every head and to every check
+   of one, and version 1 takes only what it needs; until then the witness is trusted for time as for everything
+   else (R3), which R11 (g) states. Not built until it is decided.
 
 ## 10. What the reputation layer consumes (not core)
 
@@ -1289,10 +1299,13 @@ reputation layer.
 
 ## 11. Budget
 
-Trusted core ≤ 2,200 lines, so that it stays reviewable in one sitting. The budget is raised deliberately when
+Trusted core ≤ 2,220 lines, so that it stays reviewable in one sitting. The budget is raised deliberately when
 clarity needs it, and never met by compressing comments. It was raised from 1,800 for the transparency-log checks
 (`src/merkle.js`, `src/note.js`), whose adoption is to delete decision 10's rule, and from 2,000 for claims as DPoP
-proofs (C1) and logged delegations (R10), and from 2,100 for recovery parties (R11).
+proofs (C1) and logged delegations (R10), and from 2,100 for recovery parties (R11), and from 2,200 for a root's fingerprint, its display form, so that every
+page that shows a root (the id page, an application's own) shows it alike, and from 2,210 for the recoveries a
+settled chain went through, with the roots each added (R11), so that what an application releases only after a
+recovery rests on the decision function.
 
 ## 12. Automated assurance
 

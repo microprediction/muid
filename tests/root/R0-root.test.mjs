@@ -116,3 +116,13 @@ test('agentIdOf: the specified hash, distinct per identity and per name; anythin
     assert.throws(() => agentIdOf(identity, agent), { name: 'TypeError', message: 'an identity id and an agent name' }, String([identity, agent]))
   }
 })
+
+// A root's fingerprint, the same wherever a root is shown (the id page, an application's own page): the first 24 hex
+// digits of its id, in groups of four; anything that is not a root id is refused.
+test('a root fingerprint: the first 24 hex digits of its id, in six groups of four', () => {
+  assert.equal(root.fingerprint(ROOT_ID), '4440 4d2d 618d cf06 8085 3eb9')
+  assert.equal(root.fingerprint('0123456789abcdef'.repeat(4)), '0123 4567 89ab cdef 0123 4567')
+  for (const x of [undefined, null, 7, ROOT_ID.toUpperCase(), ROOT_ID.slice(1), ROOT_ID + '0', ' ' + ROOT_ID.slice(1), ROOT_ID.slice(0, 63) + 'g', { toString: () => ROOT_ID }]) {
+    assert.throws(() => root.fingerprint(x), { name: 'TypeError', message: 'a root id is 64 lowercase hex digits' })
+  }
+})

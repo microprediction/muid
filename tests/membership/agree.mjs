@@ -13,7 +13,8 @@ function modelAnswer (genesis, items, real) {
   if (e.dead) return { dead: true }
   return { dead: false, membership: real(e.record.id), settled: real(e.base.id), roots: [...e.record.roots].sort(), pending: e.pending,
     authority: [...e.authority].sort(), frozen: e.frozen, recovery: designation(e.base.rec) ?? null,
-    recovering: e.notice ? { record: real(e.notice.id), at: BASE + e.notice.at } : null }
+    recovering: e.notice ? { record: real(e.notice.id), at: BASE + e.notice.at } : null,
+    recovered: e.recovered.map((x) => ({ id: real(x.id), added: [...x.added].sort() })) }
 }
 
 function implAnswer (genesis, items) {
@@ -23,7 +24,8 @@ function implAnswer (genesis, items) {
   if (r.dead) return { answer: { dead: true }, real }
   const letters = (ids) => ids.map(letterOf).sort()
   return { answer: { dead: false, membership: r.membership, settled: r.settled, roots: letters(r.roots), pending: r.pending,
-    authority: letters(r.authority), frozen: r.frozen, recovery: JSON.parse(JSON.stringify(r.recovery)), recovering: r.recovering && { ...r.recovering } }, real }
+    authority: letters(r.authority), frozen: r.frozen, recovery: JSON.parse(JSON.stringify(r.recovery)), recovering: r.recovering && { ...r.recovering },
+    recovered: r.recovered.map((x) => ({ id: x.id, added: letters(x.added) })) }, real }
 }
 
 export function agree (genesis, items, label) {

@@ -85,6 +85,58 @@ test('two recoveries under notice at one time: the verifier and the model take t
   }
 })
 
+// R11: what an application releases only after a recovery (a drive's key) goes to the roots that recovery added, and
+// stays theirs through later changes while they keep authority: the state lists the recoveries the settled chain went
+// through, each with the roots it added. A root the membership already had is not one, though the recovery names it.
+test('the recoveries a settled chain went through, each with the roots it added, kept through later changes', () => {
+  const settle = (items, id) => {
+    let s = witness('a', items)
+    for (let i = 0; i < 4 * RMAX && !(evaluate('a', s).record.id === id && !evaluate('a', s).pending); i++) s = tick('a', s)
+    assert.equal(evaluate('a', s).record.id, id, 'settled')
+    return s
+  }
+  const m2 = membershipId(2, ['a', 'b'], G, one)
+  const R = membershipId(3, ['b', 'n'], m2, null)
+  // The recovery keeps b, which the owner had, and adds n.
+  let s = settle([...history('a', [{ roots: ['a', 'b'], rec: one }]), ...signed(3, ['b', 'n'], m2, null, ['g', 'n'])], R)
+  assert.deepEqual(evaluate('a', s).recovered, [{ id: R, added: ['n'] }])
+  agree('a', s, 'recovered')
+  // Without the witness's `matured`, the chain went through no recovery: the verifier is behind.
+  assert.deepEqual(evaluate('a', s.filter((it) => it.kind !== 'U')).recovered, [])
+  agree('a', s.filter((it) => it.kind !== 'U'), 'without matured')
+  // An ordinary change after it, adding a passkey and naming new parties: the recovery is still one it went through.
+  const m4 = membershipId(4, ['b', 'n', 'i'], R, two)
+  s = settle([...s, ...signed(4, ['b', 'n', 'i'], R, two, ['b', 'n', 'i'])], m4)
+  assert.deepEqual(evaluate('a', s).recovered, [{ id: R, added: ['n'] }])
+  agree('a', s, 'then an ordinary change')
+  // While another change is pending, too; and once a later change has removed the root it added, it is still listed,
+  // and that root has no authority.
+  const m5 = membershipId(5, ['b', 'i'], m4, null)
+  const proposed = witness('a', [...s, ...signed(5, ['b', 'i'], m4, null, ['b', 'i'])])
+  assert.equal(evaluate('a', proposed).pending, true)
+  assert.deepEqual(evaluate('a', proposed).recovered, [{ id: R, added: ['n'] }])
+  agree('a', proposed, 'a change pending')
+  s = settle(proposed, m5)
+  assert.deepEqual([evaluate('a', s).recovered, evaluate('a', s).authority.includes('n')], [[{ id: R, added: ['n'] }], false])
+  agree('a', s, 'the added root removed')
+  // Nor is an ordinary change that a party signed beside the owner's roots: it settled as the roots' change, and the
+  // witness said no recovery of it matured.
+  const m3 = membershipId(3, ['a', 'n'], membershipId(2, ['a'], G, one), null)
+  const u = settle([...history('a', [{ roots: ['a'], rec: one }]), ...signed(3, ['a', 'n'], membershipId(2, ['a'], G, one), null, ['a', 'g', 'n'])], m3)
+  assert.deepEqual([evaluate('a', u).recovered, u.some((it) => it.kind === 'U')], [[], false])
+  agree('a', u, 'an ordinary change a party signed too')
+  // A recovery under notice, or matured but only pending, is none the chain went through.
+  const m6 = membershipId(2, ['a'], G, one)
+  let t = witness('a', [...history('a', [{ roots: ['a'], rec: one }]), ...signed(3, ['n'], m6, null, ['g', 'n'])])
+  assert.notEqual(evaluate('a', t).notice, null)
+  assert.deepEqual(evaluate('a', t).recovered, [])
+  agree('a', t, 'under notice')
+  for (let i = 0; i < 4 * RMAX && !evaluate('a', t).pending; i++) t = tick('a', t)
+  assert.equal(evaluate('a', t).pending, true, 'matured, and pending')
+  assert.deepEqual(evaluate('a', t).recovered, [])
+  agree('a', t, 'matured, pending')
+})
+
 test('a party that is a root of the membership naming it is no party: it does not count toward the threshold beside a real one', () => {
   const m2 = membershipId(2, ['a', 'b'], G, self)
   const base = history('a', [{ roots: ['a', 'b'], rec: self }])

@@ -39,12 +39,13 @@ const validContest = (base, c) => 2 * base.roots.filter((r) => c.signers.has(r))
 
 // What a verifier holding `items` decides. Returns
 //   { dead: true }                                       contested, or the witness contradicted itself
-//   { dead: false, record, base, pending, authority, frozen, chain, notice }
+//   { dead: false, record, base, pending, authority, frozen, chain, notice, recovered }
 // `record` is the effective membership; while it is pending, `authority` is only the roots it shares with `base`.
 // `notice` is the recovery of `base` under notice, { id, at }, or null: one the witness gave notice of and has not
 // said was cancelled, and that is not yet anchored. It changes nobody's authority. Of several notices at one time (a
 // witness that lies), the least id: `less` orders ids, by default as the model writes them; a verifier orders the
-// records' real ids, which a comparison with one passes.
+// records' real ids, which a comparison with one passes. `recovered`: the memberships of `chain` that settled as a
+// recovery the witness said matured, each { id, added } with the roots it added.
 export function evaluate (genesis, items, less = (x, y) => x < y) {
   const payloads = payloadsOf(items)
   const contests = contestsOf(items)
@@ -53,6 +54,7 @@ export function evaluate (genesis, items, less = (x, y) => x < y) {
   for (const it of items) if (it.kind === 'A' && !(anchors.get(it.id) <= it.at)) anchors.set(it.id, it.at)
   let cur = genesisOf(genesis)
   const chain = [cur]
+  const recovered = []
   let pending = null
   for (;;) {
     const settled = new Set(items.filter((it) => it.kind === 'S' && it.prev === cur.id).map((it) => it.outcome))
@@ -60,6 +62,7 @@ export function evaluate (genesis, items, less = (x, y) => x < y) {
     if (settled.size === 1) {
       const next = payloads.get([...settled][0])
       if (!next || next.prev !== cur.id || !validNext(cur, next, matured.has(next.id))) break // stale: the settled record is not held
+      if (matured.has(next.id) && recoveryOf(cur, next)) recovered.push({ id: next.id, added: next.roots.filter((r) => !cur.roots.includes(r)) })
       cur = next
       chain.push(cur)
       continue
@@ -80,7 +83,7 @@ export function evaluate (genesis, items, less = (x, y) => x < y) {
   const noticed = items.filter((it) => it.kind === 'N' && payloads.get(it.id)?.prev === cur.id && !cancelled.has(it.id) && !anchors.has(it.id))
     .sort((a, b) => b.at - a.at || (less(a.id, b.id) ? -1 : 1))
   const notice = noticed.length > 0 ? { id: noticed[0].id, at: noticed[0].at } : null
-  return { dead: false, record, base: cur, pending: !!pending, authority, frozen, chain: chain.map((c) => c.id), notice }
+  return { dead: false, record, base: cur, pending: !!pending, authority, frozen, chain: chain.map((c) => c.id), notice, recovered }
 }
 
 export const active = (e) => !e.dead && !e.frozen

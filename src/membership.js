@@ -266,6 +266,7 @@ function read (records, ctx) {
 // R2–R7, as model/settled.mjs evaluates them.
 function evaluate (first, ctx, r) {
   let cur = { id: ctx.identity, epoch: 1, roots: [first], recovery: undefined }
+  const recovered = []
   const of = (p) => ({ id: p.id, epoch: p.body.epoch, roots: p.body.roots, recovery: p.body.recovery })
   let pending
   for (;;) {
@@ -274,6 +275,12 @@ function evaluate (first, ctx, r) {
       if (outcomes.length > 1 || outcomes[0] === 'contested') return accept({ dead: true })
       const next = r.memberships[outcomes[0]]
       if (next === undefined || next.body.prev !== cur.id || !validNext(cur, next, r.matured[next.id] === true)) break // stale: not held
+      // R11: a settled recovery, with the roots it added (the drive's quarantine: the roots it may release to).
+      if (r.matured[next.id] === true && recoveryOf(cur, next)) {
+        const added = []
+        for (let i = 0; i < next.body.roots.length; i++) if (!has(cur.roots, next.body.roots[i])) added[added.length] = next.body.roots[i]
+        recovered[recovered.length] = freeze({ id: next.id, added: freeze(added) })
+      }
       cur = of(next)
       continue
     }
@@ -328,6 +335,7 @@ function evaluate (first, ctx, r) {
     // The settled membership's designation, whose parties may ask for a recovery, and the one under notice.
     recovery: d === undefined ? null : freeze({ parties: freeze(copy(d.parties)), threshold: d.threshold, window: d.window }),
     recovering: notice === undefined ? null : freeze({ record: notice.record, at: notice.at }),
+    recovered: freeze(recovered), // R11: the recoveries the settled chain went through, in order, each { id, added }
   })
 }
 
