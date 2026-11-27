@@ -837,7 +837,10 @@ another just wrote. Research: [`browser-storage.md`](research/browser-storage.md
 stable).** A service behind the adapter is tested best against the real verifier, with requests made as real ones
 are, as libraries ship their own test doubles beside them (Go's `httptest`, `rxjs/testing`). `testIdentity` gives an
 identity whose passkey is a key in memory, registered with an in-process witness, and its agents: for each, the
-logged delegation, signed claims, the five records a request carries, and a revocation by the owner. `testLog` gives
+logged delegation, signed claims, the five records a request carries, and a revocation by the owner. Its membership
+changes as the id page's would (more passkeys by name, a designation, a recovery by the parties that keeps some roots
+and adds others), each taking effect only when the test brings the witness's clock there, and its records are served
+as the witness serves them: what a service that relies on a recovery (R11) tests against. `testLog` gives
 an in-memory log with `tesseraLog`'s interface, whose checkpoints are signed and cosigned by test keys, and the
 configuration that verifies them. Both are built through the package's other entries alone (a test holds them to
 that), so they can do nothing a consumer could not; the software passkey asserts a user verification that never
