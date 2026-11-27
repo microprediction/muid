@@ -1246,6 +1246,11 @@ is the demo's limit, by design, and no property of the core or the adapter depen
    owner: the bounds of the window (3 to 90 days) and its default (14 days); up to three parties; the cooling-off (3
    days). The model and its tests came first; the core and the witness now follow R11, each tested against the
    model, and the id page is next.
+16. **Logged heads (R12) — deferred.** Proposed for review (#94): heads proved in the witness's log, so that a head
+   rests on cosigned time and not on the witness's word alone, and a monitor sees a recovery said to have matured
+   that never waited (R11 limit (g)). Deferred for version 1 (2026-11-26): it adds to every head and to every check
+   of one, and version 1 takes only what it needs; until then the witness is trusted for time as for everything
+   else (R3), which R11 (g) states. Not built until it is decided.
 
 ## 10. What the reputation layer consumes (not core)
 
@@ -1289,10 +1294,11 @@ reputation layer.
 
 ## 11. Budget
 
-Trusted core ≤ 2,200 lines, so that it stays reviewable in one sitting. The budget is raised deliberately when
+Trusted core ≤ 2,210 lines, so that it stays reviewable in one sitting. The budget is raised deliberately when
 clarity needs it, and never met by compressing comments. It was raised from 1,800 for the transparency-log checks
 (`src/merkle.js`, `src/note.js`), whose adoption is to delete decision 10's rule, and from 2,000 for claims as DPoP
-proofs (C1) and logged delegations (R10), and from 2,100 for recovery parties (R11).
+proofs (C1) and logged delegations (R10), and from 2,100 for recovery parties (R11), and from 2,200 for a root's fingerprint, its display form, so that every
+page that shows a root (the id page, an application's own) shows it alike.
 
 ## 12. Automated assurance
 

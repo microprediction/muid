@@ -45,12 +45,8 @@ export function cosignedIdentity (text, root) {
   return r.sig.root === root && Array.isArray(r.body.roots) && Array.prototype.includes.call(r.body.roots, root) ? r.body.identity : undefined
 }
 
-// A root's fingerprint, shown on both devices when one adds the other's root, for the user to compare before signing
-// (Bluetooth pairing's numeric comparison; Signal's safety numbers): 96 bits of the root id, in six groups of four.
-export function fingerprint (id) {
-  if (typeof id !== 'string' || !ID.test(id)) throw new TypeError('a root id is 64 lowercase hex digits')
-  return id.slice(0, 24).match(/.{4}/g).join(' ')
-}
+// A root's fingerprint (src/root.js), shown on both devices when one adds the other's root.
+export { fingerprint } from '../src/root.js'
 
 const hex = (b) => Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('')
 // Unpadded base64url (RFC 4648 §5), as WebAuthn fields are written (W6).
