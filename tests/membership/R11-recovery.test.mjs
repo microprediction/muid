@@ -70,6 +70,21 @@ test('a recovery matured and settled: every view of it agrees with the model', (
   views(after, (v, label) => agree('a', [...before, ...v], label))
 })
 
+// Two notices at one time (one from a lying witness): the verifier takes the one of least id, the records' real id, as
+// the model does when it orders the same ids (the nightly walk's counterexample, seed 766614461).
+test('two recoveries under notice at one time: the verifier and the model take the same one', () => {
+  const m2 = membershipId(2, ['a'], G, one)
+  const s = witness('a', [...history('a', [{ roots: ['a'], rec: one }]), ...signed(3, ['a'], m2, one, ['g'])])
+  const honest = s.find((it) => it.kind === 'N')
+  assert.ok(honest, 'the honest witness gave notice')
+  for (const roots of [['o'], ['n'], ['i'], ['b']]) {
+    const lie = { kind: 'N', id: membershipId(3, roots, m2, one), at: honest.at }
+    const items = [...s, ...signed(3, roots, m2, one, ['g']), lie]
+    agree('a', items, `a lie of a recovery to ${roots}`)
+    views(items.filter((it) => it.kind === 'N' || (it.kind === 'M' && it.n === 3)), (v, label) => agree('a', [...s.filter((it) => !(it.kind === 'N' || (it.kind === 'M' && it.n === 3))), ...v], `${roots}: ${label}`))
+  }
+})
+
 // R11: what an application releases only after a recovery (a drive's key) goes to the roots that recovery added, and
 // stays theirs through later changes while they keep authority: the state lists the recoveries the settled chain went
 // through, each with the roots it added. A root the membership already had is not one, though the recovery names it.

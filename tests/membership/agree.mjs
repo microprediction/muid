@@ -8,7 +8,8 @@ const { membershipState } = membership
 
 // The model's answer, in the form membershipState gives.
 function modelAnswer (genesis, items, real) {
-  const e = evaluate(genesis, items)
+  // Notices tied in time go to the least id: the records' real ids, as the verifier orders them.
+  const e = evaluate(genesis, items, (x, y) => real(x) < real(y))
   if (e.dead) return { dead: true }
   return { dead: false, membership: real(e.record.id), settled: real(e.base.id), roots: [...e.record.roots].sort(), pending: e.pending,
     authority: [...e.authority].sort(), frozen: e.frozen, recovery: designation(e.base.rec) ?? null,
