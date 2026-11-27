@@ -165,3 +165,22 @@ test('the entry is built through the package\'s other entries and its two crypto
   for (const from of imports) assert.match(from, /^(muid\/(envelope|root|witness|witness\/service|merkle)|@noble\/(curves|hashes)\/[a-z0-9]+\.js)$/, from)
   assert.equal(/\bimport\(|require\(/.test(source), false)
 })
+
+// SPEC C1, after the fact: a claim accepted with its records kept is checked again, long after its delegation lapsed,
+// as of its own time; at any later time it is refused, and records gathered later are not the ones it was made with.
+test('a claim kept with its records verifies again as of its own time, after its delegation has lapsed', () => {
+  let now = NOW
+  const id = testIdentity({ clock: () => now })
+  const a = id.agent({ aud: AUD, scopes: ['put'], lifetime: 3600 })
+  const digest = Buffer.alloc(32, 7).toString('base64')
+  const kept = a.records({ url: URL_, contentDigest: digest })
+  const v = service(id)
+  assert.equal(v.verifyClaim(kept, call({ contentDigest: digest })).ok, true, 'accepted when it was made')
+  now += 90 * 86_400
+  const at = open(kept.claim, 'claim').body.at
+  const again = v.verifyClaim(kept, call({ now: at, contentDigest: digest }))
+  assert.equal(again.ok, true, JSON.stringify(again))
+  assert.equal(v.verifyClaim(kept, call({ now, contentDigest: digest })).ok, false, 'not as of now')
+  assert.equal(v.verifyClaim(kept, call({ now: at, contentDigest: Buffer.alloc(32, 8).toString('base64') })).reason, 'claim-digest')
+  assert.equal(v.verifyClaim({ ...kept, head: id.head(now) }, call({ now: at, contentDigest: digest })).ok, false, 'a head of a later time')
+})
