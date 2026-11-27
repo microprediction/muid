@@ -121,7 +121,7 @@ jobs:
           tar -xzf tamarin.tar.gz -C tamarin
           unzip -q maude.zip -d maude
           ln -s "$(find "$RUNNER_TEMP/tamarin" -type f -name tamarin-prover | head -1)" bin/tamarin-prover
-          m=$(find "$RUNNER_TEMP/maude" -type f -name 'maude*' ! -name '*.maude' | head -1)
+          m=$(find "$RUNNER_TEMP/maude" -type f -name maude | head -1)
           chmod +x "$m" && ln -s "$m" bin/maude
           echo "MAUDE_LIB=$(dirname "$m")" >> "$GITHUB_ENV" # its prelude sits beside it
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
