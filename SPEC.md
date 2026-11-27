@@ -735,6 +735,18 @@ Inside a record nothing is passed over (F2).
   `data` is decoded data: frozen, with null prototypes. Deviations from DPoP, named: the proof is a muid record, not
   a JWS with a `jwk` header, since its key is the delegation's subject key; and it names a delegation, not an access
   token's hash (`ath`), since there is no access token.
+  *After the fact.* A claim a relying party accepted can be checked again later, by anyone, as of its own time: with
+  the five records it carried, kept as they were when it was accepted, `verifyClaim` with `now` set to the claim's
+  own `at` (and the method, URL, nonce and digest that request had) checks that the delegation was valid then, that
+  its root had authority in a head of that time signed by a witness key whose window held both, and that the
+  witness had logged the delegation (R10). It is valid only with records kept from acceptance: records gathered later
+  need not be the ones the claim was made with. Each of the five is signed by the identity's root, its delegate or the
+  witness, so whoever stores them cannot make one up; that is what sets this apart from a receipt (C2), the receiving
+  service's own word. Residual: `at` is the signer's own (as above), so whoever comes to hold a delegate's subject key
+  can sign claims dated anywhere in its delegation's window, after it has lapsed too: at most `maxLifetime` after the
+  delegation's `nbf`. A checker that must narrow this also takes a fresh head (R9) and refuses a past claim whose
+  delegation, subject key or agent is revoked now: revocations are kept for good (R10), so an owner who revokes a key
+  once leaked ends what its past claims can show.
 - **C2 RECEIPTS (research/witness-tlog.md §5a):** a claim proves authority only while its delegation is
   live. A **receipt** `{ service, identity, delegation, claim, at }` makes an accepted claim attributable after that:
   signed by the receiving service's Ed25519 key (`sig = { signature, service }`, `service` that key in hex), it states
@@ -1140,7 +1152,9 @@ is the demo's limit, by design, and no property of the core or the adapter depen
    the verifier's `now`, and cannot be verified once its delegation has lapsed; a claim names the record id of the
    delegation it is made under. Durable claims (a witness countersignature over the claim's id and when it was seen)
    are a later layer (C2's receipts). Any timestamp inside a record is chosen by its signer and proves nothing on its
-   own. A claim binds its request as a DPoP proof does (`htm`, `htu`, `nonce`), plus the body's RFC 9530 digest, so
+   own. A claim accepted with its records kept can be checked again as of its own time (C1, *After the fact*), with
+   C1's residual; whoever does so keeps each witness key it pins, with its window, for as long as it checks claims
+   made under it, a retired key included. A claim binds its request as a DPoP proof does (`htm`, `htu`, `nonce`), plus the body's RFC 9530 digest, so
    no relying party invents its own canonical form of a request.
 2. **Recovery — decided: R1–R7, witness anchors and settlements with a contest window.** The model showed that
    without a trusted time any past majority can end an identity, and that anchoring the first record alone makes a
